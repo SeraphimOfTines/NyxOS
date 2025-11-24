@@ -1,0 +1,16 @@
+__pycache__/
+venv/
+*.log
+token.txt
+kagi_token.txt
+system_prompt.txt
+injected_prompt.txt
+Memory/
+Logs/
+allowed_channels.json
+goodbot.json
+*~
+good_bots.json
+config.txt
+buffer.txt
+Idle.py
