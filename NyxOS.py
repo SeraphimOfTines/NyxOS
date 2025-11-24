@@ -1,5 +1,5 @@
 # ==========================================
-#                NyxOS V.3.10
+#                NyxOS v1.0
 #          Made lovingly by Calyptra
 # ==========================================
 
@@ -840,7 +840,7 @@ class ResponseView(discord.ui.View):
 @client.event
 async def on_ready():
     print('# ==========================================')
-    print('#                NyxOS V.3.10')
+    print('#                NyxOS v1.0')
     print('#          Made lovingly by Calyptra')
     print('# ==========================================')
     print(f'Logged in as {client.user} (ID: {client.user.id})')
