@@ -1,3 +1,5 @@
+<img width="514" height="238" alt="image" src="https://github.com/user-attachments/assets/2a2f06c3-f028-4f35-bd17-f9c81b5301be" />
+
 # NyxOS
 This is an experimental personal project for running an LLM on local hardware via LM Studio, which integrates it with Discord.
 
