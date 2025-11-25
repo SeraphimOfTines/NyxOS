@@ -149,6 +149,8 @@ class APIService:
                     for q in queries:
                         # Remove numbers, dashes, or asterisks at start
                         q = re.sub(r'^\d+\.\s*|[-*]\s*', '', q).strip()
+                        # Remove &web if LLM hallucinates it back in
+                        q = q.replace("&web", "").strip()
                         if q.lower() != user_prompt.lower(): clean_queries.append(q)
                     if force_search and not clean_queries: return [user_prompt]
                     # Return up to 3 queries maximum to avoid spamming Kagi
@@ -259,6 +261,12 @@ class APIService:
                 if isinstance(current_list, str):
                     current_list = [{"type": "text", "text": current_list}]
                 
+                # Insert a newline separator before appending new content
+                if last_msg['content'] and last_msg['content'][-1]['type'] == 'text':
+                    last_msg['content'][-1]['text'] += "\n"
+                else:
+                    last_msg['content'].append({"type": "text", "text": "\n"})
+
                 last_msg['content'].extend(current_list)
             else:
                 merged_messages.append(msg)

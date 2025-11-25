@@ -697,10 +697,6 @@ async def on_message(message):
         if should_respond:
             if message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
 
-            # Admin Proxy Check Debug
-            if is_pk_proxy and helpers.is_authorized(sender_id):
-                print(f"👑 Admin Proxy Detected: {real_name} (ID: {sender_id})")
-
             if message.channel.id not in client.boot_cleared_channels:
                 print(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
                 memory_manager.clear_channel_memory(message.channel.id, message.channel.name)
@@ -767,9 +763,18 @@ async def on_message(message):
                     if cutoff and prev_msg.created_at < cutoff: break
                     
                     if prev_msg.webhook_id is None:
-                         # Re-implement proxy check for history
+                         # 1. Check My System Tags (Self-proxy)
                          tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
                          if helpers.matches_proxy_tag(prev_msg.content, tags): continue
+
+                         # 2. Check Author's System Tags (Other-proxy)
+                         # This prevents "double vision" where the bot sees both the user's trigger command AND the resulting webhook
+                         try:
+                             user_sys = await services.service.get_pk_user_data(prev_msg.author.id)
+                             if user_sys and user_sys.get('system_id'):
+                                 user_tags = await services.service.get_system_proxy_tags(user_sys['system_id'])
+                                 if helpers.matches_proxy_tag(prev_msg.content, user_tags): continue
+                         except: pass
 
                     p_content = prev_msg.clean_content.strip()
                     has_image_history = any(att.content_type and att.content_type.startswith('image/') for att in prev_msg.attachments)
