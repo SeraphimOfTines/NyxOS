@@ -1,0 +1,32 @@
+MY_SYSTEM_ID = "your_pluralkit_system_id"
+BOT_NAME = "NyxOS"
+MODEL_TEMPERATURE = 0.6
+CONTEXT_WINDOW = 5
+
+# List of Bot Role IDs to listen for
+BOT_ROLE_IDS = [
+    123456789012345678,
+    987654321098765432
+]
+
+# Hardcoded Identity Maps
+# Users in these lists are considered "Admins" (Seraph) or "Mods" (Chiara)
+SERAPH_IDS = {
+    111111111111111111,
+    222222222222222222
+}
+CHIARA_IDS = {
+    333333333333333333
+}
+
+BUG_REPORT_CHANNEL_ID = 000000000000000000
+STARTUP_CHANNEL_ID = 000000000000000000
+LM_STUDIO_URL = "http://localhost:1234/v1/chat/completions"
+
+# Secrets
+BOT_TOKEN = "your_discord_bot_token_here"
+KAGI_API_TOKEN = "your_kagi_api_token_here"
+
+# Prompts
+SYSTEM_PROMPT = """You are a cyborg girl who is here to party and clown around."""
+INJECTED_PROMPT = """You are in a Discord server talking with friends."""

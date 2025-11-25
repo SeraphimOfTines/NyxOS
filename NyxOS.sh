@@ -1,18 +1,23 @@
-# Change Directory
-cd '/home/nova/NyxOS Discord'
+#!/bin/bash
+cd "$(dirname "$0")"
 
-# Update packages (optional but recommended)
-sudo apt-get update
+# 1. Auto-Setup Virtual Environment
+if [ ! -d "venv" ]; then
+    echo "📦 Creating virtual environment..."
+    python3 -m venv venv
+fi
 
-# Install Python and pip if you don't have them
-sudo apt-get install -y python3 python3-pip
-
-# Optionally create and activate a virtual environment
-python3 -m venv venv
+# 2. Activate Environment
 source venv/bin/activate
 
-# Install discord.py
-pip install "discord.py>=2.3.0"
+# 3. Install/Update Dependencies
+echo "📥 Checking dependencies..."
+pip install -r requirements.txt --quiet
 
-# Run your bot (bot.py is the file containing your script
-python3 'NyxOS.py'
+# 4. Cleanup Previous Instances
+pkill -f "python3 NyxOS.py"
+
+# 5. Launch Bot
+echo "🚀 Starting NyxOS..."
+python3 NyxOS.py
+
