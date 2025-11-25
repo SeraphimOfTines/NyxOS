@@ -5,6 +5,9 @@ This is an experimental personal project for running an LLM on local hardware vi
 
 It works natively on Linux right now. If you want to run it on Windows, you can run it through Windows Subsystem for Linux (WSL)
 
+<img width="601" height="336" alt="image" src="https://github.com/user-attachments/assets/5a2dcebd-f399-4e31-830d-4f80f6c86723" />
+
+
 # Features
 - Supports Vision-Language models.
 - Has buttons for functions in-chat via Discord bot interactions.
