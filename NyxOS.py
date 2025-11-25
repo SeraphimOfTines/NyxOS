@@ -128,7 +128,7 @@ logging.basicConfig(level=logging.INFO)
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
-intents.guilds = True 
+intents.guilds = True
 
 class LMStudioBot(discord.Client):
     def __init__(self):
@@ -146,6 +146,9 @@ class LMStudioBot(discord.Client):
         self.active_views = {} # Stores {message_id: View} to allow updates
         self.last_bot_message_id = {} # Stores {channel_id: message_id} for last bot reply
         self.has_synced = False 
+        
+        # --- TRACK CLEARED CHANNELS ---
+        self.boot_cleared_channels = set() 
         
         os.makedirs(get_path(MEMORY_DIR), exist_ok=True)
         os.makedirs(get_path(LOGS_DIR), exist_ok=True)
@@ -254,6 +257,10 @@ class LMStudioBot(discord.Client):
                     sender_id = data.get('sender') 
                     
                     description = data.get('member', {}).get('description', "")
+                    # --- SANITIZE BRACKETS FROM DESCRIPTION ---
+                    if description:
+                        description = description.replace('[', '(').replace(']', ')')
+                    # ------------------------------------------
                     
                     return final_name, system_id, system_tag, sender_id, description
         except Exception as e:
@@ -461,7 +468,9 @@ class LMStudioBot(discord.Client):
         try:
             if append_response:
                 with open(filepath, "a", encoding="utf-8") as f:
-                    f.write(f"[ASSISTANT_REPLY]\n{append_response}\n\n")
+                    # --- SANITIZATION FOR LOGS ---
+                    clean_resp = append_response.replace('[', '(').replace(']', ')')
+                    f.write(f"[ASSISTANT_REPLY]\n{clean_resp}\n\n")
                 return
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(f"=== MEMORY BUFFER FOR #{channel_name} ({channel_id}) ===\n")
@@ -478,11 +487,19 @@ class LMStudioBot(discord.Client):
                             if item['type'] == 'text': text_parts.append(item['text'])
                             elif item['type'] == 'image_url': has_image = True
                         content = " ".join(text_parts)
-                        if has_image: content += " [IMAGE DATA SENT TO AI]"
+                        if has_image: content += " (IMAGE DATA SENT TO AI)"
                     # ----------------------------------------------------------------------
 
-                    if "<search_results>" in str(content):
-                        content = re.sub(r'<search_results>.*?</search_results>', '[WEB SEARCH RESULTS OMITTED FROM LOG]', str(content), flags=re.DOTALL)
+                    # --- SANITIZATION (Catch-All) ---
+                    if isinstance(content, str):
+                        # Remove search tags FIRST, then sanitize brackets
+                        if "<search_results>" in content:
+                            content = re.sub(r'<search_results>.*?</search_results>', '(WEB SEARCH RESULTS OMITTED FROM LOG)', content, flags=re.DOTALL)
+                        
+                        # Nuclear option: Replace all remaining brackets to prevent structure corruption in LOGS
+                        content = content.replace('[', '(').replace(']', ')')
+                    # -------------------------------
+
                     f.write(f"[{role}]\n{content}\n\n")
         except Exception as e:
             print(f"⚠️ Failed to write memory file {filepath}: {e}")
@@ -502,13 +519,21 @@ class LMStudioBot(discord.Client):
         date_str, time_str = self.get_system_time()
         time_header = f"Current Date: {date_str}\nCurrent Time: {time_str}\n\n"
 
+        # --- FIX: REPLACE PLACEHOLDERS ---
         base_prompt = SYSTEM_PROMPT_TEMPLATE \
             .replace("{{USER_NAME}}", "the people in this chatroom") \
             .replace("{{Seraphim}}", "Seraphim") \
-            .replace("{{CONTEXT}}", "")
+            .replace("{{CONTEXT}}", "") \
+            .replace("{{CURRENT_WEEKDAY}}", datetime.now().strftime("%A")) \
+            .replace("{{CURRENT_DATETIME}}", f"{date_str}, {time_str}")
+        # ---------------------------------
             
         if member_description:
-            base_prompt += f"\n\n[Context: The user '{username}' has the following description: {member_description}]"
+            # --- BRACKET SANITIZATION IN PROMPT ---
+            clean_desc = member_description.replace('[', '(').replace(']', ')')
+            # CHANGED: Replaced outer [] with () to prevent parsing errors
+            base_prompt += f"\n\n(Context: The user '{username}' has the following description: {clean_desc})"
+            # --------------------------------------
 
         if search_context:
             base_prompt += f"\n\n<search_results>\nThe user requested a web search. Here are the results:\n{search_context}\n</search_results>\n\nINSTRUCTION: Use the above search results to answer the user's request accurately. Cite the sources using the format: [Source Title](URL)."
@@ -516,8 +541,34 @@ class LMStudioBot(discord.Client):
         formatted_system_prompt = time_header + base_prompt
         display_name_for_ai = f"{username}{identity_suffix}"
 
+        # --- CHANGED: REVERTED TO STANDARD SYSTEM ROLE ---
         raw_messages = [{"role": "system", "content": formatted_system_prompt}]
-        raw_messages.extend(history_messages)
+        
+        # --- HISTORY SANITIZATION ---
+        cleaned_history = []
+        skip_next = False
+        
+        for i, msg in enumerate(history_messages):
+            # FILTER 1: Skip if message contains the bot's own startup message
+            content_str = str(msg.get('content', ''))
+            if "I'm back online! Hi!" in content_str:
+                continue
+
+            # FILTER 2: Fix User -> User Pattern (caused by Ghosts + Webhooks)
+            if i < len(history_messages) - 1:
+                curr_role = msg.get('role')
+                next_role = history_messages[i+1].get('role')
+                if curr_role == 'user' and next_role == 'user':
+                    continue
+            
+            cleaned_history.append(msg)
+        
+        # FILTER 3: Fix Start of Conversation (Assistant cannot be first)
+        while len(cleaned_history) > 0 and cleaned_history[0].get('role') == 'assistant':
+            cleaned_history.pop(0)
+            
+        raw_messages.extend(cleaned_history)
+        # ----------------------------------------------------------------
 
         # Add Reply Context to Current Message
         user_text_content = f"{display_name_for_ai}{reply_context_str} says: {user_prompt}"
@@ -573,18 +624,51 @@ class LMStudioBot(discord.Client):
 
     async def _send_payload(self, messages):
         headers = {"Content-Type": "application/json"}
+        
+        # --- UNIVERSAL BRACKET SANITIZER ---
+        # Iterate through the final payload and replace [] with () in all text content.
+        # This is the final line of defense.
+        cleaned_messages = []
+        for msg in messages:
+            new_msg = msg.copy()
+            content = new_msg.get('content')
+            
+            if isinstance(content, str):
+                new_msg['content'] = content.replace('[', '(').replace(']', ')')
+            elif isinstance(content, list):
+                new_list = []
+                for item in content:
+                    new_item = item.copy()
+                    if new_item.get('type') == 'text':
+                        new_item['text'] = new_item['text'].replace('[', '(').replace(']', ')')
+                    new_list.append(new_item)
+                new_msg['content'] = new_list
+                
+            cleaned_messages.append(new_msg)
+        # -----------------------------------
+        
         payload = {
-            "messages": messages,
-            "temperature": 0.7,
+            "messages": cleaned_messages,
+            "temperature": 0.6,
             "max_tokens": -1,
             "stream": False
         }
+        
+        # --- DEBUG: DUMP PAYLOAD ---
+        print(f"\n--- DEBUG PAYLOAD ({datetime.now().strftime('%H:%M:%S')}) ---")
+        role_sequence = " -> ".join([m.get('role', 'unknown') for m in cleaned_messages])
+        print(f"Roles: {role_sequence}")
+        # print(json.dumps(payload, indent=2, ensure_ascii=False)) # Uncomment to see full body
+        print("---------------------------------------------------\n")
+        # ---------------------------
+
         async with self.http_session.post(LM_STUDIO_URL, json=payload, headers=headers) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 return data['choices'][0]['message']['content']
             else:
                 error_text = await resp.text()
+                print(f"\n❌ LM Studio Error ({resp.status}): {error_text}\n")
                 raise Exception(f"LM Studio Error {resp.status}: {error_text}")
 
     def _strip_images(self, messages):
@@ -595,7 +679,7 @@ class LMStudioBot(discord.Client):
                 text_parts = [item['text'] for item in content if item['type'] == 'text']
                 new_content = " ".join(text_parts)
                 if any(item['type'] == 'image_url' for item in content):
-                    new_content += " [Image Download Failed]"
+                    new_content += " (Image Download Failed)"
                 clean_messages.append({"role": msg['role'], "content": new_content})
             else:
                 clean_messages.append(msg)
@@ -963,35 +1047,10 @@ async def on_message(message):
 
             now = datetime.now().timestamp()
             last_time = client.good_bot_cooldowns.get(message.author.id, 0)
-            if now - last_time > 5:
-                client.increment_good_bot(message.author.id, message.author.display_name)
-                client.good_bot_cooldowns[message.author.id] = now
-                try:
-                    await message.add_reaction("💙")
-                except: pass
-                
-                if target_message_id and target_message_id in client.active_views:
-                    # Increment again just to get the current count for display (or fetch count logic)
-                    # Since increment_good_bot handles counting, we just call it to get the current count.
-                    # To avoid double counting from the text trigger vs click trigger, we rely on the fact
-                    # this block runs on text triggers. The click trigger is separate.
-                    # Wait, if I call increment here again it double counts?
-                    # No, I already called it above. I need the count value.
-                    # Re-reading file or returning value from call above.
-                    # Ah, I didn't capture the return value above. Let's fix that.
-                    
-                    # Correct logic:
-                    # already called: client.increment_good_bot(...) above.
-                    # It returns the count. I should have captured it.
-                    # I will modify the block above to capture `count`.
-                    
-                    pass 
             
-            # Wait, I cannot modify the block above easily without rewriting the flow.
-            # I'll fetch the count again by reading the file (or just re-calling increment if it's idempotent? No it increments).
-            # I'll refactor the block slightly.
-            
-            # REFACTORING THE LOGIC IN PLACE:
+            # FIXED: Removed the duplicate "draft" logic block that was causing double executions
+            # and left only the complete, refactored block below.
+
             if now - last_time > 5:
                  # Call increment and capture count
                  count = client.increment_good_bot(message.author.id, message.author.display_name)
@@ -1010,7 +1069,7 @@ async def on_message(message):
                                  child.style = discord.ButtonStyle.secondary
                                  child.label = f"Good Bot: {count}"
                                  button_updated = True
-                     
+                      
                      if button_updated:
                          try:
                              if message.reference and message.reference.message_id == target_message_id and message.reference.resolved:
@@ -1025,14 +1084,43 @@ async def on_message(message):
         if should_respond:
             if message.channel.id not in ALLOWED_CHANNEL_IDS: return
 
+            # --- NEW: BOOT MEMORY WIPE ---
+            if message.channel.id not in client.boot_cleared_channels:
+                print(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
+                client.clear_channel_memory(message.channel.id, message.channel.name)
+                client.boot_cleared_channels.add(message.channel.id)
+            # -----------------------------
+
             client.processing_locks.add(message.id)
 
+            # --- PLURALKIT GUARDRAIL (GHOST DETECTION) ---
+            # If this is a user message (not a webhook), we MUST wait to see if it gets
+            # deleted by PluralKit/Tupperbox before we process it.
             if message.webhook_id is None:
-                await asyncio.sleep(2.5)
+                await asyncio.sleep(2.0) # Wait 2s for deletion/proxying
                 try:
+                    # Check 1: Does message still exist?
                     await message.channel.fetch_message(message.id)
+                    
+                    # Check 2: Did a webhook message appear ANYWHERE in the last 15 messages?
+                    # Increased limit to 15 to catch rapid webhook posts in busy channels
+                    async for recent in message.channel.history(limit=15):
+                        if recent.webhook_id is not None:
+                             # If a webhook exists closely in time (within 3 seconds), abort.
+                             # This handles both "before" and "after" scenarios due to clock drift.
+                             diff = (recent.created_at - message.created_at).total_seconds()
+                             if abs(diff) < 3.0:
+                                 # print(f"👻 Ghost message detected (ID: {message.id}). Aborting.")
+                                 return
+                            
                 except (discord.NotFound, discord.HTTPException):
+                    # Message was deleted (likely proxied), so we abort processing.
                     return 
+            # ---------------------------
+
+            # --- DEBUG: PRINT PROCESSING INFO ---
+            print(f"Processing Message from {message.author.name} (ID: {message.id}, Webhook: {message.webhook_id})")
+            # ------------------------------------
 
             async with message.channel.typing():
                 image_data_uri = None
@@ -1052,7 +1140,9 @@ async def on_message(message):
                 clean_prompt = re.sub(r'<@!?{}>'.format(client.user.id), '', message.content)
                 for rid in BOT_ROLE_IDS: clean_prompt = re.sub(r'<@&{}>'.format(rid), '', clean_prompt)
                 clean_prompt = clean_prompt.replace(f"@{client.user.display_name}", "").replace(f"@{client.user.name}", "")
-                clean_prompt = clean_prompt.strip().replace("? ?", "?").replace("! ?", "!?")
+                # --- INPUT SANITIZATION: Prevent user bracket injection ---
+                clean_prompt = clean_prompt.strip().replace("? ?", "?").replace("! ?", "!?").replace('[', '(').replace(']', ')')
+                # --------------------------------------------------------
 
                 force_search = False
                 search_context = None
@@ -1098,7 +1188,9 @@ async def on_message(message):
                     if not p_content and not has_image_history: continue
                     
                     p_content = p_content.replace(f"@{client.user.display_name}", "").replace(f"@{client.user.name}", "")
-                    p_content = re.sub(r'<@!?{}>'.format(client.user.id), '', p_content).strip()
+                    # --- HISTORY SANITIZATION: Prevent user bracket injection ---
+                    p_content = re.sub(r'<@!?{}>'.format(client.user.id), '', p_content).strip().replace('[', '(').replace(']', ')')
+                    # ------------------------------------------------------------
 
                     current_msg_content = []
                     if p_content:
@@ -1160,7 +1252,7 @@ async def on_message(message):
                                 found_text = True
                                 break
                         if not found_text:
-                            current_msg_content.insert(0, {"type": "text", "text": prefix + "[Image]"})
+                            current_msg_content.insert(0, {"type": "text", "text": prefix + "(Image)"})
                         
                         history_messages.append({"role": "user", "content": current_msg_content})
                 
@@ -1195,7 +1287,9 @@ async def on_message(message):
                         except: pass
 
                 if client.user in message.mentions:
-                    current_reply_context += " [Target: NyxOS]"
+                    # --- TARGET TAG FIX: Use Parentheses ---
+                    current_reply_context += " (Target: NyxOS)"
+                    # ---------------------------------------
 
                 response_text = await client.query_lm_studio(
                     clean_prompt, clean_name, identity_suffix, history_messages, 
