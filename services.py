@@ -329,7 +329,9 @@ class APIService:
         async with self.http_session.post(config.LM_STUDIO_URL, json=payload, headers=headers) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                return data['choices'][0]['message']['content']
+                content = data['choices'][0]['message']['content']
+                # Strip ALL '#' characters as requested to prevent markdown header issues
+                return content.replace('#', '')
             else:
                 error_text = await resp.text()
                 logger.error(f"LM Studio Error ({resp.status}): {error_text}")

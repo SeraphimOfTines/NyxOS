@@ -136,6 +136,10 @@ class ResponseView(discord.ui.View):
                 self.history_messages, self.channel_obj, self.image_data_uri, self.member_description, self.search_context, self.reply_context_str
             )
             
+            # --- MARKDOWN CLEANUP ---
+            new_response_text = re.sub(r'^#+\s*', '', new_response_text)
+            new_response_text = new_response_text.replace('\n#', '\n')
+
             # Clean Text
             new_response_text = new_response_text.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
             new_response_text = re.sub(r'\s*\(re:.*?\)', '', new_response_text).strip()
