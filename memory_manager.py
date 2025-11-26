@@ -17,6 +17,8 @@ def get_memory_filepath(channel_id, channel_name):
 def wipe_all_memories():
     """Deletes all memory files from the Memory directory."""
     try:
+        if not os.path.exists(config.MEMORY_DIR):
+            return
         for filename in os.listdir(config.MEMORY_DIR):
             file_path = os.path.join(config.MEMORY_DIR, filename)
             if os.path.isfile(file_path) or os.path.islink(file_path):
@@ -57,6 +59,7 @@ def log_conversation(channel_name, user_name, user_id, content):
         logger.error(f"Failed to write to log: {e}")
 
 def _write_file_sync(filepath, content, mode='w', encoding='utf-8'):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, mode, encoding=encoding) as f:
         f.write(content)
 
@@ -110,6 +113,7 @@ async def write_context_buffer(messages, channel_id, channel_name, append_respon
 def clear_channel_memory(channel_id, channel_name):
     filepath = get_memory_filepath(channel_id, channel_name)
     try:
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(f"=== MEMORY CLEARED ===\n")
     except Exception as e:

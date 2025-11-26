@@ -200,19 +200,26 @@ class APIService:
         else:
             # --- STANDARD TEMPLATE LOGIC ---
             date_str, time_str = helpers.get_system_time()
-            time_header = f"Current Date: {date_str}\nCurrent Time: {time_str}\n\n"
-
+            
             # Dynamically construct template from latest config values
             raw_system_prompt = config.SYSTEM_PROMPT
             if config.INJECTED_PROMPT:
                 raw_system_prompt += f"\n\n{config.INJECTED_PROMPT}"
 
+            # Check if prompt uses time placeholders
+            has_time_placeholder = "{{CURRENT_DATETIME}}" in raw_system_prompt
+            
             base_prompt = raw_system_prompt \
                 .replace("{{USER_NAME}}", "the people in this chatroom") \
                 .replace("{{Seraphim}}", "Seraphim") \
                 .replace("{{CONTEXT}}", "") \
                 .replace("{{CURRENT_WEEKDAY}}", datetime.now().strftime("%A")) \
                 .replace("{{CURRENT_DATETIME}}", f"{date_str}, {time_str}")
+
+            # Only prepend header if the user didn't use the placeholder
+            if not has_time_placeholder:
+                 time_header = f"Current Date: {date_str}\nCurrent Time: {time_str}\n\n"
+                 base_prompt = time_header + base_prompt
                 
             if member_description:
                 clean_desc = member_description.replace('[', '(').replace(']', ')')
@@ -221,7 +228,7 @@ class APIService:
             if search_context:
                 base_prompt += f"\n\n<search_results>\nThe user requested a web search. Here are the results:\n{search_context}\n</search_results>\n\nINSTRUCTION: Use the above search results to answer the user's request accurately. YOU MUST CITE SOURCES. Use the format: [Source Title](URL) at the end of the relevant sentence or paragraph."
 
-            formatted_system_prompt = time_header + base_prompt
+            formatted_system_prompt = base_prompt
 
         display_name_for_ai = f"{username}{identity_suffix}"
 

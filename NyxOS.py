@@ -646,11 +646,53 @@ async def on_message(message):
             await message.channel.send(ui.FLAVOR_TEXT["LOGS_WIPED"])
             return
 
+        # &debugtest
+        if cmd == "&debugtest":
+            if not helpers.is_authorized(message.author.id):
+                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+                return
+
+            async with message.channel.typing():
+                import io
+                import unittest
+                import tests.test_suite
+                
+                # Capture stdout
+                log_capture = io.StringIO()
+                runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
+                
+                # Load Suite
+                loader = unittest.TestLoader()
+                suite = unittest.TestSuite()
+                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
+                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
+                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
+                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestUI))
+                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServerAdmin))
+                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommands))
+                
+                # Run in a separate thread to avoid event loop conflicts
+                start_time = time.time()
+                result = await asyncio.to_thread(runner.run, suite)
+                duration = time.time() - start_time
+                output = log_capture.getvalue()
+                
+                # Log to console/file
+                logger.info(f"Debug Test Output:\n{output}")
+                
+                # Send to Discord
+                status = "✅ PASSED" if result.wasSuccessful() else "❌ FAILED"
+                msg = f"**Unit Test Results:** {status}\nRan {result.testsRun} tests in {duration:.3f}s."
+                
+                file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
+                await message.channel.send(msg, file=file)
+            return
+
         # &help
         if cmd == "&help":
             embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
             embed.add_field(name="General Commands", value="`&killmyembeds` - Toggle auto-suppression of link embeds.\n`&goodbot` - Show the Good Bot leaderboard.\n`&reportbug` - How to report bugs.", inline=False)
-            embed.add_field(name="Admin Commands", value="`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
+            embed.add_field(name="Admin Commands", value="`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&debugtest` - Run Unit Tests (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
             await message.channel.send(embed=embed)
             return
 
