@@ -67,8 +67,11 @@ if os.path.exists(injected_prompt_path):
 # We initialize defaults here. If config.txt exists, we exec it to override.
 # NOTE: Ideally, move these to .env
 
-SERAPH_IDS = [] 
-CHIARA_IDS = [] 
+ADMIN_ROLE_IDS = []
+ADMIN_FLAVOR_TEXT = " (Seraph)"
+SPECIAL_ROLE_IDS = []
+SPECIAL_FLAVOR_TEXT = " (Chiara)"
+
 MY_SYSTEM_ID = "your_pluralkit_system_id"
 LM_STUDIO_URL = "http://localhost:1234/v1/chat/completions"
 BUG_REPORT_CHANNEL_ID = 0
@@ -89,10 +92,10 @@ except Exception as e:
 # --- DATA SANITIZATION ---
 # Ensure IDs are integers to prevent auth failures
 try:
-    SERAPH_IDS = [int(uid) for uid in SERAPH_IDS]
-    CHIARA_IDS = [int(uid) for uid in CHIARA_IDS]
+    ADMIN_ROLE_IDS = [int(uid) for uid in ADMIN_ROLE_IDS]
+    SPECIAL_ROLE_IDS = [int(uid) for uid in SPECIAL_ROLE_IDS]
 except Exception as e:
-    print(f"⚠️ Warning: Failed to sanitize Admin IDs: {e}")
+    print(f"⚠️ Warning: Failed to sanitize Admin/Special Role IDs: {e}")
 
 # Overrides from ENV (take precedence over config.txt)
 if os.getenv("MY_SYSTEM_ID"): MY_SYSTEM_ID = os.getenv("MY_SYSTEM_ID")
@@ -112,12 +115,6 @@ else:
 # This is the new system to replace hardcoded "Seraph" checks.
 # Maps User ID (int) -> Title String
 USER_TITLES = {}
-
-# Populate from Legacy
-for uid in SERAPH_IDS:
-    USER_TITLES[uid] = " (Seraph)" # Default for migration
-for uid in CHIARA_IDS:
-    USER_TITLES[uid] = " (Chiara)" # Default for migration
 
 # Load Custom Titles from JSON in .env or file could be added here
 # For now, we allow direct manipulation or extensions in code.

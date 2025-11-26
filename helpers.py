@@ -54,16 +54,26 @@ def clean_name_logic(raw_name, system_tag=None):
             if stripped_tag in name: name = name.replace(stripped_tag, "")
     return re.sub(r'\s*([\[\(\{<\|⛩].*?[\]\}\)>\|⛩])\s*', '', name).strip()
 
-def get_identity_suffix(user_id, system_id, member_name=None, my_system_members=None):
+def get_identity_suffix(user_obj, system_id, member_name=None, my_system_members=None):
     """
-    Determines the suffix/title for a user based on ID or System status.
+    Determines the suffix/title for a user based on Role, ID or System status.
     Uses USER_TITLES from config for customization.
     """
+    user_id = user_obj.id if hasattr(user_obj, 'id') else user_obj
+
     # 1. Check exact User ID match in Config
     if user_id in config.USER_TITLES:
         return config.USER_TITLES[user_id]
+
+    # 2. Check Role-based Titles
+    if hasattr(user_obj, "roles"):
+        role_ids = [r.id for r in user_obj.roles]
+        if any(rid in config.ADMIN_ROLE_IDS for rid in role_ids):
+            return config.ADMIN_FLAVOR_TEXT
+        if any(rid in config.SPECIAL_ROLE_IDS for rid in role_ids):
+            return config.SPECIAL_FLAVOR_TEXT
         
-    # 2. Check if they are part of the 'Own System' (Legacy Seraph Logic)
+    # 3. Check if they are part of the 'Own System' (Legacy Seraph Logic)
     is_system_member = False
     if system_id == config.MY_SYSTEM_ID:
         is_system_member = True
@@ -71,18 +81,20 @@ def get_identity_suffix(user_id, system_id, member_name=None, my_system_members=
         is_system_member = True
         
     if is_system_member:
-        return " (Seraph)"
+        return config.ADMIN_FLAVOR_TEXT # Default system members to Admin Title? Or keep separate? Assuming Admin Title for now.
 
-    # 3. Default
+    # 4. Default
     return config.DEFAULT_TITLE
 
-def is_authorized(user_id):
-    """Checks if a user is authorized (Admin/Mod)."""
-    # Checks legacy lists or new logic if added.
-    if user_id in config.SERAPH_IDS: return True
-    if user_id in config.CHIARA_IDS: return True
-    # Also check if they have an 'Admin' title in the new map? 
-    # For safety, stick to ID lists for now.
+def is_authorized(user_obj):
+    """Checks if a user is authorized (Admin/Special)."""
+    if hasattr(user_obj, "roles"):
+        role_ids = [r.id for r in user_obj.roles]
+        if any(rid in config.ADMIN_ROLE_IDS for rid in role_ids): return True
+        if any(rid in config.SPECIAL_ROLE_IDS for rid in role_ids): return True
+    
+    # Check exact ID matches if strictly needed (legacy fallback)
+    # but we are moving to roles.
     return False
 
 def sanitize_llm_response(text):
@@ -90,7 +102,7 @@ def sanitize_llm_response(text):
     Cleans up the raw text response from the LLM.
     1. Removes leading markdown headers (#) to prevent 'shouting'.
     2. Removes mid-text headers.
-    3. Removes Seraph/Chiara/Not Seraphim tags.
+    3. Removes Admin/Special flavor text tags.
     4. Removes (re: ...) prefixes.
     """
     if not text: return ""
@@ -100,7 +112,9 @@ def sanitize_llm_response(text):
     text = text.replace('\n#', '\n') 
     
     # Remove Identity Tags
-    text = text.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
+    text = text.replace(config.ADMIN_FLAVOR_TEXT, "").replace(config.SPECIAL_FLAVOR_TEXT, "").replace("(Not Seraphim)", "")
+    # Legacy cleanup just in case
+    text = text.replace("(Seraph)", "").replace("(Chiara)", "")
     
     # Remove reply context
     text = re.sub(r'\s*\(re:.*?\)', '', text).strip()

@@ -9,15 +9,19 @@ BOT_ROLE_IDS = [
     987654321098765432
 ]
 
-# Hardcoded Identity Maps
-# Users in these lists are considered "Admins" (Seraph) or "Mods" (Chiara)
-SERAPH_IDS = {
-    111111111111111111,
+# Permissions & Flavor Text
+# Roles that grant Admin access (formerly Seraph)
+ADMIN_ROLE_IDS = [
+    111111111111111111, 
     222222222222222222
-}
-CHIARA_IDS = {
+]
+ADMIN_FLAVOR_TEXT = " (Seraph)"
+
+# Roles that grant Special access (formerly Chiara)
+SPECIAL_ROLE_IDS = [
     333333333333333333
-}
+]
+SPECIAL_FLAVOR_TEXT = " (Chiara)"
 
 BUG_REPORT_CHANNEL_ID = 000000000000000000
 STARTUP_CHANNEL_ID = 000000000000000000

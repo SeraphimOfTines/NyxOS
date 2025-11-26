@@ -214,7 +214,7 @@ class ResponseView(discord.ui.View):
     # --- DYNAMIC DEBUG CALLBACKS ---
 
     async def debug_test_callback(self, interaction: discord.Interaction):
-        if not helpers.is_authorized(interaction.user.id):
+        if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         
@@ -253,7 +253,7 @@ class ResponseView(discord.ui.View):
             await interaction.followup.send(f"❌ Error: {e}")
 
     async def debug_reboot_callback(self, interaction: discord.Interaction):
-        if not helpers.is_authorized(interaction.user.id):
+        if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         await interaction.response.send_message(FLAVOR_TEXT["REBOOT_MESSAGE"])
@@ -270,7 +270,7 @@ class ResponseView(discord.ui.View):
         os.execl(python, python, *sys.argv)
 
     async def debug_shutdown_callback(self, interaction: discord.Interaction):
-        if not helpers.is_authorized(interaction.user.id):
+        if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         await interaction.response.send_message(FLAVOR_TEXT["SHUTDOWN_MESSAGE"])
@@ -281,14 +281,14 @@ class ResponseView(discord.ui.View):
         sys.exit(0)
 
     async def debug_wipe_mem_callback(self, interaction: discord.Interaction):
-        if not helpers.is_authorized(interaction.user.id):
+        if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         memory_manager.wipe_all_memories()
         await interaction.response.send_message(FLAVOR_TEXT["MEMORY_WIPED"], ephemeral=True)
 
     async def debug_wipe_logs_callback(self, interaction: discord.Interaction):
-        if not helpers.is_authorized(interaction.user.id):
+        if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         memory_manager.wipe_all_logs()

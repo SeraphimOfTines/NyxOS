@@ -22,7 +22,7 @@ async def process_message(client, message):
     """
     
     # --- COMMANDS ---
-    if message.content == "!updateslashcommands" and helpers.is_authorized(message.author.id):
+    if message.content == "!updateslashcommands" and helpers.is_authorized(message.author):
         await message.channel.send("🔄 Updating slash commands...")
         try:
             for guild in client.guilds: client.tree.clear_commands(guild=guild)

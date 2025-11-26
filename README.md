@@ -33,6 +33,7 @@ It works natively on Linux right now. If you want to run it on Windows, you can 
 *   **Channel Whitelist**: Restrict bot activity to specific channels.
 *   **Smart Sync**: Slash commands only sync on code changes to avoid API rate limits.
 *   **Debug Suite**: Admin-only mode unlocking tools like Test Message, Wipe Logs/Memory, Reboot, and Shutdown.
+*   **Response Whitelist**: Only Admins and Special roles can talk to her!
 
 ### 🛡️ Robustness
 *   Graceful shutdowns and reboots.

@@ -154,7 +154,16 @@ client = LMStudioBot()
 
 @client.tree.command(name="addchannel", description="Add the current channel to the bot's whitelist.")
 async def add_channel_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id) and not interaction.user.guild_permissions.administrator:
+    member_obj = interaction.user
+    if interaction.guild:
+        if isinstance(member_obj, discord.User) or not hasattr(member_obj, "roles"):
+             member_obj = interaction.guild.get_member(interaction.user.id)
+             if not member_obj:
+                 try: member_obj = await interaction.guild.fetch_member(interaction.user.id)
+                 except: pass
+    if not member_obj: member_obj = interaction.user
+
+    if not helpers.is_authorized(member_obj):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     if interaction.channel_id in config.ALLOWED_CHANNEL_IDS:
@@ -166,7 +175,16 @@ async def add_channel_command(interaction: discord.Interaction):
 
 @client.tree.command(name="removechannel", description="Remove the current channel from the bot's whitelist.")
 async def remove_channel_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id) and not interaction.user.guild_permissions.administrator:
+    member_obj = interaction.user
+    if interaction.guild:
+        if isinstance(member_obj, discord.User) or not hasattr(member_obj, "roles"):
+             member_obj = interaction.guild.get_member(interaction.user.id)
+             if not member_obj:
+                 try: member_obj = await interaction.guild.fetch_member(interaction.user.id)
+                 except: pass
+    if not member_obj: member_obj = interaction.user
+
+    if not helpers.is_authorized(member_obj):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     if interaction.channel_id in config.ALLOWED_CHANNEL_IDS:
@@ -178,7 +196,7 @@ async def remove_channel_command(interaction: discord.Interaction):
 
 @client.tree.command(name="reboot", description="Full restart of the bot process.")
 async def reboot_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
 
@@ -200,7 +218,7 @@ async def reboot_command(interaction: discord.Interaction):
 
 @client.tree.command(name="shutdown", description="Gracefully shut down the bot.")
 async def shutdown_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
 
@@ -233,7 +251,7 @@ async def killmyembeds_command(interaction: discord.Interaction):
 
 @client.tree.command(name="suppressembedson", description="Enable the server-wide embed suppression feature.")
 async def suppressembedson_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     memory_manager.set_server_setting("embed_suppression", True)
@@ -241,7 +259,7 @@ async def suppressembedson_command(interaction: discord.Interaction):
 
 @client.tree.command(name="suppressembedsoff", description="Disable the server-wide embed suppression feature.")
 async def suppressembedsoff_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     memory_manager.set_server_setting("embed_suppression", False)
@@ -249,7 +267,7 @@ async def suppressembedsoff_command(interaction: discord.Interaction):
 
 @client.tree.command(name="clearmemory", description="Clear the bot's memory for this channel.")
 async def clearmemory_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     
@@ -280,7 +298,7 @@ async def good_bot_leaderboard(interaction: discord.Interaction):
 
 @client.tree.command(name="synccommands", description="Force sync slash commands.")
 async def synccommands_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
 
@@ -297,7 +315,7 @@ async def synccommands_command(interaction: discord.Interaction):
 
 @client.tree.command(name="debug", description="Toggle Debug Mode (Admin Only).")
 async def debug_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     current = memory_manager.get_server_setting("debug_mode", False)
@@ -308,7 +326,7 @@ async def debug_command(interaction: discord.Interaction):
 
 @client.tree.command(name="testmessage", description="Send a test message (Admin/Debug Only).")
 async def testmessage_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     
@@ -332,7 +350,7 @@ async def testmessage_command(interaction: discord.Interaction):
 
 @client.tree.command(name="clearallmemory", description="Wipe ALL chat memories (Admin/Debug Only).")
 async def clearallmemory_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     memory_manager.wipe_all_memories()
@@ -340,7 +358,7 @@ async def clearallmemory_command(interaction: discord.Interaction):
 
 @client.tree.command(name="wipelogs", description="Wipe ALL logs (Admin/Debug Only).")
 async def wipelogs_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
     memory_manager.wipe_all_logs()
@@ -348,7 +366,7 @@ async def wipelogs_command(interaction: discord.Interaction):
 
 @client.tree.command(name="debugtest", description="Run unit tests and report results (Admin Only).")
 async def debugtest_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user.id):
+    if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
 
@@ -478,7 +496,13 @@ async def on_message(message):
         
         # &addchannel
         if cmd == "&addchannel":
-            if not helpers.is_authorized(message.author.id) and not message.author.guild_permissions.administrator:
+            member_obj = message.guild.get_member(message.author.id) if message.guild else None
+            if not member_obj:
+                try: member_obj = await message.guild.fetch_member(message.author.id)
+                except: pass
+            if not member_obj: member_obj = message.author
+
+            if not helpers.is_authorized(member_obj):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             if message.channel.id in config.ALLOWED_CHANNEL_IDS:
@@ -491,7 +515,13 @@ async def on_message(message):
 
         # &removechannel
         if cmd == "&removechannel":
-            if not helpers.is_authorized(message.author.id) and not message.author.guild_permissions.administrator:
+            member_obj = message.guild.get_member(message.author.id) if message.guild else None
+            if not member_obj:
+                try: member_obj = await message.guild.fetch_member(message.author.id)
+                except: pass
+            if not member_obj: member_obj = message.author
+
+            if not helpers.is_authorized(member_obj):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             if message.channel.id in config.ALLOWED_CHANNEL_IDS:
@@ -504,7 +534,7 @@ async def on_message(message):
 
         # &reboot
         if cmd == "&reboot":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             await message.channel.send(ui.FLAVOR_TEXT["REBOOT_MESSAGE"])
@@ -522,7 +552,7 @@ async def on_message(message):
 
         # &shutdown
         if cmd == "&shutdown":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             await message.channel.send(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"])
@@ -544,7 +574,7 @@ async def on_message(message):
 
         # &clearmemory
         if cmd == "&clearmemory":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             
@@ -576,7 +606,7 @@ async def on_message(message):
 
         # &synccommands
         if cmd == "&synccommands":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             await message.channel.send("🔄 Syncing commands...")
@@ -592,7 +622,7 @@ async def on_message(message):
 
         # &debug
         if cmd == "&debug":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             current = memory_manager.get_server_setting("debug_mode", False)
@@ -604,7 +634,7 @@ async def on_message(message):
 
         # &testmessage
         if cmd == "&testmessage":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             
@@ -630,7 +660,7 @@ async def on_message(message):
 
         # &clearallmemory
         if cmd == "&clearallmemory":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             memory_manager.wipe_all_memories()
@@ -639,7 +669,7 @@ async def on_message(message):
 
         # &wipelogs
         if cmd == "&wipelogs":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
             memory_manager.wipe_all_logs()
@@ -648,7 +678,7 @@ async def on_message(message):
 
         # &debugtest
         if cmd == "&debugtest":
-            if not helpers.is_authorized(message.author.id):
+            if not helpers.is_authorized(message.author):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
 
@@ -700,7 +730,7 @@ async def on_message(message):
     
     try:
         # --- COMMANDS ---
-        if message.content == "!updateslashcommands" and helpers.is_authorized(message.author.id):
+        if message.content == "!updateslashcommands" and helpers.is_authorized(message.author):
             await message.channel.send("🔄 Updating slash commands...")
             try:
                 for guild in client.guilds: client.tree.clear_commands(guild=guild)
@@ -803,6 +833,42 @@ async def on_message(message):
 
         if should_respond:
             if message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
+            
+            # --- IDENTITY & AUTHORIZATION LOGIC ---
+            # Resolve Identity Early to check Permissions
+            real_name = message.author.display_name
+            system_tag = None
+            sender_id = None
+            system_id = None
+            member_description = None
+            
+            if message.webhook_id:
+                pk_name, pk_sys_id, pk_sys_name, pk_tag, pk_sender, pk_desc = await services.service.get_pk_message_data(message.id)
+                if pk_name:
+                    real_name = pk_name
+                    system_tag = pk_tag
+                    sender_id = pk_sender
+                    system_id = pk_sys_id
+                    member_description = pk_desc
+            else:
+                sender_id = message.author.id
+                user_sys_data = await services.service.get_pk_user_data(sender_id)
+                if user_sys_data: 
+                    system_tag = user_sys_data['tag']
+                    system_id = user_sys_data['system_id']
+
+            # Check Permissions
+            member_obj = None
+            if message.guild:
+                member_obj = message.guild.get_member(sender_id)
+                if not member_obj:
+                    try: member_obj = await message.guild.fetch_member(sender_id)
+                    except: pass
+            
+            if not member_obj and not message.webhook_id: member_obj = message.author
+            
+            if not helpers.is_authorized(member_obj or sender_id):
+                return
 
             if message.channel.id not in client.boot_cleared_channels:
                 logger.info(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
@@ -810,7 +876,7 @@ async def on_message(message):
                 client.boot_cleared_channels.add(message.channel.id)
 
             client.processing_locks.add(message.id)
-            logger.info(f"Processing Message from {message.author.name} (ID: {message.id})")
+            logger.info(f"Processing Message from {real_name} (ID: {message.id})")
 
             async with message.channel.typing():
                 image_data_uri = None
@@ -835,31 +901,9 @@ async def on_message(message):
                     clean_prompt = clean_prompt.replace("&web", "").strip()
                     force_search = True
 
-                # Identity Logic
-                real_name = message.author.display_name
-                system_tag = None
-                sender_id = None
-                system_id = None
-                member_description = None
-                
-                if message.webhook_id:
-                    pk_name, pk_sys_id, pk_sys_name, pk_tag, pk_sender, pk_desc = await services.service.get_pk_message_data(message.id)
-                    if pk_name:
-                        real_name = pk_name
-                        system_tag = pk_tag
-                        sender_id = pk_sender
-                        system_id = pk_sys_id
-                        member_description = pk_desc
-                else:
-                    sender_id = message.author.id
-                    user_sys_data = await services.service.get_pk_user_data(sender_id)
-                    if user_sys_data: 
-                        system_tag = user_sys_data['tag']
-                        system_id = user_sys_data['system_id']
-
                 clean_name = helpers.clean_name_logic(real_name, system_tag)
                 # Identity Suffix uses new Config logic
-                identity_suffix = helpers.get_identity_suffix(sender_id, system_id, clean_name, services.service.my_system_members)
+                identity_suffix = helpers.get_identity_suffix(member_obj or sender_id, system_id, clean_name, services.service.my_system_members)
 
                 memory_manager.log_conversation(message.channel.name, real_name, sender_id or "UNKNOWN_ID", clean_prompt)
 

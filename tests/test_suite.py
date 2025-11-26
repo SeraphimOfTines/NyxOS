@@ -85,6 +85,40 @@ class TestHelpers(unittest.TestCase):
         # Case 4: Default
         self.assertEqual(helpers.get_identity_suffix(999, "other_sys"), config.DEFAULT_TITLE)
 
+    def test_role_authorization(self):
+        # Setup Mock Configuration
+        config.ADMIN_ROLE_IDS = [101, 102]
+        config.SPECIAL_ROLE_IDS = [201]
+        
+        # Helper to create mock member with roles
+        def mock_member(role_ids):
+            m = MagicMock()
+            m.roles = []
+            for rid in role_ids:
+                r = MagicMock()
+                r.id = rid
+                m.roles.append(r)
+            return m
+
+        # Case 1: Admin Role
+        admin_user = mock_member([101, 999])
+        self.assertTrue(helpers.is_authorized(admin_user))
+
+        # Case 2: Special Role
+        special_user = mock_member([201, 888])
+        self.assertTrue(helpers.is_authorized(special_user))
+        
+        # Case 3: Unauthorized (Regular User)
+        regular_user = mock_member([999, 888])
+        self.assertFalse(helpers.is_authorized(regular_user))
+        
+        # Case 4: ID Fallback (if user_obj has no roles, e.g., User object, not Member)
+        # Though currently is_authorized strictly checks roles for authorization,
+        # passing an object without .roles should default to False unless we add ID logic back.
+        # The current implementation returns False if no roles attribute.
+        user_no_roles = MagicMock(spec=[]) # No .roles attribute
+        self.assertFalse(helpers.is_authorized(user_no_roles))
+
 class TestMemoryManager(unittest.TestCase):
     """Tests for memory_manager.py"""
 
