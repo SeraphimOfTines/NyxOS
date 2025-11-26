@@ -43,6 +43,8 @@ FLAVOR_TEXT = {
     "TEST_MESSAGE": "🧪 This is a test message!",
     "MEMORY_WIPED": "🧹🧹 All memory files have been wiped!",
     "LOGS_WIPED": "🔥 All log files have been wiped!",
+    "GLOBAL_CHAT_ENABLED": "🌍 Global Chat Mode **ENABLED**. I will now respond in all channels!",
+    "GLOBAL_CHAT_DISABLED": "🔒 Global Chat Mode **DISABLED**. I will only respond in whitelisted channels.",
     "GOOD_BOT_REACTION": "💙",
 }
 

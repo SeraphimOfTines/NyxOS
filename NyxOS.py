@@ -194,6 +194,22 @@ async def remove_channel_command(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("⚠️ Channel not in whitelist.", ephemeral=True)
 
+@client.tree.command(name="enableall", description="Enable Global Chat Mode (Talk in ALL channels).")
+async def enableall_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+    memory_manager.set_server_setting("global_chat_enabled", True)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_ENABLED"], ephemeral=False)
+
+@client.tree.command(name="disableall", description="Disable Global Chat Mode (Talk in whitelist only).")
+async def disableall_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+    memory_manager.set_server_setting("global_chat_enabled", False)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_DISABLED"], ephemeral=False)
+
 @client.tree.command(name="reboot", description="Full restart of the bot process.")
 async def reboot_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
@@ -410,7 +426,7 @@ async def debugtest_command(interaction: discord.Interaction):
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
     embed.add_field(name="General Commands", value="`/killmyembeds` - Toggle auto-suppression of link embeds.\n`/goodbot` - Show the Good Bot leaderboard.\n`/reportbug` - Submit a bug report.", inline=False)
-    embed.add_field(name="Admin Commands", value="`/addchannel` - Whitelist channel.\n`/removechannel` - Blacklist channel.\n`/suppressembedson/off` - Toggle server-wide embed suppression.\n`/clearmemory` - Clear current channel memory.\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test msg (Debug).\n`/clearallmemory` - Wipe ALL memories (Debug).\n`/wipelogs` - Wipe ALL logs (Debug).\n`/synccommands` - Force sync slash commands.", inline=False)
+    embed.add_field(name="Admin Commands", value="`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/addchannel` - Whitelist channel.\n`/removechannel` - Blacklist channel.\n`/suppressembedson/off` - Toggle server-wide embed suppression.\n`/clearmemory` - Clear current channel memory.\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test msg (Debug).\n`/clearallmemory` - Wipe ALL memories (Debug).\n`/wipelogs` - Wipe ALL logs (Debug).\n`/synccommands` - Force sync slash commands.", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ==========================================
@@ -530,6 +546,36 @@ async def on_message(message):
                 await message.channel.send(f"🤐 I'll ignore this channel!")
             else:
                 await message.channel.send("⚠️ Channel not in whitelist.")
+            return
+
+        # &enableall
+        if cmd == "&enableall":
+            member_obj = message.guild.get_member(message.author.id) if message.guild else None
+            if not member_obj:
+                try: member_obj = await message.guild.fetch_member(message.author.id)
+                except: pass
+            if not member_obj: member_obj = message.author
+
+            if not helpers.is_authorized(member_obj):
+                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+                return
+            memory_manager.set_server_setting("global_chat_enabled", True)
+            await message.channel.send(ui.FLAVOR_TEXT["GLOBAL_CHAT_ENABLED"])
+            return
+
+        # &disableall
+        if cmd == "&disableall":
+            member_obj = message.guild.get_member(message.author.id) if message.guild else None
+            if not member_obj:
+                try: member_obj = await message.guild.fetch_member(message.author.id)
+                except: pass
+            if not member_obj: member_obj = message.author
+
+            if not helpers.is_authorized(member_obj):
+                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+                return
+            memory_manager.set_server_setting("global_chat_enabled", False)
+            await message.channel.send(ui.FLAVOR_TEXT["GLOBAL_CHAT_DISABLED"])
             return
 
         # &reboot
@@ -722,7 +768,7 @@ async def on_message(message):
         if cmd == "&help":
             embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
             embed.add_field(name="General Commands", value="`&killmyembeds` - Toggle auto-suppression of link embeds.\n`&goodbot` - Show the Good Bot leaderboard.\n`&reportbug` - How to report bugs.", inline=False)
-            embed.add_field(name="Admin Commands", value="`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&debugtest` - Run Unit Tests (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
+            embed.add_field(name="Admin Commands", value="`&enableall` - Enable Global Chat (All Channels).\n`&disableall` - Disable Global Chat (Whitelist Only).\n`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&debugtest` - Run Unit Tests (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
             await message.channel.send(embed=embed)
             return
 
@@ -832,7 +878,8 @@ async def on_message(message):
                 return
 
         if should_respond:
-            if message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
+            global_chat = memory_manager.get_server_setting("global_chat_enabled", False)
+            if not global_chat and message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
             
             # --- IDENTITY & AUTHORIZATION LOGIC ---
             # Resolve Identity Early to check Permissions
