@@ -5,6 +5,11 @@ from datetime import datetime
 import config
 import services
 import memory_manager
+import logging
+import sys
+import os
+
+logger = logging.getLogger("UI")
 
 # ==========================================
 # FLAVOR TEXT & UI CONFIGURATION
@@ -94,7 +99,7 @@ class BugReportModal(discord.ui.Modal, title="Report a Bug"):
                         if updated:
                             await origin_msg.edit(view=view)
                 except Exception as e:
-                    print(f"⚠️ Failed to update bug report button: {e}")
+                    logger.error(f"Failed to update bug report button: {e}")
 
         except Exception as e:
              await interaction.response.send_message(f"❌ Error sending report: {e}", ephemeral=True)
@@ -199,6 +204,9 @@ class ResponseView(discord.ui.View):
 
     @discord.ui.button(label=FLAVOR_TEXT["CLEAR_MEMORY_BUTTON"], style=discord.ButtonStyle.danger, custom_id="clear_mem_btn", row=0)
     async def clear_memory_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Update cutoff time to NOW (using interaction timestamp)
+        interaction.client.channel_cutoff_times[self.channel_obj.id] = interaction.created_at
+        
         memory_manager.clear_channel_memory(self.channel_obj.id, self.channel_obj.name)
         button.label = FLAVOR_TEXT["CLEAR_MEMORY_DONE"]
         button.style = discord.ButtonStyle.secondary

@@ -22,7 +22,29 @@ import ui
 # BOT SETUP
 # ==========================================
 
-logging.basicConfig(level=logging.INFO)
+# Ensure logs directory exists
+os.makedirs(config.LOGS_DIR, exist_ok=True)
+
+# Configure Logging
+logger = logging.getLogger('NyxOS')
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+
+# Console Handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(formatter)
+
+# File Handler
+file_handler = logging.FileHandler(os.path.join(config.LOGS_DIR, 'nyxos.log'), encoding='utf-8')
+file_handler.setFormatter(formatter)
+
+# Apply handlers (avoid duplicates)
+if not logger.handlers:
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
+# Set root logger level to suppress debug noise from libraries if needed
+logging.getLogger().setLevel(logging.INFO)
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -90,7 +112,7 @@ class LMStudioBot(discord.Client):
             except: pass
             
         if current_hash != stored_hash:
-            print(f"🔄 Command structure changed (Hash mismatch). Syncing...")
+            logger.info(f"🔄 Command structure changed (Hash mismatch). Syncing...")
             try:
                 # Clear guild commands if you are using global sync, 
                 # but here we assume standard global sync.
@@ -98,11 +120,11 @@ class LMStudioBot(discord.Client):
                 
                 with open(config.COMMAND_STATE_FILE, "w") as f:
                     f.write(current_hash)
-                print("✅ Commands synced and hash updated.")
+                logger.info("✅ Commands synced and hash updated.")
             except Exception as e:
-                print(f"❌ Failed to sync commands: {e}")
+                logger.error(f"❌ Failed to sync commands: {e}")
         else:
-            print("✅ Command structure matched. Skipping sync to avoid rate limits.")
+            logger.info("✅ Command structure matched. Skipping sync to avoid rate limits.")
 
     async def heartbeat_task(self):
         await self.wait_until_ready()
@@ -111,7 +133,7 @@ class LMStudioBot(discord.Client):
                 with open(config.HEARTBEAT_FILE, "w") as f:
                     f.write(str(time.time()))
             except Exception as e:
-                print(f"⚠️ Heartbeat failed: {e}")
+                logger.warning(f"⚠️ Heartbeat failed: {e}")
             await asyncio.sleep(2) # Faster heartbeat for 3s detection
 
     async def close(self):
@@ -169,7 +191,7 @@ async def reboot_command(interaction: discord.Interaction):
             f.flush()
             os.fsync(f.fileno())
     except Exception as e:
-        print(f"⚠️ Failed to write restart metadata: {e}")
+        logger.warning(f"⚠️ Failed to write restart metadata: {e}")
 
     await client.close()
     # os.execl replaces the process, keeping PID same. Monitor should be aware or tolerant.
@@ -192,7 +214,7 @@ async def shutdown_command(interaction: discord.Interaction):
             if sys_channel:
                 await sys_channel.send(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"])
         except Exception as e:
-            print(f"⚠️ Failed to send shutdown msg to system channel: {e}")
+            logger.warning(f"⚠️ Failed to send shutdown msg to system channel: {e}")
     
     # Write shutdown flag so monitor knows it was intentional
     try:
@@ -233,6 +255,9 @@ async def clearmemory_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user.id):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
+    
+    # Update cutoff time to NOW
+    client.channel_cutoff_times[interaction.channel_id] = interaction.created_at
     
     memory_manager.clear_channel_memory(interaction.channel_id, interaction.channel.name)
     await interaction.response.send_message(ui.FLAVOR_TEXT["CLEAR_MEMORY_DONE"], ephemeral=True)
@@ -338,15 +363,13 @@ async def help_command(interaction: discord.Interaction):
 
 @client.event
 async def on_ready():
-    print('# ==========================================')
-    print('#                NyxOS v2.0')
-    print('#         Lovingly made by Calyptra')
-    print('#       https://temple.HyperSystem.xyz')    
-    print('#       https://broadcast.HyperSystem.xyz')  
-    print('#       https://music.HyperSystem.xyz')  
-    print('# ==========================================')
-    print(f'Logged in as {client.user} (ID: {client.user.id})')
-    print(f'Targeting LM Studio at: {config.LM_STUDIO_URL}')
+    logger.info('# ==========================================')
+    logger.info('#                NyxOS v2.0')
+    logger.info('#         Lovingly made by Calyptra')
+    logger.info('#       https://temple.HyperSystem.xyz')    
+    logger.info('# ==========================================')
+    logger.info(f'Logged in as {client.user} (ID: {client.user.id})')
+    logger.info(f'Targeting LM Studio at: {config.LM_STUDIO_URL}')
     
     client.has_synced = True
     
@@ -374,7 +397,7 @@ async def on_ready():
             if channel:
                 await channel.send(ui.FLAVOR_TEXT["STARTUP_MESSAGE"])
         except Exception as e:
-            print(f"⚠️ Failed to send startup message: {e}")
+            logger.warning(f"⚠️ Failed to send startup message: {e}")
 
 @client.event
 async def on_message_edit(before, after):
@@ -454,7 +477,7 @@ async def on_message(message):
                     f.flush()
                     os.fsync(f.fileno())
             except Exception as e:
-                print(f"⚠️ Failed to write restart metadata: {e}")
+                logger.warning(f"⚠️ Failed to write restart metadata: {e}")
             await client.close()
             python = sys.executable
             os.execl(python, python, *sys.argv)
@@ -486,6 +509,10 @@ async def on_message(message):
             if not helpers.is_authorized(message.author.id):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
+            
+            # Update cutoff time to NOW
+            client.channel_cutoff_times[message.channel.id] = message.created_at
+            
             memory_manager.clear_channel_memory(message.channel.id, message.channel.name)
             await message.channel.send(ui.FLAVOR_TEXT["CLEAR_MEMORY_DONE"])
             return
@@ -649,7 +676,7 @@ async def on_message(message):
                         should_respond = True
                         target_message_id = ref_msg.id
             except Exception as e:
-                print(f"Debug Reply Check Error: {e}")
+                logger.debug(f"Reply Check Error: {e}")
 
         # --- GOOD BOT CHECK ---
         if re.search(r'\bgood\s*bot\b', message.content, re.IGNORECASE):
@@ -698,12 +725,12 @@ async def on_message(message):
             if message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
 
             if message.channel.id not in client.boot_cleared_channels:
-                print(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
+                logger.info(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
                 memory_manager.clear_channel_memory(message.channel.id, message.channel.name)
                 client.boot_cleared_channels.add(message.channel.id)
 
             client.processing_locks.add(message.id)
-            print(f"Processing Message from {message.author.name} (ID: {message.id})")
+            logger.info(f"Processing Message from {message.author.name} (ID: {message.id})")
 
             async with message.channel.typing():
                 image_data_uri = None
@@ -716,7 +743,7 @@ async def on_message(message):
                                 b64_str = base64.b64encode(img_bytes).decode('utf-8')
                                 image_data_uri = f"data:{safe_mime};base64,{b64_str}"
                                 break
-                            except Exception as e: print(f"⚠️ Error processing image: {e}")
+                            except Exception as e: logger.warning(f"⚠️ Error processing image: {e}")
 
                 clean_prompt = re.sub(r'<@!?{}>'.format(client.user.id), '', message.content)
                 for rid in config.BOT_ROLE_IDS: clean_prompt = re.sub(r'<@&{}>'.format(rid), '', clean_prompt)
@@ -881,7 +908,7 @@ async def on_message(message):
                         client.loop.create_task(client.suppress_embeds_later(sent_message, delay=5))
 
                 except discord.HTTPException as e:
-                    print(f"DEBUG: Failed to reply: {e}")
+                    logger.error(f"DEBUG: Failed to reply: {e}")
 
     finally:
         if message.id in client.processing_locks:
@@ -889,6 +916,6 @@ async def on_message(message):
 
 if __name__ == "__main__":
     if not config.BOT_TOKEN:
-        print("❌ BOT_TOKEN not found.")
+        logger.error("❌ BOT_TOKEN not found.")
     else:
         client.run(config.BOT_TOKEN)

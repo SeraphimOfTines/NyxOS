@@ -41,15 +41,27 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 KAGI_API_TOKEN = os.getenv("KAGI_API_TOKEN")
 
 # --- PROMPTS ---
-# Prompts are loaded from config.txt or .env. Defaults provided below.
+# Prompts are loaded from .env first, then overridden by local files if they exist.
 
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT") or "You are a helpful assistant."
 INJECTED_PROMPT = os.getenv("INJECTED_PROMPT") or ""
 
-if INJECTED_PROMPT:
-    SYSTEM_PROMPT_TEMPLATE = f"{SYSTEM_PROMPT}\n\n{INJECTED_PROMPT}"
-else:
-    SYSTEM_PROMPT_TEMPLATE = SYSTEM_PROMPT
+# Override from files if they exist
+system_prompt_path = get_path("system_prompt.txt")
+if os.path.exists(system_prompt_path):
+    try:
+        with open(system_prompt_path, "r", encoding="utf-8") as f:
+            SYSTEM_PROMPT = f.read().strip()
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to read system_prompt.txt: {e}")
+
+injected_prompt_path = get_path("injected_prompt.txt")
+if os.path.exists(injected_prompt_path):
+    try:
+        with open(injected_prompt_path, "r", encoding="utf-8") as f:
+            INJECTED_PROMPT = f.read().strip()
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to read injected_prompt.txt: {e}")
 
 # --- VARIABLES FROM CONFIG.TXT (LEGACY SUPPORT) ---
 # We initialize defaults here. If config.txt exists, we exec it to override.
@@ -81,6 +93,12 @@ if os.getenv("BUG_REPORT_CHANNEL_ID"): BUG_REPORT_CHANNEL_ID = int(os.getenv("BU
 if os.getenv("STARTUP_CHANNEL_ID"): STARTUP_CHANNEL_ID = int(os.getenv("STARTUP_CHANNEL_ID"))
 if os.getenv("MODEL_TEMPERATURE"): MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE"))
 if os.getenv("CONTEXT_WINDOW"): CONTEXT_WINDOW = int(os.getenv("CONTEXT_WINDOW"))
+
+# Construct Template (Last step to ensure all overrides are applied)
+if INJECTED_PROMPT:
+    SYSTEM_PROMPT_TEMPLATE = f"{SYSTEM_PROMPT}\n\n{INJECTED_PROMPT}"
+else:
+    SYSTEM_PROMPT_TEMPLATE = SYSTEM_PROMPT
 
 # --- USER TITLES / FLAVOR TEXT ---
 # This is the new system to replace hardcoded "Seraph" checks.

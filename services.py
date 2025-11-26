@@ -6,6 +6,9 @@ from datetime import datetime
 import config
 import helpers
 import memory_manager
+import logging
+
+logger = logging.getLogger("Services")
 
 class APIService:
     def __init__(self):
@@ -17,10 +20,12 @@ class APIService:
     async def start(self):
         self.http_session = aiohttp.ClientSession()
         await self.fetch_my_system_data()
+        logger.info("APIService started.")
 
     async def close(self):
         if self.http_session:
             await self.http_session.close()
+        logger.info("APIService closed.")
 
     # --- PLURALKIT ---
 
@@ -34,7 +39,7 @@ class APIService:
                         if 'name' in m: self.my_system_members.add(m['name'])
                         if 'display_name' in m and m['display_name']: self.my_system_members.add(m['display_name'])
         except Exception as e:
-            print(f"⚠️ Error fetching main system data: {e}")
+            logger.warning(f"Error fetching main system data: {e}")
 
     async def get_pk_user_data(self, user_id):
         if user_id in self.pk_user_cache:
@@ -51,7 +56,7 @@ class APIService:
                 elif resp.status == 404:
                     self.pk_user_cache[user_id] = None
         except Exception as e:
-            print(f"⚠️ PK User API Exception: {e}")
+            logger.warning(f"PK User API Exception: {e}")
         return None
 
     async def get_system_proxy_tags(self, system_id):
@@ -70,7 +75,7 @@ class APIService:
                             tags.append({'prefix': pt.get('prefix'), 'suffix': pt.get('suffix')})
                     self.pk_proxy_tags[system_id] = tags
         except Exception as e:
-            print(f"⚠️ Error fetching proxy tags: {e}")
+            logger.warning(f"Error fetching proxy tags: {e}")
         return tags
 
     async def get_pk_message_data(self, message_id):
@@ -95,7 +100,7 @@ class APIService:
                     
                     return final_name, system_id, system_name, system_tag, sender_id, description
         except Exception as e:
-            print(f"⚠️ PK Message API Exception: {e}")
+            logger.warning(f"PK Message API Exception: {e}")
         return None, None, None, None, None, None
 
     # --- WEB SEARCH ---
@@ -156,13 +161,13 @@ class APIService:
                     # Return up to 3 queries maximum to avoid spamming Kagi
                     return clean_queries[:3]
         except Exception as e:
-            print(f"⚠️ Query Generation Failed: {e}")
+            logger.error(f"Query Generation Failed: {e}")
             if force_search: return [user_prompt]
         return []
 
     async def search_kagi(self, query):
         if not config.KAGI_API_TOKEN: return "Error: Config missing."
-        print(f"🔍 [KAGI] Searching for: '{query}'")
+        logger.info(f"[KAGI] Searching for: '{query}'")
         headers = {"Authorization": f"Bot {config.KAGI_API_TOKEN}"}
         params = {"q": query, "limit": 6} 
         try:
@@ -194,7 +199,12 @@ class APIService:
             date_str, time_str = helpers.get_system_time()
             time_header = f"Current Date: {date_str}\nCurrent Time: {time_str}\n\n"
 
-            base_prompt = config.SYSTEM_PROMPT_TEMPLATE \
+            # Dynamically construct template from latest config values
+            raw_system_prompt = config.SYSTEM_PROMPT
+            if config.INJECTED_PROMPT:
+                raw_system_prompt += f"\n\n{config.INJECTED_PROMPT}"
+
+            base_prompt = raw_system_prompt \
                 .replace("{{USER_NAME}}", "the people in this chatroom") \
                 .replace("{{Seraphim}}", "Seraphim") \
                 .replace("{{CONTEXT}}", "") \
@@ -281,7 +291,7 @@ class APIService:
             return await self._send_payload(merged_messages)
         except Exception as e:
             if "400" in str(e) or "base64" in str(e).lower():
-                print(f"⚠️ Vision Payload Failed ({e}). Retrying text-only...")
+                logger.error(f"Vision Payload Failed ({e}). Retrying text-only...")
                 text_only_messages = self._strip_images(merged_messages)
                 return await self._send_payload(text_only_messages)
             raise e
@@ -322,7 +332,7 @@ class APIService:
                 return data['choices'][0]['message']['content']
             else:
                 error_text = await resp.text()
-                print(f"\n❌ LM Studio Error ({resp.status}): {error_text}\n")
+                logger.error(f"LM Studio Error ({resp.status}): {error_text}")
                 raise Exception(f"LM Studio Error {resp.status}: {error_text}")
 
     def _strip_images(self, messages):
