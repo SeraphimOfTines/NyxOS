@@ -209,10 +209,9 @@ async def handle_prefix_command(client, message):
                 system_prompt_override=" " # Non-empty to bypass template logic, but effectively blank
             )
             
-            # Post-process
-            response = response.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
-            response = re.sub(r'\s*\(re:.*?\)', '', response).strip()
-            response = re.sub(r'\(([^)]+)\)\((https?://[^\s)]+)\)', r'[\1](\2)', response)
+            # Post-process using helpers
+            response = helpers.sanitize_llm_response(response)
+            response = helpers.restore_hyperlinks(response)
 
             view = ui.ResponseView("TEST MESSAGE", message.author.id, "Admin", "", [], message.channel, None, None, None, "")
             await message.channel.send(response, view=view)

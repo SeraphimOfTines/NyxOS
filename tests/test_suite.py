@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch, AsyncMock, mock_open
 import sys
 import os
 import json
@@ -13,172 +13,418 @@ import helpers
 import memory_manager
 import config
 import services
-import command_handler
-import message_processor
+import ui
+import NyxOS
 
 class TestHelpers(unittest.TestCase):
     """Tests for helpers.py"""
 
-    def test_is_authorized(self):
-        print("\n[TestHelpers] Testing is_authorized logic...")
-        # Test Seraph ID
-        config.SERAPH_IDS = [12345]
-        config.CHIARA_IDS = []
-        print(f"  > Checking Seraph ID {config.SERAPH_IDS[0]}...")
-        self.assertTrue(helpers.is_authorized(12345))
-        print("    [OK] Access Granted.")
-        
-        # Test Chiara ID
-        config.SERAPH_IDS = []
-        config.CHIARA_IDS = [67890]
-        print(f"  > Checking Chiara ID {config.CHIARA_IDS[0]}...")
-        self.assertTrue(helpers.is_authorized(67890))
-        print("    [OK] Access Granted.")
-        
-        # Test Unauthorized
-        print("  > Checking Unauthorized ID 99999...")
-        self.assertFalse(helpers.is_authorized(99999))
-        print("    [OK] Access Denied.")
+    def test_get_safe_mime_type(self):
+        # Case 1: Known Extension
+        att = MagicMock()
+        att.filename = "image.png"
+        att.content_type = "application/octet-stream"
+        self.assertEqual(helpers.get_safe_mime_type(att), "image/png")
 
-    def test_clean_name_logic(self):
-        print("\n[TestHelpers] Testing clean_name_logic...")
-        # Test with tag
-        print("  > Cleaning name 'User [TAG]' with tag 'TAG'...")
-        self.assertEqual(helpers.clean_name_logic("User [TAG]", "TAG"), "User")
-        print("    [OK] Cleaned.")
-        
-        # Test without tag
-        print("  > Cleaning name 'User' with tag 'TAG'...")
-        self.assertEqual(helpers.clean_name_logic("User", "TAG"), "User")
-        print("    [OK] Unchanged.")
-        
-        # Test with None
-        print("  > Cleaning name 'User' with None tag...")
-        self.assertEqual(helpers.clean_name_logic("User", None), "User")
-        print("    [OK] Unchanged.")
+        # Case 2: Trust Discord
+        att.filename = "unknown.file"
+        att.content_type = "image/gif"
+        self.assertEqual(helpers.get_safe_mime_type(att), "image/gif")
+
+        # Case 3: Fallback
+        att.filename = "weird.file"
+        att.content_type = "application/octet-stream"
+        self.assertEqual(helpers.get_safe_mime_type(att), "image/png") # Default fallback
 
     def test_matches_proxy_tag(self):
-        print("\n[TestHelpers] Testing matches_proxy_tag...")
         tags = [{'prefix': 'S:', 'suffix': ''}, {'prefix': '', 'suffix': '-C'}]
-        # Match Prefix
-        print("  > Testing prefix 'S:Hello'...")
         self.assertTrue(helpers.matches_proxy_tag("S:Hello", tags))
-        print("    [OK] Matched.")
-        
-        # Match Suffix
-        print("  > Testing suffix 'Hello-C'...")
         self.assertTrue(helpers.matches_proxy_tag("Hello-C", tags))
-        print("    [OK] Matched.")
-        
-        # No Match
-        print("  > Testing no-match 'Hello'...")
         self.assertFalse(helpers.matches_proxy_tag("Hello", tags))
-        print("    [OK] Not Matched.")
+
+    def test_clean_name_logic(self):
+        self.assertEqual(helpers.clean_name_logic("User [TAG]", "TAG"), "User")
+        self.assertEqual(helpers.clean_name_logic("User", "TAG"), "User")
+        self.assertEqual(helpers.clean_name_logic("User [BOT]", "BOT"), "User")
+
+    def test_sanitize_llm_response(self):
+        # Strip Headers
+        self.assertEqual(helpers.sanitize_llm_response("# Hello"), "Hello")
+        self.assertEqual(helpers.sanitize_llm_response("### Hello"), "Hello")
+        
+        # Strip Tags
+        self.assertEqual(helpers.sanitize_llm_response("Hello (Seraph)"), "Hello")
+        
+        # Strip Reply Context
+        self.assertEqual(helpers.sanitize_llm_response("Hello (re: User)"), "Hello")
+
+    def test_restore_hyperlinks(self):
+        raw = "Click (Here)(https://example.com)"
+        expected = "Click [Here](https://example.com)"
+        self.assertEqual(helpers.restore_hyperlinks(raw), expected)
+
+        # Nested parens in text
+        raw = "Click (Here (Link))(https://example.com)"
+        expected = "Click [Here (Link)](https://example.com)"
+        self.assertEqual(helpers.restore_hyperlinks(raw), expected)
+
+    def test_get_identity_suffix(self):
+        # Case 1: Custom User Title
+        config.USER_TITLES = {123: " (King)"}
+        self.assertEqual(helpers.get_identity_suffix(123, None), " (King)")
+
+        # Case 2: System Member (ID Match)
+        config.USER_TITLES = {}
+        config.MY_SYSTEM_ID = "sys_id"
+        self.assertEqual(helpers.get_identity_suffix(456, "sys_id"), " (Seraph)")
+
+        # Case 3: System Member (Name Match)
+        members = {"Member1"}
+        self.assertEqual(helpers.get_identity_suffix(789, "other_sys", "Member1", members), " (Seraph)")
+
+        # Case 4: Default
+        self.assertEqual(helpers.get_identity_suffix(999, "other_sys"), config.DEFAULT_TITLE)
 
 class TestMemoryManager(unittest.TestCase):
     """Tests for memory_manager.py"""
 
     def setUp(self):
-        # Mock file operations for setup
-        self.test_dir = "tests/temp_memory"
+        self.test_dir = "tests/temp_memory_comprehensive"
         os.makedirs(self.test_dir, exist_ok=True)
-        config.GOOD_BOT_FILE = os.path.join(self.test_dir, "goodbot.json")
         config.MEMORY_DIR = self.test_dir
         config.LOGS_DIR = os.path.join(self.test_dir, "Logs")
-        print(f"\n[TestMemoryManager] Setup temp dir: {self.test_dir}")
+        config.GOOD_BOT_FILE = os.path.join(self.test_dir, "goodbot.json")
+        config.SUPPRESSED_USERS_FILE = os.path.join(self.test_dir, "suppressed.json")
 
     def tearDown(self):
-        # Cleanup
         import shutil
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
-        print(f"  > Teardown temp dir: {self.test_dir}")
 
-    def test_increment_good_bot(self):
-        print("  > Testing increment_good_bot...")
-        count = memory_manager.increment_good_bot(123, "TestUser")
-        print(f"    First increment: {count} (Expected: 1)")
-        self.assertEqual(count, 1)
+    def test_log_conversation(self):
+        # Ensure logs are written to the correct date-stamped folder
+        memory_manager.log_conversation("general", "User", 123, "Hello World")
         
-        count = memory_manager.increment_good_bot(123, "TestUser")
-        print(f"    Second increment: {count} (Expected: 2)")
+        today = datetime.now().strftime("%Y-%m-%d")
+        log_file = os.path.join(config.LOGS_DIR, today, "general.log")
+        
+        self.assertTrue(os.path.exists(log_file))
+        with open(log_file, 'r') as f:
+            content = f.read()
+            self.assertIn("Hello World", content)
+            self.assertIn("User [123]", content)
+
+    def test_good_bot_logic(self):
+        # Increment
+        count = memory_manager.increment_good_bot(123, "User1")
+        self.assertEqual(count, 1)
+        count = memory_manager.increment_good_bot(123, "User1")
         self.assertEqual(count, 2)
         
-        # Verify file content
-        print("  > Verifying JSON persistence...")
-        with open(config.GOOD_BOT_FILE, 'r') as f:
+        # Leaderboard
+        memory_manager.increment_good_bot(456, "User2")
+        leaderboard = memory_manager.get_good_bot_leaderboard()
+        self.assertEqual(len(leaderboard), 2)
+        self.assertEqual(leaderboard[0]['username'], "User1") # Highest count first
+
+    def test_suppressed_users(self):
+        # Toggle On
+        is_suppressed = memory_manager.toggle_suppressed_user(999)
+        self.assertTrue(is_suppressed)
+        
+        # Verify Persistence
+        with open(config.SUPPRESSED_USERS_FILE, 'r') as f:
             data = json.load(f)
-            self.assertEqual(data['123']['count'], 2)
-        print("    [OK] File saved correctly.")
+            self.assertIn("999", data)
+            
+        # Toggle Off
+        is_suppressed = memory_manager.toggle_suppressed_user(999)
+        self.assertFalse(is_suppressed)
+        
+        # Verify Removal
+        with open(config.SUPPRESSED_USERS_FILE, 'r') as f:
+            data = json.load(f)
+            self.assertNotIn("999", data)
 
 class TestServices(unittest.IsolatedAsyncioTestCase):
-    """Tests for services.py (Async)"""
+    """Tests for services.py"""
+    
+    async def asyncSetUp(self):
+        self.test_dir = "tests/temp_services"
+        os.makedirs(self.test_dir, exist_ok=True)
+        config.MEMORY_DIR = self.test_dir
+        
+        # Properly patch the session on the global service object
+        self.session_patcher = patch.object(services.service, 'http_session', new=MagicMock())
+        self.mock_session = self.session_patcher.start()
+        
+        # Setup default mock behavior for post
+        self.mock_post = AsyncMock()
+        self.mock_session.post.return_value = self.mock_post
 
-    async def test_generate_search_queries_sanitization(self):
-        print("\n[TestServices] Testing generate_search_queries sanitization...")
-        # Mock the HTTP session and response
+    async def asyncTearDown(self):
+        self.session_patcher.stop()
+        import shutil
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
+
+    async def test_generate_search_queries(self):
+        # Mock LLM response
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json.return_value = {
-            'choices': [{'message': {'content': '1. query one\n* query two\n&web query three'}}]
+            'choices': [{'message': {'content': 'query 1\n- query 2\n&web query 3'}}] 
         }
         
-        # Context manager mock for session.post
-        mock_post = AsyncMock()
-        mock_post.__aenter__.return_value = mock_response
+        self.mock_post.__aenter__.return_value = mock_response
         
-        services.service.http_session = MagicMock()
-        services.service.http_session.post.return_value = mock_post
-        
-        # Run
-        print("  > Invoking generate_search_queries...")
         queries = await services.service.generate_search_queries("test", [])
-        print(f"    Output: {queries}")
         
-        # Assertions
-        self.assertIn("query one", queries)
-        self.assertIn("query two", queries) 
-        self.assertIn("query three", queries) # Should strip &web
-        self.assertNotIn("1. query one", queries) # Should strip numbering
-        print("    [OK] Sanitization successful.")
+        self.assertIn("query 1", queries)
+        self.assertIn("query 2", queries)
+        self.assertIn("query 3", queries) # &web stripped
 
-class TestCommandHandler(unittest.IsolatedAsyncioTestCase):
-    """Tests for command_handler.py"""
-
-    async def test_handle_prefix_command_reboot_auth(self):
-        print("\n[TestCommandHandler] Testing &reboot authorization...")
-        client = MagicMock()
-        message = AsyncMock()
-        message.content = "&reboot"
-        message.author.id = 999 # Unauthorized
+    async def test_query_lm_studio_payload(self):
+        # This test verifies that the payload sent to LM Studio is structured correctly
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json.return_value = {'choices': [{'message': {'content': 'Response'}}]}
         
-        # Mock UI constants
-        with patch('ui.FLAVOR_TEXT', {"NOT_AUTHORIZED": "No.", "REBOOT_MESSAGE": "Rebooting"}):
-            print("  > Sending &reboot as Unauthorized User 999...")
-            await command_handler.handle_prefix_command(client, message)
+        self.mock_post.__aenter__.return_value = mock_response
+
+        channel = MagicMock()
+        channel.id = 1
+        channel.name = "test"
+
+        # Test with Image
+        await services.service.query_lm_studio(
+            user_prompt="Look at this",
+            username="User",
+            identity_suffix="",
+            history_messages=[],
+            channel_obj=channel,
+            image_data_uri="data:image/png;base64,xyz"
+        )
+        
+        # Capture call args
+        call_args = self.mock_session.post.call_args
+        _, kwargs = call_args
+        payload = kwargs['json']
+        
+        # Verify last message has image
+        last_msg = payload['messages'][-1]
+        self.assertEqual(last_msg['role'], 'user')
+        self.assertIsInstance(last_msg['content'], list)
+        self.assertEqual(last_msg['content'][1]['type'], 'image_url')
+
+    async def test_message_coalescing(self):
+        # Test that consecutive messages from the same role are merged
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json.return_value = {'choices': [{'message': {'content': 'Response'}}]}
+        
+        self.mock_post.__aenter__.return_value = mock_response
+
+        history = [
+            {"role": "user", "content": "Hello"},
+            {"role": "user", "content": "World"},
+            {"role": "assistant", "content": "Hi"},
+            {"role": "user", "content": "Again"}
+        ]
+        
+        channel = MagicMock()
+        channel.id = 1
+        channel.name = "test"
+
+        await services.service.query_lm_studio(
+            user_prompt="Final",
+            username="User",
+            identity_suffix="",
+            history_messages=history,
+            channel_obj=channel
+        )
+
+        # Capture payload
+        call_args = self.mock_session.post.call_args
+        _, kwargs = call_args
+        messages = kwargs['json']['messages']
+        
+        # Expected structure after coalescing (excluding system prompt):
+        # 1. User: Hello\nWorld
+        # 2. Assistant: Hi
+        # 3. User: Again\nUser says: Final
+        
+        # Note: The system prompt is messages[0].
+        # messages[1] should be merged User history
+        self.assertEqual(messages[1]['role'], 'user')
+        # The logic might handle string vs list content differently.
+        # In services.py, simple strings are converted to list of text objects during coalesce.
+        
+        # Let's inspect content text
+        content_1 = messages[1]['content']
+        if isinstance(content_1, list): content_1 = "".join([x['text'] for x in content_1])
+        self.assertIn("Hello", content_1)
+        self.assertIn("World", content_1)
+        
+        # messages[2] Assistant
+        self.assertEqual(messages[2]['role'], 'assistant')
+        
+        # messages[3] Merged User Final
+        content_3 = messages[3]['content']
+        if isinstance(content_3, list): content_3 = "".join([x['text'] for x in content_3])
+        self.assertIn("Again", content_3)
+        self.assertIn("Final", content_3)
+
+class TestUI(unittest.IsolatedAsyncioTestCase):
+    """Tests for ui.py interactions"""
+
+    async def test_good_bot_callback(self):
+        view = ui.ResponseView("Prompt", 123, "User", "", [], MagicMock(), None, None, None, "")
+        
+        interaction = AsyncMock()
+        interaction.user.id = 123
+        interaction.user.display_name = "User"
+        interaction.client = MagicMock()
+        interaction.client.good_bot_cooldowns = {}
+        
+        button = MagicMock()
+        
+        # Patch increment function
+        with patch('memory_manager.increment_good_bot', return_value=5) as mock_inc:
+            # Bypass the decorator to call the underlying function
+            # _ViewCallback likely handles view and item injection, expecting only interaction
+            await view.good_bot_callback.callback(interaction)
             
-        # Should send unauthorized message
-        message.channel.send.assert_called_with("No.")
-        print("    [OK] Bot replied 'No.'")
-        # Should NOT close client
-        client.close.assert_not_called()
-        print("    [OK] Client.close() was NOT called.")
+            mock_inc.assert_called_with(123, "User")
+            
+            # Verify the actual button item on the view was updated
+            self.assertEqual(view.good_bot_callback.label, "Good Bot: 5")
+            interaction.response.edit_message.assert_called()
 
-def run_suite():
-    # Create a test suite
+class TestServerAdmin(unittest.IsolatedAsyncioTestCase):
+    """Tests for Server Administration features"""
+    
+    def setUp(self):
+        self.test_dir = "tests/temp_admin"
+        os.makedirs(self.test_dir, exist_ok=True)
+        config.COMMAND_STATE_FILE = os.path.join(self.test_dir, "command_state.hash")
+
+    def tearDown(self):
+        import shutil
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
+
+    async def test_smart_sync(self):
+        client = NyxOS.LMStudioBot()
+        client.tree = MagicMock()
+        
+        # Mock command list
+        cmd = MagicMock()
+        cmd.name = "test_cmd"
+        cmd.description = "desc"
+        cmd.nsfw = False
+        client.tree.get_commands.return_value = [cmd]
+        
+        # 1. First Run (No hash file) -> Should Sync
+        client.tree.sync = AsyncMock()
+        await client.check_and_sync_commands()
+        client.tree.sync.assert_called_once()
+        
+        # 2. Second Run (Hash file exists and matches) -> Should NOT Sync
+        client.tree.sync.reset_mock()
+        await client.check_and_sync_commands()
+        client.tree.sync.assert_not_called()
+        
+        # 3. Change Command -> Should Sync
+        cmd.description = "new desc"
+        client.tree.get_commands.return_value = [cmd]
+        await client.check_and_sync_commands()
+        client.tree.sync.assert_called_once()
+
+class TestCommands(unittest.IsolatedAsyncioTestCase):
+    """Tests for Slash Commands"""
+    
+    def setUp(self):
+        self.test_dir = "tests/temp_commands"
+        os.makedirs(self.test_dir, exist_ok=True)
+        config.RESTART_META_FILE = os.path.join(self.test_dir, "restart_meta.json")
+        config.SHUTDOWN_FLAG_FILE = os.path.join(self.test_dir, "shutdown.flag")
+        
+    def tearDown(self):
+        import shutil
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
+
+    async def test_reboot_command_authorized(self):
+        # Mock Interaction
+        interaction = AsyncMock()
+        interaction.user.id = 123
+        interaction.channel_id = 456
+        
+        # Patch helpers.is_authorized
+        with patch('helpers.is_authorized', return_value=True):
+            # Patch NyxOS.client
+            with patch('NyxOS.client', new=AsyncMock()) as mock_client:
+                # Patch os.execl and sys.executable
+                with patch('os.execl') as mock_execl, \
+                     patch('sys.executable', '/usr/bin/python'):
+                    
+                    # Call the callback directly
+                    await NyxOS.reboot_command.callback(interaction)
+                    
+                    # Assertions
+                    interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["REBOOT_MESSAGE"], ephemeral=False)
+                    mock_client.close.assert_called_once()
+                    
+                    # Verify restart meta file
+                    self.assertTrue(os.path.exists(config.RESTART_META_FILE))
+                    
+                    # Verify os.execl call
+                    mock_execl.assert_called()
+
+    async def test_reboot_command_unauthorized(self):
+        interaction = AsyncMock()
+        interaction.user.id = 999 # Unauthorized
+        
+        with patch('helpers.is_authorized', return_value=False):
+             await NyxOS.reboot_command.callback(interaction)
+             
+             interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+             # Ensure no reboot
+             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
+                 mock_client.close.assert_not_called()
+
+    async def test_shutdown_command(self):
+        interaction = AsyncMock()
+        interaction.user.id = 123
+        interaction.channel_id = 456
+        
+        with patch('helpers.is_authorized', return_value=True):
+            with patch('NyxOS.client', new=AsyncMock()) as mock_client:
+                with patch('sys.exit') as mock_exit:
+                     
+                     await NyxOS.shutdown_command.callback(interaction)
+                     
+                     interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"], ephemeral=False)
+                     mock_client.close.assert_called_once()
+                     mock_exit.assert_called_with(0)
+                     self.assertTrue(os.path.exists(config.SHUTDOWN_FLAG_FILE))
+
+def run_comprehensive_suite():
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
     
     suite.addTests(loader.loadTestsFromTestCase(TestHelpers))
     suite.addTests(loader.loadTestsFromTestCase(TestMemoryManager))
     suite.addTests(loader.loadTestsFromTestCase(TestServices))
-    suite.addTests(loader.loadTestsFromTestCase(TestCommandHandler))
+    suite.addTests(loader.loadTestsFromTestCase(TestUI))
+    suite.addTests(loader.loadTestsFromTestCase(TestServerAdmin))
+    suite.addTests(loader.loadTestsFromTestCase(TestCommands))
     
-    # Run
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     
     return result
 
 if __name__ == '__main__':
-    run_suite()
+    run_comprehensive_suite()

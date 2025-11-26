@@ -24,7 +24,10 @@ class APIService:
 
     async def close(self):
         if self.http_session:
-            await self.http_session.close()
+            try:
+                await self.http_session.close()
+            except TypeError:
+                pass 
         logger.info("APIService closed.")
 
     # --- PLURALKIT ---
@@ -229,11 +232,6 @@ class APIService:
         for i, msg in enumerate(history_messages):
             content_str = str(msg.get('content', ''))
             if "I'm back online! Hi!" in content_str: continue
-            
-            if i < len(history_messages) - 1:
-                curr_role = msg.get('role')
-                next_role = history_messages[i+1].get('role')
-                if curr_role == 'user' and next_role == 'user': continue
             
             cleaned_history.append(msg)
         

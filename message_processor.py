@@ -291,19 +291,15 @@ async def process_message(client, message):
                 message.channel, image_data_uri, member_description, search_context, current_reply_context
             )
             
-            # --- MARKDOWN CLEANUP ---
-            # Strip markdown headers (#) at the start of lines to prevent "shouting"
-            response_text = re.sub(r'^#+\s*', '', response_text)
-            response_text = response_text.replace('\n#', '\n') # Remove mid-text headers too if any
-
+            # --- POST-PROCESSING ---
+            # 1. Clean up raw text (remove headers, identity tags, reply context)
+            response_text = helpers.sanitize_llm_response(response_text)
+            
+            # 2. Log processed text
             memory_manager.log_conversation(message.channel.name, "NyxOS", client.user.id, response_text)
             
-            # Post-process
-            response_text = response_text.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
-            response_text = re.sub(r'\s*\(re:.*?\)', '', response_text).strip()
-            
-            # Reconstruct Hyperlinks: (Text)(URL) -> [Text](URL)
-            response_text = re.sub(r'\((.+?)\)\((https?://[^\s)]+)\)', r'[\1](\2)', response_text)
+            # 3. Restore formatting for Discord display
+            response_text = helpers.restore_hyperlinks(response_text)
 
             view = ui.ResponseView(clean_prompt, message.author.id, clean_name, identity_suffix, history_messages, message.channel, image_data_uri, member_description, search_context, current_reply_context)
 

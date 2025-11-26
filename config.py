@@ -86,6 +86,14 @@ except FileNotFoundError:
 except Exception as e:
     print(f"⚠️ Warning: Error loading config.txt: {e}")
 
+# --- DATA SANITIZATION ---
+# Ensure IDs are integers to prevent auth failures
+try:
+    SERAPH_IDS = [int(uid) for uid in SERAPH_IDS]
+    CHIARA_IDS = [int(uid) for uid in CHIARA_IDS]
+except Exception as e:
+    print(f"⚠️ Warning: Failed to sanitize Admin IDs: {e}")
+
 # Overrides from ENV (take precedence over config.txt)
 if os.getenv("MY_SYSTEM_ID"): MY_SYSTEM_ID = os.getenv("MY_SYSTEM_ID")
 if os.getenv("LM_STUDIO_URL"): LM_STUDIO_URL = os.getenv("LM_STUDIO_URL")

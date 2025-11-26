@@ -136,15 +136,9 @@ class ResponseView(discord.ui.View):
                 self.history_messages, self.channel_obj, self.image_data_uri, self.member_description, self.search_context, self.reply_context_str
             )
             
-            # --- MARKDOWN CLEANUP ---
-            new_response_text = re.sub(r'^#+\s*', '', new_response_text)
-            new_response_text = new_response_text.replace('\n#', '\n')
-
-            # Clean Text
-            new_response_text = new_response_text.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
-            new_response_text = re.sub(r'\s*\(re:.*?\)', '', new_response_text).strip()
-            # Reconstruct Hyperlinks: (Text)(URL) -> [Text](URL)
-            new_response_text = re.sub(r'\(([^)]+)\)\((https?://[^\s)]+)\)', r'[\1](\2)', new_response_text)
+            # Use helper for consistent cleaning
+            new_response_text = helpers.sanitize_llm_response(new_response_text)
+            new_response_text = helpers.restore_hyperlinks(new_response_text)
             
             # 3. Cooldown Countdown (5s)
             for i in range(5, 0, -1):
@@ -236,10 +230,9 @@ class ResponseView(discord.ui.View):
                 system_prompt_override=" "
             )
             
-            # Post-process (same as main loop)
-            response = response.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
-            response = re.sub(r'\s*\(re:.*?\)', '', response).strip()
-            response = re.sub(r'\(([^)]+)\)\((https?://[^\s)]+)\)', r'[\1](\2)', response)
+            # Post-process using helpers
+            response = helpers.sanitize_llm_response(response)
+            response = helpers.restore_hyperlinks(response)
 
             # Create View
             view = ResponseView(

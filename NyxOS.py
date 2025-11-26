@@ -225,9 +225,6 @@ async def shutdown_command(interaction: discord.Interaction):
     await client.close()
     sys.exit(0)
 
-    await client.close()
-    sys.exit(0)
-
 @client.tree.command(name="killmyembeds", description="Toggle auto-suppression of hyperlink embeds for your messages.")
 async def killmyembeds_command(interaction: discord.Interaction):
     is_enabled = memory_manager.toggle_suppressed_user(interaction.user.id)
@@ -326,10 +323,9 @@ async def testmessage_command(interaction: discord.Interaction):
         system_prompt_override=" "
     )
     
-    # Post-process
-    response = response.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
-    response = re.sub(r'\s*\(re:.*?\)', '', response).strip()
-    response = re.sub(r'\(([^)]+)\)\((https?://[^\s)]+)\)', r'[\1](\2)', response)
+    # Post-process using helpers
+    response = helpers.sanitize_llm_response(response)
+    response = helpers.restore_hyperlinks(response)
 
     view = ui.ResponseView("TEST MESSAGE", interaction.user.id, "Admin", "", [], interaction.channel, None, None, None, "")
     await interaction.followup.send(response, view=view)
@@ -372,7 +368,9 @@ async def debugtest_command(interaction: discord.Interaction):
     suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
     suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
     suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommandHandler))
+    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestUI))
+    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServerAdmin))
+    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommands))
     
     # Run in a separate thread to avoid event loop conflicts
     start_time = time.time()

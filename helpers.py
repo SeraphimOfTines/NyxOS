@@ -84,3 +84,35 @@ def is_authorized(user_id):
     # Also check if they have an 'Admin' title in the new map? 
     # For safety, stick to ID lists for now.
     return False
+
+def sanitize_llm_response(text):
+    """
+    Cleans up the raw text response from the LLM.
+    1. Removes leading markdown headers (#) to prevent 'shouting'.
+    2. Removes mid-text headers.
+    3. Removes Seraph/Chiara/Not Seraphim tags.
+    4. Removes (re: ...) prefixes.
+    """
+    if not text: return ""
+    
+    # Strip markdown headers (#) at start of lines
+    text = re.sub(r'^#+\s*', '', text)
+    text = text.replace('\n#', '\n') 
+    
+    # Remove Identity Tags
+    text = text.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
+    
+    # Remove reply context
+    text = re.sub(r'\s*\(re:.*?\)', '', text).strip()
+    
+    return text
+
+def restore_hyperlinks(text):
+    """
+    Converts (Text)(URL) patterns back into [Text](URL) markdown links.
+    The memory manager sanitizes brackets to parentheses to prevent injection,
+    so this restores them for Discord display.
+    """
+    if not text: return ""
+    return re.sub(r'\((.+?)\)\((https?://[^\s)]+)\)', r'[\1](\2)', text)
+    
