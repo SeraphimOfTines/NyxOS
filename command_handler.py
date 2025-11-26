@@ -148,6 +148,50 @@ async def handle_prefix_command(client, message):
         await message.channel.send(msg)
         return True
 
+    # &debugtest
+    if cmd == "&debugtest":
+        if not helpers.is_authorized(message.author.id):
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+        
+        await message.channel.send("🧪 Running unit tests...")
+        try:
+            import io
+            import time
+            import unittest
+            import tests.test_suite
+            
+            # Capture stdout
+            log_capture = io.StringIO()
+            runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
+            
+            # Load Suite
+            loader = unittest.TestLoader()
+            suite = unittest.TestSuite()
+            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
+            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
+            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
+            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommandHandler))
+            
+            # Run in a separate thread to avoid event loop conflicts
+            start_time = time.time()
+            result = await asyncio.to_thread(runner.run, suite)
+            duration = time.time() - start_time
+            output = log_capture.getvalue()
+            
+            # Log
+            logger.info(f"Debug Test Output:\n{output}")
+            
+            # Send
+            status = "✅ PASSED" if result.wasSuccessful() else "❌ FAILED"
+            msg = f"**Unit Test Results:** {status}\nRan {result.testsRun} tests in {duration:.3f}s."
+            file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
+            await message.channel.send(msg, file=file)
+        except Exception as e:
+            logger.error(f"Debug Test Failed: {e}")
+            await message.channel.send(f"❌ Test Execution Failed: {e}")
+        return True
+
     # &testmessage
     if cmd == "&testmessage":
         if not helpers.is_authorized(message.author.id):

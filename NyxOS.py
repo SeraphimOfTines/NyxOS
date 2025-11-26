@@ -350,6 +350,46 @@ async def wipelogs_command(interaction: discord.Interaction):
     memory_manager.wipe_all_logs()
     await interaction.response.send_message(ui.FLAVOR_TEXT["LOGS_WIPED"], ephemeral=True)
 
+@client.tree.command(name="debugtest", description="Run unit tests and report results (Admin Only).")
+async def debugtest_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user.id):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+
+    await interaction.response.defer()
+    
+    import io
+    import unittest
+    import tests.test_suite
+    
+    # Capture stdout
+    log_capture = io.StringIO()
+    runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
+    
+    # Load Suite
+    loader = unittest.TestLoader()
+    suite = unittest.TestSuite()
+    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
+    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
+    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
+    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommandHandler))
+    
+    # Run in a separate thread to avoid event loop conflicts
+    start_time = time.time()
+    result = await asyncio.to_thread(runner.run, suite)
+    duration = time.time() - start_time
+    output = log_capture.getvalue()
+    
+    # Log to console/file
+    logger.info(f"Debug Test Output:\n{output}")
+    
+    # Send to Discord
+    status = "✅ PASSED" if result.wasSuccessful() else "❌ FAILED"
+    msg = f"**Unit Test Results:** {status}\nRan {result.testsRun} tests in {duration:.3f}s."
+    
+    file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
+    await interaction.followup.send(msg, file=file)
+
 @client.tree.command(name="help", description="Show the help index.")
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
