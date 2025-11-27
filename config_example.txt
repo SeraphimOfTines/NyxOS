@@ -27,6 +27,12 @@ BUG_REPORT_CHANNEL_ID = 000000000000000000
 STARTUP_CHANNEL_ID = 000000000000000000
 LM_STUDIO_URL = "http://localhost:1234/v1/chat/completions"
 
+# PluralKit Configuration
+# Set to True to use a local PluralKit API (e.g., localhost:5000)
+# Set to False to use the public PluralKit API (api.pluralkit.me)
+USE_LOCAL_PLURALKIT = False
+LOCAL_PLURALKIT_API_URL = "http://localhost:5000/v2"
+
 # Secrets
 BOT_TOKEN = "your_discord_bot_token_here"
 KAGI_API_TOKEN = "your_kagi_api_token_here"

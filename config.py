@@ -29,10 +29,11 @@ SUPPRESSED_USERS_FILE = get_path("suppressed_users.json")
 SERVER_SETTINGS_FILE = get_path("server_settings.json")
 
 # API Endpoints
-PLURALKIT_MESSAGE_API = "https://api.pluralkit.me/v2/messages/{}"
-PLURALKIT_USER_API = "https://api.pluralkit.me/v2/users/{}"
-PLURALKIT_SYSTEM_MEMBERS = "https://api.pluralkit.me/v2/systems/{}/members"
 KAGI_SEARCH_URL = "https://kagi.com/api/v0/search"
+
+# PluralKit Configuration
+USE_LOCAL_PLURALKIT = False
+LOCAL_PLURALKIT_API_URL = "http://localhost:5000/v2"
 
 # --- SECRET LOADING ---
 # Secrets are loaded from .env or config.txt
@@ -104,6 +105,20 @@ if os.getenv("BUG_REPORT_CHANNEL_ID"): BUG_REPORT_CHANNEL_ID = int(os.getenv("BU
 if os.getenv("STARTUP_CHANNEL_ID"): STARTUP_CHANNEL_ID = int(os.getenv("STARTUP_CHANNEL_ID"))
 if os.getenv("MODEL_TEMPERATURE"): MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE"))
 if os.getenv("CONTEXT_WINDOW"): CONTEXT_WINDOW = int(os.getenv("CONTEXT_WINDOW"))
+
+# --- PLURALKIT API CONFIGURATION ---
+# Check for overrides from Environment
+if os.getenv("USE_LOCAL_PLURALKIT"):
+    USE_LOCAL_PLURALKIT = os.getenv("USE_LOCAL_PLURALKIT").lower() in ("true", "1", "t")
+if os.getenv("LOCAL_PLURALKIT_API_URL"):
+    LOCAL_PLURALKIT_API_URL = os.getenv("LOCAL_PLURALKIT_API_URL")
+
+# Construct Endpoints
+pk_base_url = LOCAL_PLURALKIT_API_URL if USE_LOCAL_PLURALKIT else "https://api.pluralkit.me/v2"
+
+PLURALKIT_MESSAGE_API = f"{pk_base_url}/messages/{{}}"
+PLURALKIT_USER_API = f"{pk_base_url}/users/{{}}"
+PLURALKIT_SYSTEM_MEMBERS = f"{pk_base_url}/systems/{{}}/members"
 
 # Construct Template (Last step to ensure all overrides are applied)
 if INJECTED_PROMPT:

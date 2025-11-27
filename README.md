@@ -67,11 +67,23 @@ Edit `config.txt`:
 *   **`INJECTED_PROMPT`**: Additional context.
 
 ### 5. Launch 🚀
-The helper script handles the virtual environment and dependencies automatically.
+The helper scripts handle the virtual environment and dependencies automatically.
+
+**Linux / WSL:**
 ```bash
 chmod +x NyxOS.sh
 ./NyxOS.sh
 ```
+
+**Windows:**
+```powershell
+.\NyxOS.ps1
+```
+
+### 6. PluralKit Configuration (Optional)
+You can toggle between the public PluralKit API and a local instance in `config.txt`:
+*   **`USE_LOCAL_PLURALKIT = False`** (Default): Connects to the public API (`api.pluralkit.me`).
+*   **`USE_LOCAL_PLURALKIT = True`**: Connects to a local instance (default: `localhost:5000`).
 
 ## 🎮 Usage Guide
 
