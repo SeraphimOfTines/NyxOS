@@ -933,161 +933,171 @@ async def on_message(message):
             client.processing_locks.add(message.id)
             logger.info(f"Processing Message from {real_name} (ID: {message.id})")
 
-            async with message.channel.typing():
-                image_data_uri = None
-                if message.attachments:
-                    for att in message.attachments:
-                        safe_mime = helpers.get_safe_mime_type(att)
-                        if safe_mime.startswith('image/') and att.size < 8 * 1024 * 1024:
-                            try:
-                                img_bytes = await att.read()
-                                b64_str = base64.b64encode(img_bytes).decode('utf-8')
-                                image_data_uri = f"data:{safe_mime};base64,{b64_str}"
-                                break
-                            except Exception as e: logger.warning(f"⚠️ Error processing image: {e}")
+            try:
+                await message.add_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"])
+            except: pass
 
-                clean_prompt = re.sub(r'<@!?{}>'.format(client.user.id), '', message.content)
-                for rid in config.BOT_ROLE_IDS: clean_prompt = re.sub(r'<@&{}>'.format(rid), '', clean_prompt)
-                clean_prompt = clean_prompt.replace(f"@{client.user.display_name}", "").replace(f"@{client.user.name}", "")
-                clean_prompt = clean_prompt.strip().replace("? ?", "?").replace("! ?", "!?").replace('[', '(').replace(']', ')')
+            try:
+                async with message.channel.typing():
+                    image_data_uri = None
+                    if message.attachments:
+                        for att in message.attachments:
+                            safe_mime = helpers.get_safe_mime_type(att)
+                            if safe_mime.startswith('image/') and att.size < 8 * 1024 * 1024:
+                                try:
+                                    img_bytes = await att.read()
+                                    b64_str = base64.b64encode(img_bytes).decode('utf-8')
+                                    image_data_uri = f"data:{safe_mime};base64,{b64_str}"
+                                    break
+                                except Exception as e: logger.warning(f"⚠️ Error processing image: {e}")
 
-                force_search = False
-                if "&web" in clean_prompt:
-                    clean_prompt = clean_prompt.replace("&web", "").strip()
-                    force_search = True
+                    clean_prompt = re.sub(r'<@!?{}>'.format(client.user.id), '', message.content)
+                    for rid in config.BOT_ROLE_IDS: clean_prompt = re.sub(r'<@&{}>'.format(rid), '', clean_prompt)
+                    clean_prompt = clean_prompt.replace(f"@{client.user.display_name}", "").replace(f"@{client.user.name}", "")
+                    clean_prompt = clean_prompt.strip().replace("? ?", "?").replace("! ?", "!?").replace('[', '(').replace(']', ')')
 
-                clean_name = helpers.clean_name_logic(real_name, system_tag)
-                # Identity Suffix uses new Config logic
-                identity_suffix = helpers.get_identity_suffix(member_obj or sender_id, system_id, clean_name, services.service.my_system_members)
+                    force_search = False
+                    if "&web" in clean_prompt:
+                        clean_prompt = clean_prompt.replace("&web", "").strip()
+                        force_search = True
 
-                memory_manager.log_conversation(message.channel.name, real_name, sender_id or "UNKNOWN_ID", clean_prompt)
+                    clean_name = helpers.clean_name_logic(real_name, system_tag)
+                    # Identity Suffix uses new Config logic
+                    identity_suffix = helpers.get_identity_suffix(member_obj or sender_id, system_id, clean_name, services.service.my_system_members)
 
-                # History
-                history_messages = []
-                async for prev_msg in message.channel.history(limit=config.CONTEXT_WINDOW + 5, before=message):
-                    cutoff = client.channel_cutoff_times.get(message.channel.id)
-                    if cutoff and prev_msg.created_at < cutoff: break
-                    
-                    if prev_msg.webhook_id is None:
-                         # 1. Check My System Tags (Self-proxy)
-                         tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
-                         if helpers.matches_proxy_tag(prev_msg.content, tags): continue
+                    memory_manager.log_conversation(message.channel.name, real_name, sender_id or "UNKNOWN_ID", clean_prompt)
 
-                         # 2. Check Author's System Tags (Other-proxy)
-                         # This prevents "double vision" where the bot sees both the user's trigger command AND the resulting webhook
-                         try:
-                             user_sys = await services.service.get_pk_user_data(prev_msg.author.id)
-                             if user_sys and user_sys.get('system_id'):
-                                 user_tags = await services.service.get_system_proxy_tags(user_sys['system_id'])
-                                 if helpers.matches_proxy_tag(prev_msg.content, user_tags): continue
-                         except: pass
-
-                    p_content = prev_msg.clean_content.strip()
-                    has_image_history = any(att.content_type and att.content_type.startswith('image/') for att in prev_msg.attachments)
-                    if not p_content and not has_image_history: continue
-                    
-                    p_content = p_content.replace(f"@{client.user.display_name}", "").replace(f"@{client.user.name}", "")
-                    p_content = re.sub(r'<@!?{}>'.format(client.user.id), '', p_content).strip().replace('[', '(').replace(']', ')')
-
-                    current_msg_content = []
-                    if p_content: current_msg_content.append({"type": "text", "text": p_content})
-
-                    # Attachments in history (Simplified: just check one)
-                    if prev_msg.attachments:
-                         # Logic similar to current message
-                         pass # Skipping complex history image fetch to save complexity, similar to original
-
-                    if not current_msg_content: continue
-
-                    if prev_msg.author == client.user:
-                        history_messages.append({"role": "assistant", "content": p_content})
-                    else:
-                        # User history formatting
-                        p_author_name = prev_msg.author.display_name
-                        p_sender_id = prev_msg.author.id if not prev_msg.webhook_id else None
-                        p_clean_name = helpers.clean_name_logic(p_author_name, None)
-                        p_suffix = helpers.get_identity_suffix(p_sender_id, None, p_clean_name)
+                    # History
+                    history_messages = []
+                    async for prev_msg in message.channel.history(limit=config.CONTEXT_WINDOW + 5, before=message):
+                        cutoff = client.channel_cutoff_times.get(message.channel.id)
+                        if cutoff and prev_msg.created_at < cutoff: break
                         
-                        prefix = f"{p_clean_name}{p_suffix} says: "
-                        current_msg_content[0]['text'] = prefix + current_msg_content[0]['text']
-                        history_messages.append({"role": "user", "content": current_msg_content})
-                
-                if len(history_messages) > config.CONTEXT_WINDOW:
-                    history_messages = history_messages[:config.CONTEXT_WINDOW]
-                history_messages.reverse()
+                        if prev_msg.webhook_id is None:
+                             # 1. Check My System Tags (Self-proxy)
+                             tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
+                             if helpers.matches_proxy_tag(prev_msg.content, tags): continue
 
-                # Search
-                search_queries = []
-                if force_search:
-                    search_queries = await services.service.generate_search_queries(clean_prompt, history_messages, force_search=True)
+                             # 2. Check Author's System Tags (Other-proxy)
+                             # This prevents "double vision" where the bot sees both the user's trigger command AND the resulting webhook
+                             try:
+                                 user_sys = await services.service.get_pk_user_data(prev_msg.author.id)
+                                 if user_sys and user_sys.get('system_id'):
+                                     user_tags = await services.service.get_system_proxy_tags(user_sys['system_id'])
+                                     if helpers.matches_proxy_tag(prev_msg.content, user_tags): continue
+                             except: pass
 
-                search_context = None
-                if search_queries:
-                    search_results_text = ""
-                    for q in search_queries:
-                        results = await services.service.search_kagi(q)
-                        search_results_text += f"Query: {q}\n{results}\n\n"
-                    search_context = search_results_text
+                        p_content = prev_msg.clean_content.strip()
+                        has_image_history = any(att.content_type and att.content_type.startswith('image/') for att in prev_msg.attachments)
+                        if not p_content and not has_image_history: continue
+                        
+                        p_content = p_content.replace(f"@{client.user.display_name}", "").replace(f"@{client.user.name}", "")
+                        p_content = re.sub(r'<@!?{}>'.format(client.user.id), '', p_content).strip().replace('[', '(').replace(']', ')')
 
-                if not clean_prompt and image_data_uri: clean_prompt = "What is this image?"
-                elif not clean_prompt and not search_queries:
-                    await message.channel.send("🤔 You just gonna stare at me orrrr...? 💀")
-                    return
+                        current_msg_content = []
+                        if p_content: current_msg_content.append({"type": "text", "text": p_content})
 
-                current_reply_context = ""
-                if message.reference and message.reference.resolved:
-                    if isinstance(message.reference.resolved, discord.Message):
-                         current_reply_context = f" (Replying to {message.reference.resolved.author.display_name})"
+                        # Attachments in history (Simplified: just check one)
+                        if prev_msg.attachments:
+                             # Logic similar to current message
+                             pass # Skipping complex history image fetch to save complexity, similar to original
 
-                if client.user in message.mentions:
-                    current_reply_context += " (Target: NyxOS)"
+                        if not current_msg_content: continue
 
-                # Query LLM
-                response_text = await services.service.query_lm_studio(
-                    clean_prompt, clean_name, identity_suffix, history_messages, 
-                    message.channel, image_data_uri, member_description, search_context, current_reply_context
-                )
-                
-                memory_manager.log_conversation(message.channel.name, "NyxOS", client.user.id, response_text)
-                
-                # Post-process
-                response_text = response_text.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
-                response_text = re.sub(r'\s*\(re:.*?\)', '', response_text).strip()
-                
-                # Reconstruct Hyperlinks: (Text)(URL) -> [Text](URL)
-                response_text = re.sub(r'\((.+?)\)\((https?://[^\s)]+)\)', r'[\1](\2)', response_text)
-
-                view = ui.ResponseView(clean_prompt, message.author.id, clean_name, identity_suffix, history_messages, message.channel, image_data_uri, member_description, search_context, current_reply_context)
-
-                try:
-                    # Update old view
-                    prev_msg_id = client.last_bot_message_id.get(message.channel.id)
-                    if prev_msg_id and prev_msg_id in client.active_views:
-                        prev_view = client.active_views[prev_msg_id]
-                        for child in prev_view.children:
-                            if getattr(child, "custom_id", "") == "good_bot_btn":
-                                child.disabled = True
-                                child.label = "Good Bot!"
-                        try:
-                            old_msg = await message.channel.fetch_message(prev_msg_id)
-                            await old_msg.edit(view=prev_view)
-                        except: pass
-
-                    sent_message = None
-                    if len(response_text) > 2000:
-                        from io import BytesIO
-                        file = discord.File(BytesIO(response_text.encode()), filename="response.txt")
-                        sent_message = await message.reply("(Response too long, see file)", file=file, view=view, mention_author=False)
-                    else:
-                        sent_message = await message.reply(response_text, view=view, mention_author=False)
+                        if prev_msg.author == client.user:
+                            history_messages.append({"role": "assistant", "content": p_content})
+                        else:
+                            # User history formatting
+                            p_author_name = prev_msg.author.display_name
+                            p_sender_id = prev_msg.author.id if not prev_msg.webhook_id else None
+                            p_clean_name = helpers.clean_name_logic(p_author_name, None)
+                            p_suffix = helpers.get_identity_suffix(p_sender_id, None, p_clean_name)
+                            
+                            prefix = f"{p_clean_name}{p_suffix} says: "
+                            current_msg_content[0]['text'] = prefix + current_msg_content[0]['text']
+                            history_messages.append({"role": "user", "content": current_msg_content})
                     
-                    if sent_message:
-                        client.active_views[sent_message.id] = view
-                        client.last_bot_message_id[message.channel.id] = sent_message.id
-                        client.loop.create_task(client.suppress_embeds_later(sent_message, delay=5))
+                    if len(history_messages) > config.CONTEXT_WINDOW:
+                        history_messages = history_messages[:config.CONTEXT_WINDOW]
+                    history_messages.reverse()
 
-                except discord.HTTPException as e:
-                    logger.error(f"DEBUG: Failed to reply: {e}")
+                    # Search
+                    search_queries = []
+                    if force_search:
+                        search_queries = await services.service.generate_search_queries(clean_prompt, history_messages, force_search=True)
+
+                    search_context = None
+                    if search_queries:
+                        search_results_text = ""
+                        for q in search_queries:
+                            results = await services.service.search_kagi(q)
+                            search_results_text += f"Query: {q}\n{results}\n\n"
+                        search_context = search_results_text
+
+                    if not clean_prompt and image_data_uri: clean_prompt = "What is this image?"
+                    elif not clean_prompt and not search_queries:
+                        await message.channel.send("🤔 You just gonna stare at me orrrr...? 💀")
+                        return
+
+                    current_reply_context = ""
+                    if message.reference and message.reference.resolved:
+                        if isinstance(message.reference.resolved, discord.Message):
+                             current_reply_context = f" (Replying to {message.reference.resolved.author.display_name})"
+
+                    if client.user in message.mentions:
+                        current_reply_context += " (Target: NyxOS)"
+
+                    # Query LLM
+                    response_text = await services.service.query_lm_studio(
+                        clean_prompt, clean_name, identity_suffix, history_messages, 
+                        message.channel, image_data_uri, member_description, search_context, current_reply_context
+                    )
+                    
+                    memory_manager.log_conversation(message.channel.name, "NyxOS", client.user.id, response_text)
+                    
+                    # Post-process
+                    response_text = response_text.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
+                    response_text = re.sub(r'\s*\(re:.*?\)', '', response_text).strip()
+                    
+                    # Reconstruct Hyperlinks: (Text)(URL) -> [Text](URL)
+                    response_text = re.sub(r'\((.+?)\)\((https?://[^\s)]+)\)', r'[\1](\2)', response_text)
+
+                    view = ui.ResponseView(clean_prompt, message.author.id, clean_name, identity_suffix, history_messages, message.channel, image_data_uri, member_description, search_context, current_reply_context)
+
+                    try:
+                        # Update old view
+                        prev_msg_id = client.last_bot_message_id.get(message.channel.id)
+                        if prev_msg_id and prev_msg_id in client.active_views:
+                            prev_view = client.active_views[prev_msg_id]
+                            for child in prev_view.children:
+                                if getattr(child, "custom_id", "") == "good_bot_btn":
+                                    child.disabled = True
+                                    child.label = "Good Bot!"
+                            try:
+                                old_msg = await message.channel.fetch_message(prev_msg_id)
+                                await old_msg.edit(view=prev_view)
+                            except: pass
+
+                        sent_message = None
+                        if len(response_text) > 2000:
+                            from io import BytesIO
+                            file = discord.File(BytesIO(response_text.encode()), filename="response.txt")
+                            sent_message = await message.reply("(Response too long, see file)", file=file, view=view, mention_author=False)
+                        else:
+                            sent_message = await message.reply(response_text, view=view, mention_author=False)
+                        
+                        if sent_message:
+                            client.active_views[sent_message.id] = view
+                            client.last_bot_message_id[message.channel.id] = sent_message.id
+                            client.loop.create_task(client.suppress_embeds_later(sent_message, delay=5))
+
+                    except discord.HTTPException as e:
+                        logger.error(f"DEBUG: Failed to reply: {e}")
+
+            finally:
+                try:
+                    await message.remove_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"], client.user)
+                except: pass
 
     finally:
         if message.id in client.processing_locks:
