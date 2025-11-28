@@ -22,3 +22,4 @@ kagi_token.txt
 system_prompt.txt
 injected_prompt.txt
 unit_tests.txt
+output.*
