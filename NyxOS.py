@@ -981,7 +981,9 @@ async def on_message(message):
                         if pk_name:
                             real_name = pk_name
                             system_tag = pk_tag
-                            if pk_sender: sender_id = int(pk_sender)
+                            if pk_sender: 
+                                try: sender_id = int(pk_sender)
+                                except: sender_id = None
                             system_id = pk_sys_id
                             member_description = pk_desc
                             logger.info(f"DEBUG: PK Message. SenderID: {sender_id} | SystemID: {system_id} | ConfigSysID: {config.MY_SYSTEM_ID}")
@@ -995,6 +997,10 @@ async def on_message(message):
                     # Check Permissions
                     member_obj = None
                     if message.guild and sender_id:
+                        # Ensure int (redundant but safe)
+                        try: sender_id = int(sender_id)
+                        except: pass
+                        
                         member_obj = message.guild.get_member(sender_id)
                         if not member_obj:
                             try: member_obj = await message.guild.fetch_member(sender_id)
@@ -1011,7 +1017,7 @@ async def on_message(message):
                     is_own_system = (system_id == config.MY_SYSTEM_ID)
                     
                     if not is_own_system and not helpers.is_authorized(member_obj or sender_id):
-                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}, SysID: {system_id}).")
+                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}). Admin Roles: {config.ADMIN_ROLE_IDS}")
                         return
                     elif is_own_system:
                         logger.info(f"✅ Access Granted via System Match: {system_id}")

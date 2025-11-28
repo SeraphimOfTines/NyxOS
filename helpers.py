@@ -1,7 +1,10 @@
 import mimetypes
 import re
 from datetime import datetime, timedelta, timezone
+import logging
 import config
+
+logger = logging.getLogger("Helpers")
 
 def get_safe_mime_type(attachment):
     filename = attachment.filename.lower()
@@ -90,12 +93,15 @@ def is_authorized(user_obj):
     """Checks if a user is authorized (Admin/Special)."""
     # Handle raw IDs gracefully
     if isinstance(user_obj, (int, str)):
-        # Check if the ID itself is in the allowed lists (Permissive Config)
         try:
             uid = int(user_obj)
+            # Note: This checks if the User ID is in the Role ID list. 
+            # This is valid if the user put their User ID in the config, 
+            # but usually these lists contain Role IDs.
             if uid in config.ADMIN_ROLE_IDS: return True
             if uid in config.SPECIAL_ROLE_IDS: return True
         except: pass
+        logger.debug(f"Auth Failed for ID {user_obj}: Not in Admin/Special lists.")
         return False
 
     # Check object ID (Permissive)
@@ -108,6 +114,9 @@ def is_authorized(user_obj):
         role_ids = [r.id for r in user_obj.roles]
         if any(rid in config.ADMIN_ROLE_IDS for rid in role_ids): return True
         if any(rid in config.SPECIAL_ROLE_IDS for rid in role_ids): return True
+        
+        # Debug Log for failure
+        # logger.debug(f"Auth Failed for {user_obj}: Roles {role_ids} not in Admin {config.ADMIN_ROLE_IDS}")
     
     return False
 
