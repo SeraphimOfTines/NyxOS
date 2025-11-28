@@ -80,6 +80,7 @@ STARTUP_CHANNEL_ID = 0
 BOT_ROLE_IDS = []
 MODEL_TEMPERATURE = 0.6
 CONTEXT_WINDOW = 20
+WAKE_WORD_REACTION = "<a:SeraphEyesLooking:1297065068847960086>"
 
 try:
     with open(get_path("config.txt"), "r") as f:
@@ -106,6 +107,7 @@ if os.getenv("BUG_REPORT_CHANNEL_ID"): BUG_REPORT_CHANNEL_ID = int(os.getenv("BU
 if os.getenv("STARTUP_CHANNEL_ID"): STARTUP_CHANNEL_ID = int(os.getenv("STARTUP_CHANNEL_ID"))
 if os.getenv("MODEL_TEMPERATURE"): MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE"))
 if os.getenv("CONTEXT_WINDOW"): CONTEXT_WINDOW = int(os.getenv("CONTEXT_WINDOW"))
+if os.getenv("WAKE_WORD_REACTION"): WAKE_WORD_REACTION = os.getenv("WAKE_WORD_REACTION")
 
 # --- PLURALKIT API CONFIGURATION ---
 # Check for overrides from Environment
