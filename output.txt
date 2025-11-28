@@ -1,0 +1,74 @@
+version: "3"
+
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: ci/Dockerfile.rust
+    environment:
+      - RUST_LOG=info
+      - pluralkit__db__data_db_uri=postgresql://postgres:postgres@db:5432/postgres
+      - pluralkit__db__data_redis_addr=1
+    command: ["/migrate"]
+    depends_on: ["db"]
+
+  bot:
+    build:
+      context: .
+      dockerfile: ci/Dockerfile.dotnet
+    command: ["bin/PluralKit.Bot.dll"]
+    environment:
+      - "PluralKit__Database=Host=db;Username=postgres;Password=postgres;Database=postgres"
+      - "PluralKit__RedisAddr=redis"
+      - "PluralKit__Bot__Token=${BOT_TOKEN}"
+      - "PluralKit__Bot__ClientId=${CLIENT_ID}"
+      - "PluralKit__Bot__AdminRole=${ADMIN_ROLE}"
+      - "PluralKit__Bot__HttpCacheUrl=gateway:5000"
+      - "PluralKit__Bot__HttpListenerAddr=0.0.0.0"
+      - "PluralKit__Bot__EventAwaiterTarget=http://bot:5002/events"
+      - "PluralKit__Bot__DisableGateway=true"
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  gateway:
+    build:
+      context: .
+      dockerfile: ci/Dockerfile.rust
+    command: ["/gateway"]
+    ports:
+      - "5000:5000"
+    environment:
+      - RUST_LOG=info
+      - pluralkit__discord__client_id=${CLIENT_ID}
+      - pluralkit__discord__bot_token=${BOT_TOKEN}
+      - pluralkit__discord__max_concurrency=1
+      - pluralkit__discord__gateway_target=http://bot:5002/events
+      - pluralkit__db__data_db_uri=postgresql://postgres:postgres@db:5432/postgres
+      - pluralkit__db__data_redis_addr=redis://redis:6379
+      - pluralkit__api__temp_token2=1
+      - pluralkit__api__remote_url=1
+      - pluralkit__api__ratelimit_redis_addr=1
+      - pluralkit__discord__client_secret=1
+      - pluralkit__runtime_config_key=gateway
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - "db_data:/var/lib/postgresql/data"
+    environment:
+      - "POSTGRES_PASSWORD=postgres"
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+
+volumes:
+  db_data:

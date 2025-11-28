@@ -34,6 +34,7 @@ KAGI_SEARCH_URL = "https://kagi.com/api/v0/search"
 # PluralKit Configuration
 USE_LOCAL_PLURALKIT = False
 LOCAL_PLURALKIT_API_URL = "http://localhost:5000/v2"
+PLURALKIT_DB_URI = "postgresql://postgres:postgres@localhost:5432/postgres"
 
 # --- SECRET LOADING ---
 # Secrets are loaded from .env or config.txt

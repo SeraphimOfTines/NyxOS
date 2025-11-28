@@ -13,12 +13,22 @@ logger = logging.getLogger("Services")
 class APIService:
     def __init__(self):
         self.http_session = None
+        self.db_pool = None
         self.pk_user_cache = {}   
         self.pk_proxy_tags = {}   
         self.my_system_members = set() 
 
     async def start(self):
         self.http_session = aiohttp.ClientSession()
+        
+        if config.USE_LOCAL_PLURALKIT and hasattr(config, 'PLURALKIT_DB_URI') and config.PLURALKIT_DB_URI:
+            try:
+                import asyncpg
+                self.db_pool = await asyncpg.create_pool(config.PLURALKIT_DB_URI)
+                logger.info("Connected to PluralKit Database.")
+            except Exception as e:
+                logger.error(f"Failed to connect to PK DB: {e}")
+        
         await self.fetch_my_system_data()
         logger.info("APIService started.")
 
@@ -28,6 +38,8 @@ class APIService:
                 await self.http_session.close()
             except TypeError:
                 pass 
+        if self.db_pool:
+            await self.db_pool.close()
         logger.info("APIService closed.")
 
     # --- PLURALKIT ---
@@ -45,6 +57,27 @@ class APIService:
             logger.warning(f"Error fetching main system data: {e}")
 
     async def get_pk_user_data(self, user_id):
+        # 1. Try DB if Local
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    row = await conn.fetchrow("""
+                        SELECT s.hid, s.tag 
+                        FROM accounts a 
+                        JOIN systems s ON a.system = s.id 
+                        WHERE a.uid = $1
+                    """, user_id)
+                    if row:
+                        result = {'system_id': row['hid'], 'tag': row['tag']}
+                        self.pk_user_cache[user_id] = result
+                        return result
+                    # If no row, user might not be in a system or DB logic differs.
+                    # Don't cache failure immediately to fallback to API? 
+                    # Actually, if DB is authoritative, it means no system.
+            except Exception as e:
+                logger.error(f"PK DB User Lookup Error: {e}")
+
+        # 2. Fallback to API / Cache
         if user_id in self.pk_user_cache:
             return self.pk_user_cache[user_id]
 
@@ -82,6 +115,44 @@ class APIService:
         return tags
 
     async def get_pk_message_data(self, message_id):
+        # 1. Try DB if Local
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    # Join messages -> members -> systems
+                    # 'mid' is commonly the Discord Message ID column in PK
+                    row = await conn.fetchrow("""
+                        SELECT 
+                            m.sender AS sender_id,
+                            mem.name,
+                            mem.display_name,
+                            mem.description,
+                            s.hid AS system_id,
+                            s.name AS system_name,
+                            s.tag AS system_tag
+                        FROM messages m
+                        LEFT JOIN members mem ON m.member = mem.id
+                        LEFT JOIN systems s ON mem.system = s.id
+                        WHERE m.mid = $1
+                    """, message_id)
+                    
+                    if row:
+                        final_name = row['display_name'] if row['display_name'] else row['name']
+                        desc = row['description']
+                        if desc: desc = desc.replace('[', '(').replace(']', ')')
+                        
+                        return (
+                            final_name, 
+                            row['system_id'], 
+                            row['system_name'], 
+                            row['system_tag'], 
+                            row['sender_id'], 
+                            desc
+                        )
+            except Exception as e:
+                logger.error(f"PK DB Message Lookup Error: {e}")
+
+        # 2. Fallback to API
         url = config.PLURALKIT_MESSAGE_API.format(message_id)
         try:
             async with self.http_session.get(url) as resp:
