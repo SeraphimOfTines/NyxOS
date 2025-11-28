@@ -984,7 +984,7 @@ async def on_message(message):
                             if pk_sender: sender_id = int(pk_sender)
                             system_id = pk_sys_id
                             member_description = pk_desc
-                            logger.info(f"DEBUG: PK Message. SenderID: {sender_id} | SystemID: {system_id}")
+                            logger.info(f"DEBUG: PK Message. SenderID: {sender_id} | SystemID: {system_id} | ConfigSysID: {config.MY_SYSTEM_ID}")
                     else:
                         sender_id = message.author.id
                         user_sys_data = await services.service.get_pk_user_data(sender_id)
@@ -1007,9 +1007,14 @@ async def on_message(message):
                     else:
                         logger.info(f"DEBUG: Member NOT Found for ID: {sender_id}")
 
-                    if not helpers.is_authorized(member_obj or sender_id):
-                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}).")
+                    # Auth Check: Allow if Admin/Special Role OR if it's the Owner's System
+                    is_own_system = (system_id == config.MY_SYSTEM_ID)
+                    
+                    if not is_own_system and not helpers.is_authorized(member_obj or sender_id):
+                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}, SysID: {system_id}).")
                         return
+                    elif is_own_system:
+                        logger.info(f"✅ Access Granted via System Match: {system_id}")
 
                     clean_name = helpers.clean_name_logic(real_name, system_tag)
                     # Identity Suffix uses new Config logic
