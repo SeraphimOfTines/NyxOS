@@ -46,7 +46,7 @@ FLAVOR_TEXT = {
     "GLOBAL_CHAT_ENABLED": "🌍 Global Chat Mode **ENABLED**. I will now respond in all channels!",
     "GLOBAL_CHAT_DISABLED": "🔒 Global Chat Mode **DISABLED**. I will only respond in whitelisted channels.",
     "GOOD_BOT_REACTION": "💙",
-    "WAKE_WORD_REACTION": config.WAKE_WORD_REACTION,
+    "WAKE_WORD_REACTION": "<a:SeraphEyesLooking:1297065068847960086>",
 }
 
 # ==========================================
