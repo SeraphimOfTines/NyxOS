@@ -47,6 +47,10 @@ FLAVOR_TEXT = {
     "GLOBAL_CHAT_DISABLED": "🔒 Global Chat Mode **DISABLED**. I will only respond in whitelisted channels.",
     "GOOD_BOT_REACTION": "💙",
     "WAKE_WORD_REACTION": "<a:Thinking:1322962569300017214>",
+    "BAR_DROP": "⬇️ Drop",
+    "BAR_DELETE": "🗑️ Delete",
+    "BAR_PERSIST_OFF": "🔁 Persist: OFF",
+    "BAR_PERSIST_ON": "✅ Persist: ON",
 }
 
 # ==========================================
@@ -106,6 +110,77 @@ class BugReportModal(discord.ui.Modal, title="Report a Bug"):
 
         except Exception as e:
              await interaction.response.send_message(f"❌ Error sending report: {e}", ephemeral=True)
+
+# ==========================================
+# STATUS BAR VIEW
+# ==========================================
+
+class StatusBarView(discord.ui.View):
+    def __init__(self, content, original_user_id, channel_id, persisting=False):
+        super().__init__(timeout=None)
+        self.content = content
+        self.original_user_id = original_user_id
+        self.channel_id = channel_id
+        self.persisting = persisting
+        
+        # Update persist button state on init
+        self.update_buttons()
+
+    def update_buttons(self):
+        for child in self.children:
+            if getattr(child, "custom_id", "") == "bar_persist_btn":
+                child.label = FLAVOR_TEXT["BAR_PERSIST_ON"] if self.persisting else FLAVOR_TEXT["BAR_PERSIST_OFF"]
+                child.style = discord.ButtonStyle.success if self.persisting else discord.ButtonStyle.secondary
+
+    async def check_auth(self, interaction, button):
+        # Only Original User or Admin
+        if interaction.user.id == self.original_user_id or helpers.is_authorized(interaction.user):
+            return True
+        
+        # Unauthorized Animation
+        original_label = button.label
+        button.label = "Nope!"
+        await interaction.response.edit_message(view=self)
+        await asyncio.sleep(1)
+        button.label = original_label
+        try: await interaction.edit_original_response(view=self)
+        except: pass
+        return False
+
+    @discord.ui.button(label=FLAVOR_TEXT["BAR_DROP"], style=discord.ButtonStyle.primary, custom_id="bar_drop_btn")
+    async def drop_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.check_auth(interaction, button): return
+        
+        await interaction.response.defer()
+        if hasattr(interaction.client, "drop_status_bar"):
+            await interaction.client.drop_status_bar(self.channel_id)
+        else:
+            await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
+
+    @discord.ui.button(label=FLAVOR_TEXT["BAR_DELETE"], style=discord.ButtonStyle.danger, custom_id="bar_delete_btn")
+    async def delete_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.check_auth(interaction, button): return
+        
+        # Remove from global state
+        if hasattr(interaction.client, "active_bars"):
+            if self.channel_id in interaction.client.active_bars:
+                del interaction.client.active_bars[self.channel_id]
+        
+        await interaction.message.delete()
+
+    @discord.ui.button(label=FLAVOR_TEXT["BAR_PERSIST_OFF"], style=discord.ButtonStyle.secondary, custom_id="bar_persist_btn")
+    async def persist_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.check_auth(interaction, button): return
+        
+        self.persisting = not self.persisting
+        
+        # Update global state
+        if hasattr(interaction.client, "active_bars") and self.channel_id in interaction.client.active_bars:
+            interaction.client.active_bars[self.channel_id]['persisting'] = self.persisting
+            
+        self.update_buttons()
+        await interaction.response.edit_message(view=self)
+
 
 # ==========================================
 # VIEW

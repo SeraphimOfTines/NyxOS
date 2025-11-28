@@ -62,6 +62,8 @@ class LMStudioBot(discord.Client):
         self.good_bot_cooldowns = {} 
         self.processing_locks = set() 
         self.active_views = {} 
+        self.active_bars = {}
+        self.bar_drop_cooldowns = {}
         self.last_bot_message_id = {} 
         self.boot_cleared_channels = set()
         self.has_synced = False
@@ -97,6 +99,39 @@ class LMStudioBot(discord.Client):
             
         await services.service.start()
         self.loop.create_task(self.heartbeat_task())
+
+    async def drop_status_bar(self, channel_id):
+        if channel_id not in self.active_bars:
+            return
+        
+        # Cooldown Check (Prevent Race Conditions)
+        now = time.time()
+        if now - self.bar_drop_cooldowns.get(channel_id, 0) < 2.0:
+            return
+        self.bar_drop_cooldowns[channel_id] = now
+        
+        bar_data = self.active_bars[channel_id]
+        channel = self.get_channel(channel_id)
+        if not channel:
+            try: channel = await self.fetch_channel(channel_id)
+            except: return
+
+        # Delete old message
+        if bar_data.get("message_id"):
+            try:
+                old_msg = await channel.fetch_message(bar_data["message_id"])
+                await old_msg.delete()
+            except discord.NotFound: pass
+            except Exception as e: logger.warning(f"Failed to delete old bar: {e}")
+        
+        # Send new message
+        view = ui.StatusBarView(bar_data["content"], bar_data["user_id"], channel_id, bar_data["persisting"])
+        try:
+            new_msg = await channel.send(bar_data["content"], view=view)
+            self.active_bars[channel_id]["message_id"] = new_msg.id
+            self.active_views[new_msg.id] = view 
+        except Exception as e:
+            logger.error(f"Failed to drop status bar: {e}")
 
     async def on_ready(self):
         # ... (Existing on_ready logic handled below, but we add sync check here)
@@ -426,6 +461,38 @@ async def debugtest_command(interaction: discord.Interaction):
     file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
     await interaction.followup.send(msg, file=file)
 
+@client.tree.command(name="bar", description="Create a persistent status bar/sticker.")
+async def bar_command(interaction: discord.Interaction, content: str):
+    # Remove existing bar if present
+    if interaction.channel_id in client.active_bars:
+        old = client.active_bars[interaction.channel_id]
+        if old.get("message_id"):
+            try:
+                msg = await interaction.channel.fetch_message(old["message_id"])
+                await msg.delete()
+            except: pass
+
+    # Setup active bar entry
+    client.active_bars[interaction.channel_id] = {
+        "content": content,
+        "user_id": interaction.user.id,
+        "message_id": None,
+        "persisting": False
+    }
+    
+    await interaction.response.send_message("Creating bar...", ephemeral=True, delete_after=1.0)
+    await client.drop_status_bar(interaction.channel_id)
+
+@client.tree.command(name="drop", description="Drop (refresh) the current status bar.")
+async def drop_command(interaction: discord.Interaction):
+    if interaction.channel_id not in client.active_bars:
+        await interaction.response.send_message("❌ No active bar in this channel. Use `/bar` to create one.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    await client.drop_status_bar(interaction.channel_id)
+    await interaction.followup.send("✅ Bar dropped.", ephemeral=True)
+
 @client.tree.command(name="help", description="Show the help index.")
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
@@ -526,10 +593,57 @@ async def on_message_edit(before, after):
 async def on_message(message):
     if message.author == client.user: return
 
+    # --- STATUS BAR PERSISTENCE ---
+    if message.channel.id in client.active_bars:
+        bar_data = client.active_bars[message.channel.id]
+        if bar_data["persisting"]:
+             client.loop.create_task(client.drop_status_bar(message.channel.id))
+
     # --- PREFIX COMMANDS ---
     if message.content.startswith("&"):
         cmd = message.content.split()[0].lower()
         
+        # &bar
+        if cmd == "&bar":
+            # Cooldown to prevent race conditions (User + Webhook)
+            if time.time() - client.bar_drop_cooldowns.get(message.channel.id, 0) < 2.0:
+                return
+
+            content = message.content[5:].strip()
+            if not content:
+                await message.channel.send("❌ Usage: `&bar <text/emojis>`")
+                return
+            
+            try: await message.delete()
+            except: pass
+            
+            # Remove existing bar if present
+            if message.channel.id in client.active_bars:
+                old = client.active_bars[message.channel.id]
+                if old.get("message_id"):
+                    try:
+                        msg = await message.channel.fetch_message(old["message_id"])
+                        await msg.delete()
+                    except: pass
+
+            client.active_bars[message.channel.id] = {
+                "content": content,
+                "user_id": message.author.id,
+                "message_id": None,
+                "persisting": False
+            }
+            await client.drop_status_bar(message.channel.id)
+            return
+
+        # &drop
+        if cmd == "&drop":
+            try: await message.delete()
+            except: pass
+            
+            if message.channel.id in client.active_bars:
+                await client.drop_status_bar(message.channel.id)
+            return
+
         # &addchannel
         if cmd == "&addchannel":
             member_obj = message.guild.get_member(message.author.id) if message.guild else None
