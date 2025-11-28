@@ -133,6 +133,14 @@ def get_server_setting(key, default=True):
 def set_server_setting(key, value):
     db.set_setting(key, value)
 
+# --- VIEW PERSISTENCE ---
+
+def save_view_state(message_id, data):
+    db.save_view_state(message_id, data)
+
+def get_view_state(message_id):
+    return db.get_view_state(message_id)
+
 # --- ALLOWED CHANNELS ---
 
 # Cache for allowed channels to avoid DB hits on every message

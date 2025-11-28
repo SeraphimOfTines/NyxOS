@@ -98,6 +98,7 @@ class LMStudioBot(discord.Client):
             except: pass
             
         await services.service.start()
+        self.add_view(ui.ResponseView())
         self.loop.create_task(self.heartbeat_task())
 
     async def drop_status_bar(self, channel_id):
@@ -182,6 +183,30 @@ class LMStudioBot(discord.Client):
         try:
             await message.edit(suppress=True)
         except: pass
+
+    async def cleanup_old_bars(self, channel):
+        """Scans last 20 messages and deletes any status bars found."""
+        try:
+            async for msg in channel.history(limit=20):
+                if msg.author.id == self.user.id and msg.components:
+                    is_bar = False
+                    for row in msg.components:
+                        for child in row.children:
+                            if getattr(child, "custom_id", "").startswith("bar_"):
+                                is_bar = True
+                                break
+                        if is_bar: break
+                    
+                    if is_bar:
+                        try: await msg.delete()
+                        except: pass
+            
+            # Also clear from runtime state if it matches
+            if channel.id in self.active_bars:
+                del self.active_bars[channel.id]
+
+        except Exception as e:
+            logger.warning(f"Bar cleanup failed: {e}")
 
 client = LMStudioBot()
 
@@ -463,14 +488,7 @@ async def debugtest_command(interaction: discord.Interaction):
 
 @client.tree.command(name="bar", description="Create a persistent status bar/sticker.")
 async def bar_command(interaction: discord.Interaction, content: str):
-    # Remove existing bar if present
-    if interaction.channel_id in client.active_bars:
-        old = client.active_bars[interaction.channel_id]
-        if old.get("message_id"):
-            try:
-                msg = await interaction.channel.fetch_message(old["message_id"])
-                await msg.delete()
-            except: pass
+    await client.cleanup_old_bars(interaction.channel)
 
     # Setup active bar entry
     client.active_bars[interaction.channel_id] = {
@@ -617,14 +635,7 @@ async def on_message(message):
             try: await message.delete()
             except: pass
             
-            # Remove existing bar if present
-            if message.channel.id in client.active_bars:
-                old = client.active_bars[message.channel.id]
-                if old.get("message_id"):
-                    try:
-                        msg = await message.channel.fetch_message(old["message_id"])
-                        await msg.delete()
-                    except: pass
+            await client.cleanup_old_bars(message.channel)
 
             client.active_bars[message.channel.id] = {
                 "content": content,
@@ -636,13 +647,6 @@ async def on_message(message):
             return
 
         # &drop
-        if cmd == "&drop":
-            try: await message.delete()
-            except: pass
-            
-            if message.channel.id in client.active_bars:
-                await client.drop_status_bar(message.channel.id)
-            return
 
         # &addchannel
         if cmd == "&addchannel":
@@ -1280,6 +1284,20 @@ async def on_message(message):
                         if sent_message:
                             client.active_views[sent_message.id] = view
                             client.last_bot_message_id[message.channel.id] = sent_message.id
+
+                            # --- SAVE VIEW STATE FOR PERSISTENCE ---
+                            view_data = {
+                                "original_prompt": clean_prompt,
+                                "username": clean_name,
+                                "identity_suffix": identity_suffix,
+                                "history_messages": history_messages,
+                                "image_data_uri": image_data_uri,
+                                "member_description": member_description,
+                                "search_context": search_context,
+                                "reply_context_str": current_reply_context
+                            }
+                            memory_manager.save_view_state(sent_message.id, view_data)
+
                             client.loop.create_task(client.suppress_embeds_later(sent_message, delay=5))
 
                     except discord.HTTPException as e:

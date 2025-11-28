@@ -46,11 +46,50 @@ class Database:
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )""")
+
+                # View Persistence
+                c.execute("""CREATE TABLE IF NOT EXISTS view_persistence (
+                    message_id TEXT PRIMARY KEY,
+                    data TEXT,
+                    timestamp TIMESTAMP
+                )""")
                 
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             raise
+
+    # --- View Persistence Methods ---
+
+    def save_view_state(self, message_id, data):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                # Serialize complex objects if needed (but data passed should be dict of primitives)
+                json_data = json.dumps(data)
+                c.execute("""
+                    INSERT INTO view_persistence (message_id, data, timestamp)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(message_id) DO UPDATE SET
+                        data = excluded.data,
+                        timestamp = excluded.timestamp
+                """, (str(message_id), json_data, datetime.now()))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save view state: {e}")
+
+    def get_view_state(self, message_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT data FROM view_persistence WHERE message_id = ?", (str(message_id),))
+                row = c.fetchone()
+                if row:
+                    return json.loads(row[0])
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get view state: {e}")
+            return None
 
     # --- Context Buffer Methods ---
 

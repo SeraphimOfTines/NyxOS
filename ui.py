@@ -187,7 +187,7 @@ class StatusBarView(discord.ui.View):
 # ==========================================
 
 class ResponseView(discord.ui.View):
-    def __init__(self, original_prompt, user_id, username, identity_suffix, history_messages, channel_obj, image_data_uri, member_description, search_context, reply_context_str):
+    def __init__(self, original_prompt=None, user_id=None, username=None, identity_suffix=None, history_messages=None, channel_obj=None, image_data_uri=None, member_description=None, search_context=None, reply_context_str=None):
         super().__init__(timeout=None)
         self.original_prompt = original_prompt
         self.user_id = user_id
@@ -200,8 +200,67 @@ class ResponseView(discord.ui.View):
         self.search_context = search_context
         self.reply_context_str = reply_context_str
 
+        # Add Debug Buttons if Debug Mode is ON
+        # We check this dynamically during init
+        if memory_manager.get_server_setting("debug_mode", False):
+            self.add_debug_buttons()
+
+    def add_debug_buttons(self):
+        # Reboot
+        btn_reboot = discord.ui.Button(label="🔄 Reboot", style=discord.ButtonStyle.danger, row=1, custom_id="debug_reboot_btn")
+        btn_reboot.callback = self.debug_reboot_callback
+        self.add_item(btn_reboot)
+        
+        # Shutdown
+        btn_shutdown = discord.ui.Button(label="🛑 Shutdown", style=discord.ButtonStyle.danger, row=1, custom_id="debug_shutdown_btn")
+        btn_shutdown.callback = self.debug_shutdown_callback
+        self.add_item(btn_shutdown)
+
+        # Test
+        btn_test = discord.ui.Button(label="🧪 Test", style=discord.ButtonStyle.secondary, row=1, custom_id="debug_test_btn")
+        btn_test.callback = self.debug_test_callback
+        self.add_item(btn_test)
+
+        # Wipe Mem
+        btn_wipe = discord.ui.Button(label="🧠 Wipe Mem", style=discord.ButtonStyle.danger, row=2, custom_id="debug_wipe_mem_btn")
+        btn_wipe.callback = self.debug_wipe_mem_callback
+        self.add_item(btn_wipe)
+
+        # Wipe Logs
+        btn_logs = discord.ui.Button(label="🔥 Wipe Logs", style=discord.ButtonStyle.danger, row=2, custom_id="debug_wipe_logs_btn")
+        btn_logs.callback = self.debug_wipe_logs_callback
+        self.add_item(btn_logs)
+
     @discord.ui.button(label=FLAVOR_TEXT["RETRY_BUTTON"], style=discord.ButtonStyle.primary, custom_id="retry_btn", row=0)
     async def retry_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Local variables to avoid singleton pollution
+        prompt = self.original_prompt
+        username = self.username
+        identity_suffix = self.identity_suffix
+        history = self.history_messages
+        channel = self.channel_obj
+        image = self.image_data_uri
+        desc = self.member_description
+        search = self.search_context
+        reply_ctx = self.reply_context_str
+
+        # Check for lost state (Persistence Fallback)
+        if prompt is None:
+            state = memory_manager.get_view_state(interaction.message.id)
+            if state:
+                prompt = state.get('original_prompt')
+                username = state.get('username')
+                identity_suffix = state.get('identity_suffix')
+                history = state.get('history_messages')
+                channel = interaction.channel # Use current channel object
+                image = state.get('image_data_uri') 
+                desc = state.get('member_description')
+                search = state.get('search_context')
+                reply_ctx = state.get('reply_context_str')
+            else:
+                await interaction.response.send_message("❌ Context lost due to reboot. Cannot retry old messages.", ephemeral=True)
+                return
+
         # 1. Disable and set status
         button.label = "Regenerating . . ."
         button.disabled = True
@@ -210,8 +269,8 @@ class ResponseView(discord.ui.View):
         try:
             # 2. Call Service Logic
             new_response_text = await services.service.query_lm_studio(
-                self.original_prompt, self.username, self.identity_suffix, 
-                self.history_messages, self.channel_obj, self.image_data_uri, self.member_description, self.search_context, self.reply_context_str
+                prompt, username, identity_suffix, 
+                history, channel, image, desc, search, reply_ctx
             )
             
             # Use helper for consistent cleaning

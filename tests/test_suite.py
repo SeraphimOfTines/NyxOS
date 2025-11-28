@@ -190,6 +190,26 @@ class TestMemoryManager(unittest.TestCase):
         users = memory_manager.get_suppressed_users()
         self.assertNotIn("999", users)
 
+    def test_view_persistence(self):
+        msg_id = 123456789
+        data = {"prompt": "test", "user": "admin"}
+        
+        # Save
+        memory_manager.save_view_state(msg_id, data)
+        
+        # Retrieve
+        retrieved = memory_manager.get_view_state(msg_id)
+        self.assertEqual(retrieved['prompt'], "test")
+        
+        # Update
+        data['prompt'] = "new"
+        memory_manager.save_view_state(msg_id, data)
+        retrieved = memory_manager.get_view_state(msg_id)
+        self.assertEqual(retrieved['prompt'], "new")
+        
+        # Missing
+        self.assertIsNone(memory_manager.get_view_state(999))
+
 class TestServices(unittest.IsolatedAsyncioTestCase):
     """Tests for services.py"""
     
@@ -331,19 +351,30 @@ class TestUI(unittest.IsolatedAsyncioTestCase):
         interaction.client = MagicMock()
         interaction.client.good_bot_cooldowns = {}
         
-        button = MagicMock()
-        
         # Patch increment function
         with patch('memory_manager.increment_good_bot', return_value=5) as mock_inc:
-            # Bypass the decorator to call the underlying function
-            # _ViewCallback likely handles view and item injection, expecting only interaction
+            # Call with just interaction
             await view.good_bot_callback.callback(interaction)
             
             mock_inc.assert_called_with(123, "User")
             
-            # Verify the actual button item on the view was updated
+            # Verify the label on the item itself
+            # Note: In discord.py, the decorator item IS the button passed to the callback
             self.assertEqual(view.good_bot_callback.label, "Good Bot: 5")
             interaction.response.edit_message.assert_called()
+
+    async def test_retry_callback_persistence_fallback(self):
+        # Initialize with defaults (None) to simulate persistent restore
+        view = ui.ResponseView() 
+        
+        interaction = AsyncMock()
+        
+        # Call with just interaction
+        await view.retry_callback.callback(interaction)
+        
+        # Verify ephemeral error message
+        interaction.response.send_message.assert_called_with("❌ Context lost due to reboot. Cannot retry old messages.", ephemeral=True)
+
 
 class TestServerAdmin(unittest.IsolatedAsyncioTestCase):
     """Tests for Server Administration features"""
