@@ -88,13 +88,27 @@ def get_identity_suffix(user_obj, system_id, member_name=None, my_system_members
 
 def is_authorized(user_obj):
     """Checks if a user is authorized (Admin/Special)."""
+    # Handle raw IDs gracefully
+    if isinstance(user_obj, (int, str)):
+        # Check if the ID itself is in the allowed lists (Permissive Config)
+        try:
+            uid = int(user_obj)
+            if uid in config.ADMIN_ROLE_IDS: return True
+            if uid in config.SPECIAL_ROLE_IDS: return True
+        except: pass
+        return False
+
+    # Check object ID (Permissive)
+    if hasattr(user_obj, "id"):
+        if user_obj.id in config.ADMIN_ROLE_IDS: return True
+        if user_obj.id in config.SPECIAL_ROLE_IDS: return True
+
+    # Check Roles
     if hasattr(user_obj, "roles"):
         role_ids = [r.id for r in user_obj.roles]
         if any(rid in config.ADMIN_ROLE_IDS for rid in role_ids): return True
         if any(rid in config.SPECIAL_ROLE_IDS for rid in role_ids): return True
     
-    # Check exact ID matches if strictly needed (legacy fallback)
-    # but we are moving to roles.
     return False
 
 def sanitize_llm_response(text):

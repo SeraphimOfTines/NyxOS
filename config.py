@@ -95,8 +95,9 @@ except Exception as e:
 try:
     ADMIN_ROLE_IDS = [int(uid) for uid in ADMIN_ROLE_IDS]
     SPECIAL_ROLE_IDS = [int(uid) for uid in SPECIAL_ROLE_IDS]
+    BOT_ROLE_IDS = [int(uid) for uid in BOT_ROLE_IDS]
 except Exception as e:
-    print(f"⚠️ Warning: Failed to sanitize Admin/Special Role IDs: {e}")
+    print(f"⚠️ Warning: Failed to sanitize Role IDs: {e}")
 
 # Overrides from ENV (take precedence over config.txt)
 if os.getenv("MY_SYSTEM_ID"): MY_SYSTEM_ID = os.getenv("MY_SYSTEM_ID")

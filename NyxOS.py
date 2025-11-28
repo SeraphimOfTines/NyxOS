@@ -50,6 +50,7 @@ intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
 intents.guilds = True
+intents.members = True
 
 class LMStudioBot(discord.Client):
     def __init__(self):
@@ -790,28 +791,35 @@ async def on_message(message):
 
         # --- PROXY/WEBHOOK CHECKS ---
         if message.webhook_id is None:
-            tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
-            if helpers.matches_proxy_tag(message.content, tags): return
-            
-            # Ghost Check
-            await asyncio.sleep(2.0)
             try:
-                await message.channel.fetch_message(message.id)
-                async for recent in message.channel.history(limit=15):
-                    if recent.webhook_id is not None:
-                         diff = (recent.created_at - message.created_at).total_seconds()
-                         if abs(diff) < 3.0: return
-            except (discord.NotFound, discord.HTTPException): return 
+                tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
+                if helpers.matches_proxy_tag(message.content, tags): return
+                
+                # Ghost Check (Restored)
+                await asyncio.sleep(2.0)
+                try:
+                    await message.channel.fetch_message(message.id)
+                    async for recent in message.channel.history(limit=15):
+                        if recent.webhook_id is not None:
+                             diff = (recent.created_at - message.created_at).total_seconds()
+                             if abs(diff) < 3.0: return
+                except (discord.NotFound, discord.HTTPException): return 
+            except Exception as e:
+                logger.error(f"Proxy Tag Check Failed: {e}") 
 
         # --- RESPONSE TRIGGER ---
         should_respond = False
         if client.user in message.mentions: should_respond = True
+        
+        # Combine all trigger roles (Bot, Admin, Special)
+        TRIGGER_ROLES = set(config.BOT_ROLE_IDS + config.ADMIN_ROLE_IDS + config.SPECIAL_ROLE_IDS)
+
         if not should_respond:
             if message.role_mentions:
                 for role in message.role_mentions:
-                    if role.id in config.BOT_ROLE_IDS: should_respond = True; break
+                    if role.id in TRIGGER_ROLES: should_respond = True; break
             if not should_respond:
-                for rid in config.BOT_ROLE_IDS:
+                for rid in TRIGGER_ROLES:
                     if f"<@&{rid}>" in message.content: should_respond = True; break
         
         # Check Reply (Robust)
