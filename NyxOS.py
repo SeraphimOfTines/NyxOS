@@ -61,10 +61,11 @@ class LMStudioBot(discord.Client):
         self.channel_cutoff_times = {}
         self.good_bot_cooldowns = {} 
         self.processing_locks = set() 
-        self.active_views = {}
-        self.last_bot_message_id = {}
+        self.active_views = {} 
+        self.last_bot_message_id = {} 
         self.boot_cleared_channels = set()
         self.has_synced = False
+        self.abort_signals = set()
 
     def get_tree_hash(self):
         """Generates a hash of the current command tree structure."""
@@ -471,6 +472,22 @@ async def on_ready():
                 await channel.send(ui.FLAVOR_TEXT["STARTUP_MESSAGE"])
         except Exception as e:
             logger.warning(f"⚠️ Failed to send startup message: {e}")
+
+@client.event
+async def on_reaction_add(reaction, user):
+    if user.bot: return
+    
+    message = reaction.message
+    if message.id not in client.processing_locks: return
+    
+    # Check if it's the wake word reaction
+    if str(reaction.emoji) == ui.FLAVOR_TEXT["WAKE_WORD_REACTION"]:
+        # Check authorization (Message Author or Admin)
+        # Note: message.author might be a webhook, so we check ID match if not webhook, or just Admin rights
+        is_author = (message.author.id == user.id)
+        if is_author or helpers.is_authorized(user):
+            client.abort_signals.add(message.id)
+            logger.info(f"🛑 Abort signal received for message {message.id} from {user.name}")
 
 @client.event
 async def on_message_edit(before, after):
@@ -1080,12 +1097,22 @@ async def on_message(message):
                     if client.user in message.mentions:
                         current_reply_context += " (Target: NyxOS)"
 
+                    # Check Abort Signal BEFORE Generation
+                    if message.id in client.abort_signals:
+                        logger.info(f"🛑 Generation aborted for {message.id} before query.")
+                        return
+
                     # Query LLM
                     response_text = await services.service.query_lm_studio(
                         clean_prompt, clean_name, identity_suffix, history_messages, 
                         message.channel, image_data_uri, member_description, search_context, current_reply_context
                     )
                     
+                    # Check Abort Signal AFTER Generation
+                    if message.id in client.abort_signals:
+                        logger.info(f"🛑 Generation aborted for {message.id} after query.")
+                        return
+
                     # --- POST-PROCESSING ---
                     # 1. Clean up raw text (remove headers, identity tags, reply context)
                     response_text = helpers.sanitize_llm_response(response_text)
@@ -1135,6 +1162,8 @@ async def on_message(message):
             try:
                 await message.remove_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"], client.user)
             except: pass
+        
+        client.abort_signals.discard(message.id)
         
         if message.id in client.processing_locks:
             client.processing_locks.remove(message.id)
