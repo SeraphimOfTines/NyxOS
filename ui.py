@@ -203,16 +203,16 @@ class ResponseView(discord.ui.View):
             )
         )
 
-    @discord.ui.button(label=FLAVOR_TEXT["CLEAR_MEMORY_BUTTON"], style=discord.ButtonStyle.danger, custom_id="clear_mem_btn", row=0)
-    async def clear_memory_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Update cutoff time to NOW (using interaction timestamp)
-        interaction.client.channel_cutoff_times[self.channel_obj.id] = interaction.created_at
+    # @discord.ui.button(label=FLAVOR_TEXT["CLEAR_MEMORY_BUTTON"], style=discord.ButtonStyle.danger, custom_id="clear_mem_btn", row=0)
+    # async def clear_memory_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+    #     # Update cutoff time to NOW (using interaction timestamp)
+    #     interaction.client.channel_cutoff_times[self.channel_obj.id] = interaction.created_at
         
-        memory_manager.clear_channel_memory(self.channel_obj.id, self.channel_obj.name)
-        button.label = FLAVOR_TEXT["CLEAR_MEMORY_DONE"]
-        button.style = discord.ButtonStyle.secondary
-        button.disabled = True
-        await interaction.response.edit_message(view=self)
+    #     memory_manager.clear_channel_memory(self.channel_obj.id, self.channel_obj.name)
+    #     button.label = FLAVOR_TEXT["CLEAR_MEMORY_DONE"]
+    #     button.style = discord.ButtonStyle.secondary
+    #     button.disabled = True
+    #     await interaction.response.edit_message(view=self)
 
     # --- DYNAMIC DEBUG CALLBACKS ---
 
