@@ -18,9 +18,9 @@ import services
 import memory_manager
 import ui
 
-# ========================================== 
+# ==========================================
 # BOT SETUP
-# ========================================== 
+# ==========================================
 
 # Ensure logs directory exists
 os.makedirs(config.LOGS_DIR, exist_ok=True)
@@ -149,9 +149,9 @@ class LMStudioBot(discord.Client):
 
 client = LMStudioBot()
 
-# ========================================== 
+# ==========================================
 # SLASH COMMANDS
-# ========================================== 
+# ==========================================
 
 @client.tree.command(name="addchannel", description="Add the current channel to the bot's whitelist.")
 async def add_channel_command(interaction: discord.Interaction):
@@ -430,9 +430,9 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(name="Admin Commands", value="`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/addchannel` - Whitelist channel.\n`/removechannel` - Blacklist channel.\n`/suppressembedson/off` - Toggle server-wide embed suppression.\n`/clearmemory` - Clear current channel memory.\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test msg (Debug).\n`/clearallmemory` - Wipe ALL memories (Debug).\n`/wipelogs` - Wipe ALL logs (Debug).\n`/synccommands` - Force sync slash commands.", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# ========================================== 
+# ==========================================
 # EVENTS
-# ========================================== 
+# ==========================================
 
 @client.event
 async def on_ready():
@@ -699,7 +699,7 @@ async def on_message(message):
                 # Post-process
                 response = response.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
                 response = re.sub(r'\s*\(re:.*?\)', '', response).strip()
-                response = re.sub(r'\(([^)]+)\)\((https?://[^\s)]+)\)', r'[\1](\2)', response)
+                response = re.sub(r'\(([^)]+)\)\(https?://[^\s)]+\))', r'[\1](\2)', response)
 
                 view = ui.ResponseView("TEST MESSAGE", message.author.id, "Admin", "", [], message.channel, None, None, None, "")
                 await message.channel.send(response, view=view)
@@ -776,6 +776,7 @@ async def on_message(message):
     if message.id in client.processing_locks: return
     
     reaction_added = False
+    skip_reaction_remove = False
     try:
         # --- COMMANDS ---
         if message.content == "!updateslashcommands" and helpers.is_authorized(message.author):
@@ -847,8 +848,12 @@ async def on_message(message):
                     async for recent in message.channel.history(limit=15):
                         if recent.webhook_id is not None:
                              diff = (recent.created_at - message.created_at).total_seconds()
-                             if abs(diff) < 3.0: return
-                except (discord.NotFound, discord.HTTPException): return 
+                             if abs(diff) < 3.0: 
+                                 skip_reaction_remove = True
+                                 return
+                except (discord.NotFound, discord.HTTPException): 
+                    skip_reaction_remove = True
+                    return 
             except Exception as e:
                 logger.error(f"Proxy Tag Check Failed: {e}") 
 
@@ -962,6 +967,7 @@ async def on_message(message):
                             if pk_sender: sender_id = int(pk_sender)
                             system_id = pk_sys_id
                             member_description = pk_desc
+                            logger.info(f"DEBUG: PK Message. SenderID: {sender_id} | SystemID: {system_id}")
                     else:
                         sender_id = message.author.id
                         user_sys_data = await services.service.get_pk_user_data(sender_id)
@@ -979,8 +985,13 @@ async def on_message(message):
                     
                     if not member_obj and not message.webhook_id: member_obj = message.author
                     
+                    if member_obj:
+                        logger.info(f"DEBUG: Member Found: {member_obj.display_name} | Roles: {[r.name for r in member_obj.roles]}")
+                    else:
+                        logger.info(f"DEBUG: Member NOT Found for ID: {sender_id}")
+
                     if not helpers.is_authorized(member_obj or sender_id):
-                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}). MemberObj found: {member_obj is not None}")
+                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}).")
                         return
 
                     clean_name = helpers.clean_name_logic(real_name, system_tag)
@@ -1120,7 +1131,7 @@ async def on_message(message):
                 logger.error(f"Processing Error: {e}")
 
     finally:
-        if reaction_added:
+        if reaction_added and not skip_reaction_remove:
             try:
                 await message.remove_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"], client.user)
             except: pass
