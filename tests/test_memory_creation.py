@@ -3,103 +3,98 @@ import os
 import shutil
 import asyncio
 import sys
+import tempfile
+from database import Database
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+# We must import memory_manager, but its 'db' is already initialized.
+# We will swap it in setUp.
 import memory_manager
 
-class TestMemoryCreation(unittest.IsolatedAsyncioTestCase):
+class TestMemoryManager(unittest.IsolatedAsyncioTestCase):
     """
-    Tests specifically for verifying that memory_manager creates missing directories
-    on demand, preventing FileNotFoundError.
+    Tests verification of memory_manager functions using the Database backend.
+    Replaces the old file-based creation tests.
     """
 
     def setUp(self):
-        # Point to a temporary directory that we explicitly ensure DOES NOT exist at start
-        self.base_test_dir = "tests/temp_creation_test"
-        self.memory_dir = os.path.join(self.base_test_dir, "Memory")
+        # Create a temp database file
+        self.temp_db_fd, self.temp_db_path = tempfile.mkstemp()
+        os.close(self.temp_db_fd)
         
-        # Clean start
-        if os.path.exists(self.base_test_dir):
-            shutil.rmtree(self.base_test_dir)
-            
-        # Override config
-        config.MEMORY_DIR = self.memory_dir
+        # Initialize a new Database instance with this path
+        self.test_db = Database(self.temp_db_path)
+        
+        # Inject this DB into memory_manager
+        self.original_db = memory_manager.db
+        memory_manager.db = self.test_db
 
     def tearDown(self):
-        if os.path.exists(self.base_test_dir):
-            shutil.rmtree(self.base_test_dir)
+        # Restore original DB
+        memory_manager.db = self.original_db
+        # Close and remove temp DB
+        # self.test_db connection is closed when object is collected, but we should be safe
+        if os.path.exists(self.temp_db_path):
+            os.unlink(self.temp_db_path)
 
-    async def test_write_context_buffer_creates_directory(self):
-        """Test that write_context_buffer creates the directory tree if missing."""
-        channel_id = 12345
+    async def test_write_context_buffer(self):
+        """Test that write_context_buffer writes to the DB."""
+        channel_id = "12345"
         channel_name = "creation-test"
         messages = [{"role": "user", "content": "Hello World"}]
 
-        # 1. Verify directory is missing
-        self.assertFalse(os.path.exists(self.memory_dir))
-
-        # 2. Trigger write
-        # We need to ensure an event loop is running for run_in_executor
+        # Trigger write
         await memory_manager.write_context_buffer(messages, channel_id, channel_name)
 
-        # 3. Verify directory and file exist
-        expected_file = memory_manager.get_memory_filepath(channel_id, channel_name)
-        
-        self.assertTrue(os.path.exists(self.memory_dir), "Memory directory was not created")
-        self.assertTrue(os.path.exists(expected_file), "Memory file was not created")
-        
-        with open(expected_file, 'r') as f:
-            content = f.read()
-            self.assertIn("Hello World", content)
+        # Verify DB content
+        stored = self.test_db.get_context_buffer(channel_id)
+        self.assertIsNotNone(stored)
+        self.assertIn("Hello World", stored)
+        self.assertIn("MEMORY BUFFER FOR #creation-test", stored)
 
-    async def test_write_response_append_creates_directory(self):
-        """Test that appending a response also creates the directory if missing."""
-        channel_id = 67890
+    async def test_write_response_append(self):
+        """Test that appending a response works."""
+        channel_id = "67890"
         channel_name = "append-test"
         response_text = "I am a bot"
 
-        self.assertFalse(os.path.exists(self.memory_dir))
-
+        # Write initial (empty messages just to set up buffer headers?)
+        # write_context_buffer with empty messages writes headers.
+        await memory_manager.write_context_buffer([], channel_id, channel_name)
+        
+        # Append response
         await memory_manager.write_context_buffer([], channel_id, channel_name, append_response=response_text)
 
-        expected_file = memory_manager.get_memory_filepath(channel_id, channel_name)
-        
-        self.assertTrue(os.path.exists(self.memory_dir))
-        self.assertTrue(os.path.exists(expected_file))
-        
-        with open(expected_file, 'r') as f:
-            content = f.read()
-            self.assertIn("I am a bot", content)
+        stored = self.test_db.get_context_buffer(channel_id)
+        self.assertIn("[ASSISTANT_REPLY]", stored)
+        self.assertIn("I am a bot", stored)
 
-    def test_clear_memory_creates_directory(self):
-        """Test that clear_channel_memory creates the directory if missing."""
-        channel_id = 11111
+    def test_clear_memory(self):
+        """Test that clear_channel_memory clears the DB entry."""
+        channel_id = "11111"
         channel_name = "clear-test"
-
-        self.assertFalse(os.path.exists(self.memory_dir))
-
+        
+        # Setup some memory
+        # We can use the sync methods of DB directly to seed it, or use the async wrapper
+        self.test_db.update_context_buffer(channel_id, channel_name, "Some Content")
+        
         memory_manager.clear_channel_memory(channel_id, channel_name)
 
-        expected_file = memory_manager.get_memory_filepath(channel_id, channel_name)
-        
-        self.assertTrue(os.path.exists(self.memory_dir))
-        self.assertTrue(os.path.exists(expected_file))
-        
-        with open(expected_file, 'r') as f:
-            content = f.read()
-            self.assertIn("MEMORY CLEARED", content)
+        stored = self.test_db.get_context_buffer(channel_id)
+        self.assertIsNone(stored)
 
-    def test_wipe_memories_safety(self):
-        """Test that wipe_all_memories does not crash if directory is missing."""
-        self.assertFalse(os.path.exists(self.memory_dir))
+    def test_wipe_memories(self):
+        """Test that wipe_all_memories clears all buffers."""
+        self.test_db.update_context_buffer("1", "c1", "data")
+        self.test_db.update_context_buffer("2", "c2", "data")
         
-        try:
-            memory_manager.wipe_all_memories()
-        except Exception as e:
-            self.fail(f"wipe_all_memories raised exception on missing directory: {e}")
+        memory_manager.wipe_all_memories()
+        
+        self.assertIsNone(self.test_db.get_context_buffer("1"))
+        self.assertIsNone(self.test_db.get_context_buffer("2"))
 
 if __name__ == '__main__':
     unittest.main()

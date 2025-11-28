@@ -18,15 +18,12 @@ def get_path(filename):
 # File/Directory Paths
 MEMORY_DIR = get_path("Memory")
 LOGS_DIR = get_path("Logs")
-ALLOWED_CHANNELS_FILE = get_path("allowed_channels.json")
 RESTART_META_FILE = get_path("restart_metadata.json")
-GOOD_BOT_FILE = get_path("goodbot.json")
+DATABASE_FILE = get_path("nyxos.db")
 BUFFER_FILE = get_path("buffer.txt")
 HEARTBEAT_FILE = get_path("heartbeat.txt")
 SHUTDOWN_FLAG_FILE = get_path("shutdown.flag")
 COMMAND_STATE_FILE = get_path("command_state.hash")
-SUPPRESSED_USERS_FILE = get_path("suppressed_users.json")
-SERVER_SETTINGS_FILE = get_path("server_settings.json")
 
 # API Endpoints
 KAGI_SEARCH_URL = "https://kagi.com/api/v0/search"
@@ -140,22 +137,8 @@ USER_TITLES = {}
 DEFAULT_TITLE = " (Mortal)"
 
 # --- ALLOWED CHANNELS ---
-ALLOWED_CHANNEL_IDS = []
-if os.path.exists(ALLOWED_CHANNELS_FILE):
-    try:
-        with open(ALLOWED_CHANNELS_FILE, "r") as f:
-            ALLOWED_CHANNEL_IDS = json.load(f)
-    except:
-        ALLOWED_CHANNEL_IDS = []
+# Now managed via Database
 
-def save_allowed_channels(channels_list):
-    try:
-        with open(ALLOWED_CHANNELS_FILE, "w") as f:
-            json.dump(channels_list, f, indent=4)
-        global ALLOWED_CHANNEL_IDS
-        ALLOWED_CHANNEL_IDS = channels_list
-    except Exception as e:
-        print(f"⚠️ Failed to save allowed channels: {e}")
 
 # Ensure directories exist
 os.makedirs(MEMORY_DIR, exist_ok=True)

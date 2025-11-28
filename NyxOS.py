@@ -168,11 +168,12 @@ async def add_channel_command(interaction: discord.Interaction):
     if not helpers.is_authorized(member_obj):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
-    if interaction.channel_id in config.ALLOWED_CHANNEL_IDS:
+    
+    allowed_ids = memory_manager.get_allowed_channels()
+    if interaction.channel_id in allowed_ids:
         await interaction.response.send_message("✅ Channel already whitelisted.", ephemeral=True)
     else:
-        config.ALLOWED_CHANNEL_IDS.append(interaction.channel_id)
-        config.save_allowed_channels(config.ALLOWED_CHANNEL_IDS)
+        memory_manager.add_allowed_channel(interaction.channel_id)
         await interaction.response.send_message(f"😄 I'll talk in this channel!", ephemeral=True)
 
 @client.tree.command(name="removechannel", description="Remove the current channel from the bot's whitelist.")
@@ -189,9 +190,10 @@ async def remove_channel_command(interaction: discord.Interaction):
     if not helpers.is_authorized(member_obj):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
-    if interaction.channel_id in config.ALLOWED_CHANNEL_IDS:
-        config.ALLOWED_CHANNEL_IDS.remove(interaction.channel_id)
-        config.save_allowed_channels(config.ALLOWED_CHANNEL_IDS)
+        
+    allowed_ids = memory_manager.get_allowed_channels()
+    if interaction.channel_id in allowed_ids:
+        memory_manager.remove_allowed_channel(interaction.channel_id)
         await interaction.response.send_message(f"🤐 I'll ignore this channel!", ephemeral=True)
     else:
         await interaction.response.send_message("⚠️ Channel not in whitelist.", ephemeral=True)
@@ -539,11 +541,12 @@ async def on_message(message):
             if not helpers.is_authorized(member_obj):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
-            if message.channel.id in config.ALLOWED_CHANNEL_IDS:
+            
+            allowed_ids = memory_manager.get_allowed_channels()
+            if message.channel.id in allowed_ids:
                 await message.channel.send("✅ Channel already whitelisted.")
             else:
-                config.ALLOWED_CHANNEL_IDS.append(message.channel.id)
-                config.save_allowed_channels(config.ALLOWED_CHANNEL_IDS)
+                memory_manager.add_allowed_channel(message.channel.id)
                 await message.channel.send(f"😄 I'll talk in this channel!")
             return
 
@@ -558,9 +561,10 @@ async def on_message(message):
             if not helpers.is_authorized(member_obj):
                 await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
                 return
-            if message.channel.id in config.ALLOWED_CHANNEL_IDS:
-                config.ALLOWED_CHANNEL_IDS.remove(message.channel.id)
-                config.save_allowed_channels(config.ALLOWED_CHANNEL_IDS)
+                
+            allowed_ids = memory_manager.get_allowed_channels()
+            if message.channel.id in allowed_ids:
+                memory_manager.remove_allowed_channel(message.channel.id)
                 await message.channel.send(f"🤐 I'll ignore this channel!")
             else:
                 await message.channel.send("⚠️ Channel not in whitelist.")
@@ -935,7 +939,8 @@ async def on_message(message):
 
         if should_respond:
             global_chat = memory_manager.get_server_setting("global_chat_enabled", False)
-            if not global_chat and message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
+            allowed_ids = memory_manager.get_allowed_channels()
+            if not global_chat and message.channel.id not in allowed_ids: return
 
             if message.channel.id not in client.boot_cleared_channels:
                 logger.info(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")

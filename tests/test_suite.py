@@ -125,12 +125,24 @@ class TestMemoryManager(unittest.TestCase):
     def setUp(self):
         self.test_dir = "tests/temp_memory_comprehensive"
         os.makedirs(self.test_dir, exist_ok=True)
-        config.MEMORY_DIR = self.test_dir
         config.LOGS_DIR = os.path.join(self.test_dir, "Logs")
-        config.GOOD_BOT_FILE = os.path.join(self.test_dir, "goodbot.json")
-        config.SUPPRESSED_USERS_FILE = os.path.join(self.test_dir, "suppressed.json")
+        
+        # Setup Temp Database
+        import tempfile
+        from database import Database
+        self.temp_db_fd, self.temp_db_path = tempfile.mkstemp()
+        os.close(self.temp_db_fd)
+        
+        self.test_db = Database(self.temp_db_path)
+        self.original_db = memory_manager.db
+        memory_manager.db = self.test_db
 
     def tearDown(self):
+        # Restore DB
+        memory_manager.db = self.original_db
+        if os.path.exists(self.temp_db_path):
+            os.unlink(self.temp_db_path)
+            
         import shutil
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
@@ -166,19 +178,17 @@ class TestMemoryManager(unittest.TestCase):
         is_suppressed = memory_manager.toggle_suppressed_user(999)
         self.assertTrue(is_suppressed)
         
-        # Verify Persistence
-        with open(config.SUPPRESSED_USERS_FILE, 'r') as f:
-            data = json.load(f)
-            self.assertIn("999", data)
+        # Verify Persistence in DB
+        users = memory_manager.get_suppressed_users()
+        self.assertIn("999", users)
             
         # Toggle Off
         is_suppressed = memory_manager.toggle_suppressed_user(999)
         self.assertFalse(is_suppressed)
         
         # Verify Removal
-        with open(config.SUPPRESSED_USERS_FILE, 'r') as f:
-            data = json.load(f)
-            self.assertNotIn("999", data)
+        users = memory_manager.get_suppressed_users()
+        self.assertNotIn("999", users)
 
 class TestServices(unittest.IsolatedAsyncioTestCase):
     """Tests for services.py"""
