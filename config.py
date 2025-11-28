@@ -120,6 +120,7 @@ pk_base_url = LOCAL_PLURALKIT_API_URL if USE_LOCAL_PLURALKIT else "https://api.p
 PLURALKIT_MESSAGE_API = f"{pk_base_url}/messages/{{}}"
 PLURALKIT_USER_API = f"{pk_base_url}/users/{{}}"
 PLURALKIT_SYSTEM_MEMBERS = f"{pk_base_url}/systems/{{}}/members"
+PLURALKIT_SYSTEM_API = f"{pk_base_url}/systems/{{}}"
 
 # Construct Template (Last step to ensure all overrides are applied)
 if INJECTED_PROMPT:

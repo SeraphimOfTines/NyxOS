@@ -788,6 +788,48 @@ async def on_message(message):
                 await message.channel.send("✅ Commands synced.")
             except Exception as e: await message.channel.send(f"❌ Error: {e}")
             return
+        
+        # --- PRE-CALCULATE RESPONSE TRIGGER ---
+        should_respond = False
+        target_message_id = None
+        
+        if client.user in message.mentions: should_respond = True
+        
+        # Combine all trigger roles (Bot, Admin, Special)
+        TRIGGER_ROLES = set(config.BOT_ROLE_IDS + config.ADMIN_ROLE_IDS + config.SPECIAL_ROLE_IDS)
+
+        if not should_respond:
+            if message.role_mentions:
+                for role in message.role_mentions:
+                    if role.id in TRIGGER_ROLES: should_respond = True; break
+            if not should_respond:
+                for rid in TRIGGER_ROLES:
+                    if f"<@&{rid}>" in message.content: should_respond = True; break
+        
+        # Check Reply (Robust)
+        if message.reference:
+            try:
+                ref_msg = message.reference.resolved
+                if not ref_msg and message.reference.message_id:
+                    # Fetch if not in cache (needed for replies to old messages)
+                    try:
+                        ref_msg = await message.channel.fetch_message(message.reference.message_id)
+                    except discord.NotFound:
+                        ref_msg = None
+                
+                if ref_msg:
+                    # Check if reply is to bot
+                    if ref_msg.author.id == client.user.id:
+                        should_respond = True
+                        target_message_id = ref_msg.id
+            except Exception as e:
+                logger.debug(f"Reply Check Error: {e}")
+
+        # INSTANT REACTION
+        if should_respond:
+            try:
+                await message.add_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"])
+            except: pass
 
         # --- PROXY/WEBHOOK CHECKS ---
         if message.webhook_id is None:
@@ -807,41 +849,6 @@ async def on_message(message):
             except Exception as e:
                 logger.error(f"Proxy Tag Check Failed: {e}") 
 
-        # --- RESPONSE TRIGGER ---
-        should_respond = False
-        if client.user in message.mentions: should_respond = True
-        
-        # Combine all trigger roles (Bot, Admin, Special)
-        TRIGGER_ROLES = set(config.BOT_ROLE_IDS + config.ADMIN_ROLE_IDS + config.SPECIAL_ROLE_IDS)
-
-        if not should_respond:
-            if message.role_mentions:
-                for role in message.role_mentions:
-                    if role.id in TRIGGER_ROLES: should_respond = True; break
-            if not should_respond:
-                for rid in TRIGGER_ROLES:
-                    if f"<@&{rid}>" in message.content: should_respond = True; break
-        
-        # Check Reply (Robust)
-        target_message_id = None
-        if message.reference:
-            try:
-                ref_msg = message.reference.resolved
-                if not ref_msg and message.reference.message_id:
-                    # Fetch if not in cache (needed for replies to old messages)
-                    try:
-                        ref_msg = await message.channel.fetch_message(message.reference.message_id)
-                    except discord.NotFound:
-                        ref_msg = None
-                
-                if ref_msg:
-                    # Check if reply is to bot
-                    if ref_msg.author.id == client.user.id:
-                        should_respond = True
-                        target_message_id = ref_msg.id
-            except Exception as e:
-                logger.debug(f"Reply Check Error: {e}")
-
         # --- GOOD BOT CHECK ---
         if re.search(r'\bgood\s*bot\b', message.content, re.IGNORECASE):
             is_ping = client.user in message.mentions
@@ -849,6 +856,22 @@ async def on_message(message):
             if is_ping or target_message_id:
                 if not target_message_id:
                     target_message_id = client.last_bot_message_id.get(message.channel.id)
+                
+                # Determine sender ID for Good Bot
+                sender_id = message.author.id
+                real_name = message.author.display_name
+                pk_tag = None
+                is_pk_proxy = False
+                system_name = None
+                
+                if message.webhook_id:
+                    pk_name, pk_sys_id, pk_sys_name, pk_tag_val, pk_sender, _ = await services.service.get_pk_message_data(message.id)
+                    if pk_name:
+                        real_name = pk_name
+                        pk_tag = pk_tag_val
+                        if pk_sender: sender_id = int(pk_sender)
+                        system_name = pk_sys_name
+                        is_pk_proxy = True
                 
                 now = discord.utils.utcnow().timestamp()
                 last_time = client.good_bot_cooldowns.get(sender_id, 0)
@@ -902,7 +925,7 @@ async def on_message(message):
                 if pk_name:
                     real_name = pk_name
                     system_tag = pk_tag
-                    sender_id = pk_sender
+                    if pk_sender: sender_id = int(pk_sender)
                     system_id = pk_sys_id
                     member_description = pk_desc
             else:
@@ -933,9 +956,8 @@ async def on_message(message):
             client.processing_locks.add(message.id)
             logger.info(f"Processing Message from {real_name} (ID: {message.id})")
 
-            try:
-                await message.add_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"])
-            except: pass
+            # REACTION HANDLED BY PRE-CALCULATION BLOCK ABOVE
+            # But we still keep the removal logic in finally block
 
             try:
                 async with message.channel.typing():
