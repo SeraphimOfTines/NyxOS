@@ -18,9 +18,9 @@ import services
 import memory_manager
 import ui
 
-# ==========================================
+# ========================================== 
 # BOT SETUP
-# ==========================================
+# ========================================== 
 
 # Ensure logs directory exists
 os.makedirs(config.LOGS_DIR, exist_ok=True)
@@ -61,8 +61,8 @@ class LMStudioBot(discord.Client):
         self.channel_cutoff_times = {}
         self.good_bot_cooldowns = {} 
         self.processing_locks = set() 
-        self.active_views = {} 
-        self.last_bot_message_id = {} 
+        self.active_views = {}
+        self.last_bot_message_id = {}
         self.boot_cleared_channels = set()
         self.has_synced = False
 
@@ -149,9 +149,9 @@ class LMStudioBot(discord.Client):
 
 client = LMStudioBot()
 
-# ==========================================
+# ========================================== 
 # SLASH COMMANDS
-# ==========================================
+# ========================================== 
 
 @client.tree.command(name="addchannel", description="Add the current channel to the bot's whitelist.")
 async def add_channel_command(interaction: discord.Interaction):
@@ -430,9 +430,9 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(name="Admin Commands", value="`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/addchannel` - Whitelist channel.\n`/removechannel` - Blacklist channel.\n`/suppressembedson/off` - Toggle server-wide embed suppression.\n`/clearmemory` - Clear current channel memory.\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test msg (Debug).\n`/clearallmemory` - Wipe ALL memories (Debug).\n`/wipelogs` - Wipe ALL logs (Debug).\n`/synccommands` - Force sync slash commands.", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# ==========================================
+# ========================================== 
 # EVENTS
-# ==========================================
+# ========================================== 
 
 @client.event
 async def on_ready():
@@ -775,6 +775,7 @@ async def on_message(message):
 
     if message.id in client.processing_locks: return
     
+    reaction_added = False
     try:
         # --- COMMANDS ---
         if message.content == "!updateslashcommands" and helpers.is_authorized(message.author):
@@ -804,7 +805,7 @@ async def on_message(message):
                     if role.id in TRIGGER_ROLES: should_respond = True; break
             if not should_respond:
                 for rid in TRIGGER_ROLES:
-                    if f"<@&{rid}>" in message.content: should_respond = True; break
+                    if f"<@&{rid}>".format(rid) in message.content: should_respond = True; break
         
         # Check Reply (Robust)
         if message.reference:
@@ -829,6 +830,7 @@ async def on_message(message):
         if should_respond:
             try:
                 await message.add_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"])
+                reaction_added = True
             except: pass
 
         # --- PROXY/WEBHOOK CHECKS ---
@@ -838,6 +840,7 @@ async def on_message(message):
                 if helpers.matches_proxy_tag(message.content, tags): return
                 
                 # Ghost Check (Restored)
+                # Wait to see if a webhook appears that replaces this message
                 await asyncio.sleep(2.0)
                 try:
                     await message.channel.fetch_message(message.id)
@@ -879,7 +882,7 @@ async def on_message(message):
                 if now - last_time > 5:
                     formatted_name = f"{real_name} (@{message.author.name})"
                     if is_pk_proxy and system_name:
-                        formatted_name = f"{system_name} ({real_name}, @{message.author.name})" 
+                        formatted_name = f"{system_name} ({real_name}, @{message.author.name})"
                     elif not is_pk_proxy:
                         formatted_name = f"{real_name} (@{message.author.name})"
 
@@ -898,55 +901,19 @@ async def on_message(message):
                                     child.style = discord.ButtonStyle.secondary
                                     child.label = f"Good Bot: {count}"
                                     updated = True
-                        if updated:
-                            try:
-                                if message.reference and message.reference.message_id == target_message_id and message.reference.resolved:
-                                    ref_msg = message.reference.resolved
-                                else:
-                                    ref_msg = await message.channel.fetch_message(target_message_id)
-                                await ref_msg.edit(view=view)
-                            except: pass
-                return
+                            if updated:
+                                try:
+                                    if message.reference and message.reference.message_id == target_message_id and message.reference.resolved:
+                                        ref_msg = message.reference.resolved
+                                    else:
+                                        ref_msg = await message.channel.fetch_message(target_message_id)
+                                    await ref_msg.edit(view=view)
+                                except: pass
+                    return
 
         if should_respond:
             global_chat = memory_manager.get_server_setting("global_chat_enabled", False)
             if not global_chat and message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
-            
-            # --- IDENTITY & AUTHORIZATION LOGIC ---
-            # Resolve Identity Early to check Permissions
-            real_name = message.author.display_name
-            system_tag = None
-            sender_id = None
-            system_id = None
-            member_description = None
-            
-            if message.webhook_id:
-                pk_name, pk_sys_id, pk_sys_name, pk_tag, pk_sender, pk_desc = await services.service.get_pk_message_data(message.id)
-                if pk_name:
-                    real_name = pk_name
-                    system_tag = pk_tag
-                    if pk_sender: sender_id = int(pk_sender)
-                    system_id = pk_sys_id
-                    member_description = pk_desc
-            else:
-                sender_id = message.author.id
-                user_sys_data = await services.service.get_pk_user_data(sender_id)
-                if user_sys_data: 
-                    system_tag = user_sys_data['tag']
-                    system_id = user_sys_data['system_id']
-
-            # Check Permissions
-            member_obj = None
-            if message.guild:
-                member_obj = message.guild.get_member(sender_id)
-                if not member_obj:
-                    try: member_obj = await message.guild.fetch_member(sender_id)
-                    except: pass
-            
-            if not member_obj and not message.webhook_id: member_obj = message.author
-            
-            if not helpers.is_authorized(member_obj or sender_id):
-                return
 
             if message.channel.id not in client.boot_cleared_channels:
                 logger.info(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
@@ -954,10 +921,7 @@ async def on_message(message):
                 client.boot_cleared_channels.add(message.channel.id)
 
             client.processing_locks.add(message.id)
-            logger.info(f"Processing Message from {real_name} (ID: {message.id})")
-
-            # REACTION HANDLED BY PRE-CALCULATION BLOCK ABOVE
-            # But we still keep the removal logic in finally block
+            logger.info(f"Processing Message from {message.author.name} (ID: {message.id})")
 
             try:
                 async with message.channel.typing():
@@ -983,6 +947,42 @@ async def on_message(message):
                         clean_prompt = clean_prompt.replace("&web", "").strip()
                         force_search = True
 
+                    # Identity Logic
+                    real_name = message.author.display_name
+                    system_tag = None
+                    sender_id = None
+                    system_id = None
+                    member_description = None
+                    
+                    if message.webhook_id:
+                        pk_name, pk_sys_id, pk_sys_name, pk_tag, pk_sender, pk_desc = await services.service.get_pk_message_data(message.id)
+                        if pk_name:
+                            real_name = pk_name
+                            system_tag = pk_tag
+                            if pk_sender: sender_id = int(pk_sender)
+                            system_id = pk_sys_id
+                            member_description = pk_desc
+                    else:
+                        sender_id = message.author.id
+                        user_sys_data = await services.service.get_pk_user_data(sender_id)
+                        if user_sys_data: 
+                            system_tag = user_sys_data['tag']
+                            system_id = user_sys_data['system_id']
+
+                    # Check Permissions
+                    member_obj = None
+                    if message.guild and sender_id:
+                        member_obj = message.guild.get_member(sender_id)
+                        if not member_obj:
+                            try: member_obj = await message.guild.fetch_member(sender_id)
+                            except Exception as e: logger.warning(f"Failed to fetch member for {sender_id}: {e}")
+                    
+                    if not member_obj and not message.webhook_id: member_obj = message.author
+                    
+                    if not helpers.is_authorized(member_obj or sender_id):
+                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}). MemberObj found: {member_obj is not None}")
+                        return
+
                     clean_name = helpers.clean_name_logic(real_name, system_tag)
                     # Identity Suffix uses new Config logic
                     identity_suffix = helpers.get_identity_suffix(member_obj or sender_id, system_id, clean_name, services.service.my_system_members)
@@ -996,18 +996,18 @@ async def on_message(message):
                         if cutoff and prev_msg.created_at < cutoff: break
                         
                         if prev_msg.webhook_id is None:
-                             # 1. Check My System Tags (Self-proxy)
-                             tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
-                             if helpers.matches_proxy_tag(prev_msg.content, tags): continue
+                                # 1. Check My System Tags (Self-proxy)
+                                tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
+                                if helpers.matches_proxy_tag(prev_msg.content, tags): continue
 
-                             # 2. Check Author's System Tags (Other-proxy)
-                             # This prevents "double vision" where the bot sees both the user's trigger command AND the resulting webhook
-                             try:
-                                 user_sys = await services.service.get_pk_user_data(prev_msg.author.id)
-                                 if user_sys and user_sys.get('system_id'):
-                                     user_tags = await services.service.get_system_proxy_tags(user_sys['system_id'])
-                                     if helpers.matches_proxy_tag(prev_msg.content, user_tags): continue
-                             except: pass
+                                # 2. Check Author's System Tags (Other-proxy)
+                                # This prevents "double vision" where the bot sees both the user's trigger command AND the resulting webhook
+                                try:
+                                    user_sys = await services.service.get_pk_user_data(prev_msg.author.id)
+                                    if user_sys and user_sys.get('system_id'):
+                                        user_tags = await services.service.get_system_proxy_tags(user_sys['system_id'])
+                                        if helpers.matches_proxy_tag(prev_msg.content, user_tags): continue
+                                except: pass
 
                         p_content = prev_msg.clean_content.strip()
                         has_image_history = any(att.content_type and att.content_type.startswith('image/') for att in prev_msg.attachments)
@@ -1021,8 +1021,8 @@ async def on_message(message):
 
                         # Attachments in history (Simplified: just check one)
                         if prev_msg.attachments:
-                             # Logic similar to current message
-                             pass # Skipping complex history image fetch to save complexity, similar to original
+                                # Logic similar to current message
+                                pass # Skipping complex history image fetch to save complexity, similar to original
 
                         if not current_msg_content: continue
 
@@ -1038,7 +1038,7 @@ async def on_message(message):
                             prefix = f"{p_clean_name}{p_suffix} says: "
                             current_msg_content[0]['text'] = prefix + current_msg_content[0]['text']
                             history_messages.append({"role": "user", "content": current_msg_content})
-                    
+            
                     if len(history_messages) > config.CONTEXT_WINDOW:
                         history_messages = history_messages[:config.CONTEXT_WINDOW]
                     history_messages.reverse()
@@ -1064,7 +1064,7 @@ async def on_message(message):
                     current_reply_context = ""
                     if message.reference and message.reference.resolved:
                         if isinstance(message.reference.resolved, discord.Message):
-                             current_reply_context = f" (Replying to {message.reference.resolved.author.display_name})"
+                                current_reply_context = f" (Replying to {message.reference.resolved.author.display_name})"
 
                     if client.user in message.mentions:
                         current_reply_context += " (Target: NyxOS)"
@@ -1075,14 +1075,15 @@ async def on_message(message):
                         message.channel, image_data_uri, member_description, search_context, current_reply_context
                     )
                     
+                    # --- POST-PROCESSING ---
+                    # 1. Clean up raw text (remove headers, identity tags, reply context)
+                    response_text = helpers.sanitize_llm_response(response_text)
+                    
+                    # 2. Log processed text
                     memory_manager.log_conversation(message.channel.name, "NyxOS", client.user.id, response_text)
                     
-                    # Post-process
-                    response_text = response_text.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
-                    response_text = re.sub(r'\s*\(re:.*?\)', '', response_text).strip()
-                    
-                    # Reconstruct Hyperlinks: (Text)(URL) -> [Text](URL)
-                    response_text = re.sub(r'\((.+?)\)\((https?://[^\s)]+)\)', r'[\1](\2)', response_text)
+                    # 3. Restore formatting for Discord display
+                    response_text = helpers.restore_hyperlinks(response_text)
 
                     view = ui.ResponseView(clean_prompt, message.author.id, clean_name, identity_suffix, history_messages, message.channel, image_data_uri, member_description, search_context, current_reply_context)
 
@@ -1115,13 +1116,15 @@ async def on_message(message):
 
                     except discord.HTTPException as e:
                         logger.error(f"DEBUG: Failed to reply: {e}")
-
-            finally:
-                try:
-                    await message.remove_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"], client.user)
-                except: pass
+            except Exception as e:
+                logger.error(f"Processing Error: {e}")
 
     finally:
+        if reaction_added:
+            try:
+                await message.remove_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"], client.user)
+            except: pass
+        
         if message.id in client.processing_locks:
             client.processing_locks.remove(message.id)
 
