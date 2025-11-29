@@ -1,0 +1,411 @@
+import sqlite3
+import json
+import logging
+import os
+from datetime import datetime
+
+logger = logging.getLogger("Database")
+
+class Database:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self._init_db()
+
+    def _get_conn(self):
+        # 30s timeout to wait for locks to clear in high concurrency
+        return sqlite3.connect(self.db_path, timeout=30.0)
+
+    def _init_db(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                
+                # Context Buffer (One per channel)
+                # Stores the formatted text representation of the context window
+                c.execute("""CREATE TABLE IF NOT EXISTS context_buffers (
+                    channel_id TEXT PRIMARY KEY,
+                    channel_name TEXT,
+                    content TEXT,
+                    last_updated TIMESTAMP
+                )""")
+                
+                # User Scores (Good Bot)
+                c.execute("""CREATE TABLE IF NOT EXISTS user_scores (
+                    user_id TEXT PRIMARY KEY,
+                    username TEXT,
+                    count INTEGER DEFAULT 0
+                )""")
+                
+                # Suppressed Users
+                c.execute("""CREATE TABLE IF NOT EXISTS suppressed_users (
+                    user_id TEXT PRIMARY KEY
+                )""")
+                
+                # Server Settings
+                c.execute("""CREATE TABLE IF NOT EXISTS server_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )""")
+
+                # View Persistence
+                c.execute("""CREATE TABLE IF NOT EXISTS view_persistence (
+                    message_id TEXT PRIMARY KEY,
+                    data TEXT,
+                    timestamp TIMESTAMP
+                )""")
+                
+                # Active Bars (Status Stickers)
+                c.execute("""CREATE TABLE IF NOT EXISTS active_bars (
+                    channel_id TEXT PRIMARY KEY,
+                    guild_id TEXT,
+                    message_id TEXT,
+                    user_id TEXT,
+                    content TEXT,
+                    original_prefix TEXT,
+                    is_sleeping INTEGER DEFAULT 0,
+                    persisting INTEGER DEFAULT 0,
+                    previous_state TEXT,
+                    timestamp TIMESTAMP
+                )""")
+                
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {e}")
+            raise
+
+    # --- Active Bars Methods ---
+
+    def save_bar(self, channel_id, guild_id, message_id, user_id, content, persisting):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("""
+                    INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(channel_id) DO UPDATE SET
+                        message_id = excluded.message_id,
+                        user_id = excluded.user_id,
+                        content = excluded.content,
+                        persisting = excluded.persisting,
+                        timestamp = excluded.timestamp
+                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, datetime.now()))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save bar: {e}")
+
+    def get_bar(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT * FROM active_bars WHERE channel_id = ?", (str(channel_id),))
+                row = c.fetchone()
+                if row:
+                    # Map row to dict
+                    return {
+                        "channel_id": int(row[0]),
+                        "guild_id": int(row[1]) if row[1] else None,
+                        "message_id": int(row[2]),
+                        "user_id": int(row[3]),
+                        "content": row[4],
+                        "original_prefix": row[5],
+                        "is_sleeping": bool(row[6]),
+                        "persisting": bool(row[7]),
+                        "previous_state": json.loads(row[8]) if row[8] else None,
+                        "timestamp": row[9]
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get bar: {e}")
+            return None
+
+    def delete_bar(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM active_bars WHERE channel_id = ?", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to delete bar: {e}")
+
+    def get_all_bars(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT * FROM active_bars")
+                rows = c.fetchall()
+                bars = {}
+                for row in rows:
+                    bars[int(row[0])] = {
+                        "channel_id": int(row[0]),
+                        "guild_id": int(row[1]) if row[1] else None,
+                        "message_id": int(row[2]),
+                        "user_id": int(row[3]),
+                        "content": row[4],
+                        "original_prefix": row[5],
+                        "is_sleeping": bool(row[6]),
+                        "persisting": bool(row[7]),
+                        "previous_state": json.loads(row[8]) if row[8] else None,
+                        "timestamp": row[9]
+                    }
+                return bars
+        except Exception as e:
+            logger.error(f"Failed to get all bars: {e}")
+            return {}
+
+    def update_bar_content(self, channel_id, content):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("UPDATE active_bars SET content = ? WHERE channel_id = ?", (content, str(channel_id)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update bar content: {e}")
+
+    def update_bar_message_id(self, channel_id, message_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("UPDATE active_bars SET message_id = ? WHERE channel_id = ?", (str(message_id), str(channel_id)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update bar message_id: {e}")
+
+    def set_bar_sleeping(self, channel_id, is_sleeping, original_prefix=None):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                if is_sleeping:
+                    c.execute("UPDATE active_bars SET is_sleeping = 1, original_prefix = ? WHERE channel_id = ?", (original_prefix, str(channel_id)))
+                else:
+                    c.execute("UPDATE active_bars SET is_sleeping = 0 WHERE channel_id = ?", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to set bar sleeping: {e}")
+
+    def save_previous_state(self, channel_id, state):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                json_state = json.dumps(state)
+                c.execute("UPDATE active_bars SET previous_state = ? WHERE channel_id = ?", (json_state, str(channel_id)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save previous state: {e}")
+
+    def get_previous_state(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT previous_state FROM active_bars WHERE channel_id = ?", (str(channel_id),))
+                row = c.fetchone()
+                if row and row[0]:
+                    return json.loads(row[0])
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get previous state: {e}")
+            return None
+
+    # --- View Persistence Methods ---
+
+    def save_view_state(self, message_id, data):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                # Serialize complex objects if needed (but data passed should be dict of primitives)
+                json_data = json.dumps(data)
+                c.execute("""
+                    INSERT INTO view_persistence (message_id, data, timestamp)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(message_id) DO UPDATE SET
+                        data = excluded.data,
+                        timestamp = excluded.timestamp
+                """, (str(message_id), json_data, datetime.now()))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save view state: {e}")
+
+    def get_view_state(self, message_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT data FROM view_persistence WHERE message_id = ?", (str(message_id),))
+                row = c.fetchone()
+                if row:
+                    return json.loads(row[0])
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get view state: {e}")
+            return None
+
+    # --- Context Buffer Methods ---
+
+    def update_context_buffer(self, channel_id, channel_name, content):
+        """Replaces the context buffer for a channel."""
+        # Sanitize: Ensure no extra brackets if they somehow slipped through (though caller should handle)
+        # content = content.replace('[', '(').replace(']', ')') 
+        # NOTE: Caller (memory_manager) constructs the content. We assume it's ready to store but we can be safe.
+        # However, user said "sanitize them in the database". 
+        # If this is the formatted string, replacing [ with ( might break [ASSISTANT_REPLY] or headers.
+        # The Headers like [ROLE] are needed. 
+        # The user likely means "sanitize user content".
+        # I will leave global replacement out of here to avoid breaking the format structure ([ROLE]).
+        
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("""
+                    INSERT INTO context_buffers (channel_id, channel_name, content, last_updated)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(channel_id) DO UPDATE SET
+                        channel_name = excluded.channel_name,
+                        content = excluded.content,
+                        last_updated = excluded.last_updated
+                """, (str(channel_id), channel_name, content, datetime.now()))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update context buffer: {e}")
+
+    def append_to_context_buffer(self, channel_id, content):
+        """Appends text to the existing buffer."""
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                # Get current content
+                c.execute("SELECT content FROM context_buffers WHERE channel_id = ?", (str(channel_id),))
+                row = c.fetchone()
+                current_content = row[0] if row else ""
+                
+                new_content = current_content + content
+                
+                c.execute("""
+                    UPDATE context_buffers 
+                    SET content = ?, last_updated = ?
+                    WHERE channel_id = ?
+                """, (new_content, datetime.now(), str(channel_id)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to append context buffer: {e}")
+
+    def get_context_buffer(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT content FROM context_buffers WHERE channel_id = ?", (str(channel_id),))
+                row = c.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            logger.error(f"Failed to get context buffer: {e}")
+            return None
+            
+    def clear_context_buffer(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM context_buffers WHERE channel_id = ?", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to clear context buffer: {e}")
+
+    def wipe_all_buffers(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM context_buffers")
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to wipe all buffers: {e}")
+
+    # --- Good Bot Methods ---
+
+    def increment_user_score(self, user_id, username):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                # Upsert logic
+                c.execute("""
+                    INSERT INTO user_scores (user_id, username, count)
+                    VALUES (?, ?, 1)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        count = count + 1,
+                        username = excluded.username
+                """, (str(user_id), username))
+                
+                # Return new count
+                c.execute("SELECT count FROM user_scores WHERE user_id = ?", (str(user_id),))
+                return c.fetchone()[0]
+        except Exception as e:
+            logger.error(f"Failed to increment user score: {e}")
+            return 0
+
+    def get_leaderboard(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT user_id, username, count FROM user_scores ORDER BY count DESC")
+                rows = c.fetchall()
+                return [{"user_id": r[0], "username": r[1], "count": r[2]} for r in rows]
+        except Exception as e:
+            logger.error(f"Failed to get leaderboard: {e}")
+            return []
+
+    # --- Suppressed Users Methods ---
+
+    def get_suppressed_users(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT user_id FROM suppressed_users")
+                return {row[0] for row in c.fetchall()}
+        except Exception as e:
+            logger.error(f"Failed to get suppressed users: {e}")
+            return set()
+
+    def toggle_suppressed_user(self, user_id):
+        uid_str = str(user_id)
+        is_suppressed = False
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT 1 FROM suppressed_users WHERE user_id = ?", (uid_str,))
+                exists = c.fetchone()
+                
+                if exists:
+                    c.execute("DELETE FROM suppressed_users WHERE user_id = ?", (uid_str,))
+                    is_suppressed = False
+                else:
+                    c.execute("INSERT INTO suppressed_users (user_id) VALUES (?)", (uid_str,))
+                    is_suppressed = True
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to toggle suppressed user: {e}")
+            
+        return is_suppressed
+
+    # --- Server Settings Methods ---
+
+    def get_setting(self, key, default=None):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT value FROM server_settings WHERE key = ?", (str(key),))
+                row = c.fetchone()
+                if row:
+                    return json.loads(row[0])
+                return default
+        except Exception as e:
+            logger.error(f"Failed to get setting {key}: {e}")
+            return default
+
+    def set_setting(self, key, value):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                json_val = json.dumps(value)
+                c.execute("""
+                    INSERT INTO server_settings (key, value)
+                    VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """, (str(key), json_val))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to set setting {key}: {e}")
