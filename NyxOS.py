@@ -756,7 +756,7 @@ async def thinking_command(interaction: discord.Interaction):
 
 @client.tree.command(name="reading", description="Set status to Reading.")
 async def reading_command(interaction: discord.Interaction):
-    await client.update_bar_prefix(interaction, "<a:Reading:000000000000000000>")
+    await client.update_bar_prefix(interaction, "<a:Reading:1378593438265770034>")
 
 @client.tree.command(name="backlogging", description="Set status to Backlogging.")
 async def backlogging_command(interaction: discord.Interaction):
@@ -786,16 +786,16 @@ async def angel_command(interaction: discord.Interaction):
 async def pausing_command(interaction: discord.Interaction):
     await client.update_bar_prefix(interaction, "<a:Pausing:1385258657532481597>")
 
-@client.tree.command(name="notwatching", description="Set status to Not Watching.")
-async def notwatching_command(interaction: discord.Interaction):
+@client.tree.command(name="speed0", description="Set status to Not Watching.")
+async def speed0_command(interaction: discord.Interaction):
     await client.update_bar_prefix(interaction, "<a:NotWatching:1301840196966285322>")
 
-@client.tree.command(name="watchingslowly", description="Set status to Watching Slowly/Occasionally.")
-async def watchingslowly_command(interaction: discord.Interaction):
+@client.tree.command(name="speed1", description="Set status to Watching Slowly/Occasionally.")
+async def speed1_command(interaction: discord.Interaction):
     await client.update_bar_prefix(interaction, "<a:WatchingOccasionally:1301837550159269888>")
 
-@client.tree.command(name="watchingclosely", description="Set status to Watching Closely.")
-async def watchingclosely_command(interaction: discord.Interaction):
+@client.tree.command(name="speed2", description="Set status to Watching Closely.")
+async def speed2_command(interaction: discord.Interaction):
     await client.update_bar_prefix(interaction, "<a:WatchingClosely:1301838354832425010>")
 
 @client.tree.command(name="linkcheck", description="Get a link to the current checkmark message.")
@@ -1041,16 +1041,16 @@ async def on_message(message):
         # Status Shortcuts
         status_map = {
             "&thinking": "<a:Thinking:1322962569300017214>",
-            "&reading": "<a:Reading:000000000000000000>",
+            "&reading": "<a:Reading:1378593438265770034>",
             "&backlogging": "<a:Backlogging:000000000000000000>",
             "&sleeping": "<a:Sleeping:1312772391759249410>",
             "&typing": "<a:Typing:000000000000000000>",
             "&processing": "<a:Processing:000000000000000000>",
             "&angel": "<a:Angel:000000000000000000>",
             "&pausing": "<a:Pausing:1385258657532481597>",
-            "&notwatching": "<a:NotWatching:1301840196966285322>",
-            "&watchingslowly": "<a:WatchingOccasionally:1301837550159269888>",
-            "&watchingclosely": "<a:WatchingClosely:1301838354832425010>"
+            "&speed0": "<a:NotWatching:1301840196966285322>",
+            "&speed1": "<a:WatchingOccasionally:1301837550159269888>",
+            "&speed2": "<a:WatchingClosely:1301838354832425010>"
         }
         
         if cmd in status_map or cmd == "&darkangel":
