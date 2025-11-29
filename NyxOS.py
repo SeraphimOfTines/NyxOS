@@ -165,8 +165,12 @@ class LMStudioBot(discord.Client):
         
         # --- Handle Old Message & Checkmark ---
         if move_check:
-            # WIPE ANY STRAY CHECKMARKS (User Request)
-            await self.wipe_stray_checks(channel)
+            # WIPE ANY STRAY CHECKMARKS OR BARS (User Request)
+            # Exclude the current tracked items so we don't delete them before moving/editing
+            excl_ids = set()
+            if old_msg_id: excl_ids.add(old_msg_id)
+            if check_msg_id: excl_ids.add(check_msg_id)
+            await self.wipe_stray_artifacts(channel, exclude_ids=excl_ids)
 
             is_at_bottom = False
             if old_msg_id:
@@ -743,17 +747,34 @@ class LMStudioBot(discord.Client):
             await message.edit(suppress=True)
         except: pass
 
-    async def wipe_stray_checks(self, channel):
-        """Scans recent history for stray checkmarks and deletes them."""
+    async def wipe_stray_artifacts(self, channel, exclude_ids=None):
+        """Scans recent history for stray checkmarks AND bars, and deletes them."""
+        if exclude_ids is None: exclude_ids = set()
+        else: exclude_ids = set(exclude_ids)
+
         try:
-            async for msg in channel.history(limit=20):
+            async for msg in channel.history(limit=50):
+                if msg.id in exclude_ids: continue
+
                 if msg.author.id == self.user.id:
-                    # Check content strictly
+                    is_target = False
+                    
+                    # Check Checkmark
                     if msg.content.strip() == ui.FLAVOR_TEXT['CHECKMARK_EMOJI']:
+                        is_target = True
+                    
+                    # Check Bar Prefixes
+                    if not is_target and msg.content:
+                        for emoji in ui.BAR_PREFIX_EMOJIS:
+                            if msg.content.strip().startswith(emoji):
+                                is_target = True
+                                break
+                    
+                    if is_target:
                         try: await msg.delete()
                         except: pass
         except Exception as e:
-            logger.warning(f"Stray check wipe failed: {e}")
+            logger.warning(f"Stray artifact wipe failed: {e}")
 
     async def cleanup_old_bars(self, channel, exclude_msg_id=None):
         """Uses DB index to find and delete the active bar, or scans if DB is empty."""
@@ -776,47 +797,14 @@ class LMStudioBot(discord.Client):
                     await msg.delete()
                 except: pass
 
-            # WIPE ANY STRAY CHECKMARKS (User Request)
-            await self.wipe_stray_checks(channel)
-            
             # Remove from Memory and DB ONLY if we are not excluding (meaning we are wiping)
-            # If excluding, we assume the caller has already updated the DB with the new ID.
             if not exclude_msg_id:
                 del self.active_bars[channel.id]
                 memory_manager.delete_bar(channel.id)
-            return
 
-        # 2. Fallback: Scan (only if not in DB)
-        try:
-            async for msg in channel.history(limit=50):
-                if msg.id == exclude_msg_id: continue
-                
-                if msg.author.id == self.user.id:
-                    is_target = False
-                    
-                    if msg.components:
-                        for row in msg.components:
-                            for child in row.children:
-                                if getattr(child, "custom_id", "").startswith("bar_"):
-                                    is_target = True
-                                    break
-                            if is_target: break
-                    
-                    if not is_target and msg.content:
-                        for emoji in ui.BAR_PREFIX_EMOJIS:
-                            if msg.content.strip().startswith(emoji):
-                                is_target = True
-                                break
-                    
-                    if not is_target and msg.content:
-                        if msg.content.strip() == ui.FLAVOR_TEXT['CHECKMARK_EMOJI']:
-                            is_target = True
-
-                    if is_target:
-                        try: await msg.delete()
-                        except: pass
-        except Exception as e:
-            logger.warning(f"Bar cleanup scan failed: {e}")
+        # ALWAYS WIPE STRAYS (User Request: "duplicate" bars logic)
+        excl = {exclude_msg_id} if exclude_msg_id else set()
+        await self.wipe_stray_artifacts(channel, exclude_ids=excl)
 
     async def wipe_channel_bars(self, channel):
         """Aggressively wipes all bar messages and checkmarks from history."""
