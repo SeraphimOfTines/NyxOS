@@ -128,6 +128,22 @@ class LMStudioBot(discord.Client):
         finally:
             self.active_drop_tasks.discard(channel_id)
 
+    async def wait_for_ghost_and_drop(self, channel_id, message_id):
+        """Waits to see if a message is proxied (deleted) before dropping bar."""
+        await asyncio.sleep(1.5) 
+        try:
+            channel = self.get_channel(channel_id)
+            if not channel: channel = await self.fetch_channel(channel_id)
+            
+            try:
+                await channel.fetch_message(message_id)
+                # If found, it wasn't proxied. Drop bar now.
+                self.request_bar_drop(channel_id)
+            except discord.NotFound:
+                # Message deleted (ghosted). Webhook will trigger drop.
+                pass
+        except: pass
+
     async def drop_status_bar(self, channel_id, move_check=False):
         if channel_id not in self.active_bars:
             return
@@ -1256,8 +1272,16 @@ async def on_message(message):
     if message.channel.id in client.active_bars:
         bar_data = client.active_bars[message.channel.id]
         if bar_data["persisting"]:
-             # Use debounced request
-             client.request_bar_drop(message.channel.id)
+             # Check if user is a system (potential ghost)
+             is_system = False
+             if message.webhook_id is None:
+                 is_system = await services.service.check_local_pk_system(message.author.id)
+             
+             if is_system:
+                 client.loop.create_task(client.wait_for_ghost_and_drop(message.channel.id, message.id))
+             else:
+                 # Not a system (or is webhook), safe to drop immediately
+                 client.request_bar_drop(message.channel.id)
 
     # --- PREFIX COMMANDS ---
     if message.content.startswith("&"):

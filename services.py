@@ -56,6 +56,18 @@ class APIService:
         except Exception as e:
             logger.warning(f"Error fetching main system data: {e}")
 
+    async def check_local_pk_system(self, user_id):
+        """Checks only the local DB for system existence. Returns True if user has a system."""
+        if not self.db_pool: return False
+        try:
+            async with self.db_pool.acquire() as conn:
+                # Check if uid exists in accounts table and has a system linked
+                val = await conn.fetchval("SELECT system FROM accounts WHERE uid = $1", user_id)
+                return val is not None
+        except Exception as e:
+            logger.error(f"Local PK Check Failed: {e}")
+            return False
+
     async def get_pk_user_data(self, user_id):
         # 1. Try DB if Local
         if self.db_pool:
