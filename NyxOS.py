@@ -701,6 +701,13 @@ class LMStudioBot(discord.Client):
         # Check commands
         await client.check_and_sync_commands()
 
+        if restart_data and "channel_id" in restart_data:
+             try:
+                 channel = client.get_channel(restart_data["channel_id"]) or await client.fetch_channel(restart_data["channel_id"])
+                 await channel.send(ui.FLAVOR_TEXT["STARTUP_MESSAGE"])
+             except Exception as e:
+                 logger.warning(f"⚠️ Failed to send startup message: {e}")
+
     async def check_and_sync_commands(self):
         """Checks if commands have changed since last boot and syncs if needed."""
         current_hash = self.get_tree_hash()
@@ -1679,15 +1686,18 @@ async def on_message(message):
 
     # --- PREFIX COMMANDS ---
     if message.content.startswith("&"):
+        try: await message.delete()
+        except: pass
+
         cmd = message.content.split()[0].lower()
         
         # &bar
-        if cmd == "&bar":
+        if cmd in ["&bar", "&b"]:
             # Cooldown to prevent race conditions (User + Webhook)
             if time.time() - client.bar_drop_cooldowns.get(message.channel.id, 0) < 2.0:
                 return
 
-            content = message.content[5:].strip()
+            content = message.content[len(cmd):].strip()
             
             # Auto-find content if empty
             if not content:
@@ -1704,26 +1714,55 @@ async def on_message(message):
                 await message.channel.send("❌ Usage: `&bar <text/emojis>` or have an existing bar to clone.")
                 return
             
-            try: await message.delete()
-            except: pass
+            # Wipe strays (except the active bar parts)
+            bar_data = client.active_bars.get(message.channel.id)
+            exclude_ids = set()
+            if bar_data:
+                if bar_data.get("message_id"): exclude_ids.add(bar_data["message_id"])
+                if bar_data.get("checkmark_message_id"): exclude_ids.add(bar_data["checkmark_message_id"])
             
-            await client.cleanup_old_bars(message.channel)
+            await client.wipe_stray_artifacts(message.channel, exclude_ids=exclude_ids)
+
+            # Handle Existing Bar Drop
+            old_msg_id = bar_data.get("message_id") if bar_data else None
+            check_msg_id = bar_data.get("checkmark_message_id") if bar_data else None
+            
+            if old_msg_id:
+                try:
+                    old_msg = await message.channel.fetch_message(old_msg_id)
+                    if check_msg_id == old_msg_id:
+                        # Leave checkmark behind
+                        await old_msg.edit(content=ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], view=None)
+                    else:
+                        # Checkmark is separate, delete old bar
+                        await old_msg.delete()
+                except: pass
 
             content = content.strip()
             # Remove spaces between emojis
             content = re.sub(r'>[ \t]+<', '><', content)
 
-            # Initial content includes checkmark
-            full_content = f"{content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+            # Determine if we need a fresh checkmark
+            new_check_id = check_msg_id
+            full_content = content
+            
+            if not bar_data or not check_msg_id:
+                 # Fresh Start -> Attach Checkmark
+                 full_content = f"{content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
             
             view = ui.StatusBarView(content, message.author.id, message.channel.id, False)
             msg = await message.channel.send(full_content, view=view)
+
+            if not bar_data or not check_msg_id:
+                new_check_id = msg.id
+            elif check_msg_id == old_msg_id:
+                new_check_id = old_msg_id # Stays behind
 
             client.active_bars[message.channel.id] = {
                 "content": content,
                 "user_id": message.author.id,
                 "message_id": msg.id,
-                "checkmark_message_id": msg.id,
+                "checkmark_message_id": new_check_id,
                 "persisting": False
             }
             client.active_views[msg.id] = view
@@ -1740,10 +1779,7 @@ async def on_message(message):
             return
 
         # &dropcheck
-        if cmd == "&dropcheck":
-            try: await message.delete()
-            except: pass
-            
+        if cmd in ["&dropcheck", "&c"]:
             channel_id = message.channel.id
             if channel_id not in client.active_bars:
                 return
@@ -1774,9 +1810,6 @@ async def on_message(message):
 
         # &linkcheck
         if cmd == "&linkcheck":
-            try: await message.delete()
-            except: pass
-            
             channel_id = message.channel.id
             if channel_id not in client.active_bars:
                 await message.channel.send("❌ No active bar.", delete_after=2.0)
@@ -1809,9 +1842,6 @@ async def on_message(message):
         }
         
         if cmd in status_map or cmd == "&darkangel":
-            try: await message.delete()
-            except: pass
-            
             # If we are changing status on a bar that HAS the checkmark, we must SPLIT it.
             # Because update_bar_prefix creates a NEW message with the new prefix + old content + checkmark.
             # Wait, update_bar_prefix Logic:
@@ -1984,6 +2014,13 @@ async def on_message(message):
             return
 
         # &drop
+        if cmd in ["&drop", "&d"]:
+            if message.channel.id not in client.active_bars:
+                await message.channel.send("❌ No active bar in this channel. Use `&bar` to create one.", delete_after=2.0)
+                return
+            
+            await client.drop_status_bar(message.channel.id, move_check=True)
+            return
 
         # &addchannel
         if cmd == "&addchannel":

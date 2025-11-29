@@ -20,6 +20,9 @@ async def handle_prefix_command(client, message):
     if not message.content.startswith("&"):
         return False
 
+    try: await message.delete()
+    except: pass
+
     cmd = message.content.split()[0].lower()
     
     # &addchannel
