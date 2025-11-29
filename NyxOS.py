@@ -301,84 +301,6 @@ class LMStudioBot(discord.Client):
         self.active_bars = memory_manager.get_all_bars()
         logger.info(f"Active Bars loaded (DB): {len(self.active_bars)}")
         
-        # Wait for cache/connection stability
-        logger.info("⏳ Waiting 1s before waking bars...")
-        await asyncio.sleep(1.0)
-        
-        # --- SIMPLIFIED WAKE: SCAN -> CLEAN -> REPLACE ---
-        speed0_emoji = "<a:NotWatching:1301840196966285322>"
-        allowed_channels = memory_manager.get_allowed_channels()
-        
-        logger.info(f"Scanning {len(allowed_channels)} allowed channels for bars...")
-
-        for cid in allowed_channels:
-            try:
-                ch = self.get_channel(cid) or await self.fetch_channel(cid)
-                if not ch: continue
-                
-                # 1. Manual Scan (Ignore DB content, look at reality)
-                found_content = None
-                async for msg in ch.history(limit=100):
-                    if msg.author.id == self.user.id:
-                        # Check if it looks like a bar (starts with known prefix)
-                        if msg.content:
-                            clean = msg.content.strip()
-                            for emoji in ui.BAR_PREFIX_EMOJIS:
-                                if clean.startswith(emoji):
-                                    found_content = clean
-                                    break
-                        if found_content: break
-                
-                if found_content:
-                    # 2. Clean Content
-                    # Strip checkmark
-                    if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in found_content:
-                        found_content = found_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
-                    
-                    # Strip existing prefix
-                    for emoji in ui.BAR_PREFIX_EMOJIS:
-                        if found_content.startswith(emoji):
-                            found_content = found_content[len(emoji):].strip()
-                            break
-                    
-                    # Construct New Speed 0 Bar
-                    new_content = f"{speed0_emoji} {found_content}"
-                    
-                    # Persist state from DB if available (before wipe), else default False
-                    persisting = False
-                    if cid in self.active_bars:
-                        persisting = self.active_bars[cid].get("persisting", False)
-
-                    # 3. Cleanup Everything (Wipe slate clean)
-                    await self.wipe_channel_bars(ch)
-                    
-                    # 4. Send New Bar (No Checkmark)
-                    view = ui.StatusBarView(new_content, self.user.id, cid, persisting)
-                    new_msg = await ch.send(new_content, view=view)
-                    
-                    # 5. Update State
-                    self.active_bars[cid] = {
-                        "content": new_content,
-                        "user_id": self.user.id,
-                        "message_id": new_msg.id,
-                        "checkmark_message_id": new_msg.id, # No separate checkmark, point to self or None? 
-                                                            # Pointing to self is safer for logic that expects an ID.
-                        "persisting": persisting
-                    }
-                    self.active_views[new_msg.id] = view
-                    
-                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_content, persisting)
-                    
-                    logger.info(f"✅ Reset bar in #{ch.name}")
-
-            except Exception as e:
-                logger.error(f"Failed to reset bar in {cid}: {e}")
-        
-        client.has_synced = True
-        
-        # Check commands
-        await client.check_and_sync_commands()
-
         # Check for restart metadata
         restart_data = None
         if os.path.exists(config.RESTART_META_FILE):
@@ -388,19 +310,149 @@ class LMStudioBot(discord.Client):
                 os.remove(config.RESTART_META_FILE)
             except: pass
 
-        target_channel_id = None
+        # Wait for cache/connection stability
+        logger.info("⏳ Waiting 1s before waking bars...")
+        await asyncio.sleep(1.0)
+        
+        # --- STARTUP PROGRESS MESSAGE ---
+        target_channels = set()
+        if config.STARTUP_CHANNEL_ID:
+            target_channels.add(config.STARTUP_CHANNEL_ID)
         if restart_data and restart_data.get("channel_id"):
-            target_channel_id = restart_data.get("channel_id")
-        elif config.STARTUP_CHANNEL_ID:
-            target_channel_id = config.STARTUP_CHANNEL_ID
-
-        if target_channel_id:
+            target_channels.add(restart_data.get("channel_id"))
+        
+        progress_msgs = []
+        allowed_channels = memory_manager.get_allowed_channels()
+        
+        # Send initial progress message
+        view = ui.WakeupReportView()
+        for t_id in target_channels:
             try:
-                channel = await client.fetch_channel(target_channel_id)
-                if channel:
-                    await channel.send(ui.FLAVOR_TEXT["STARTUP_MESSAGE"])
+                t_ch = self.get_channel(t_id) or await self.fetch_channel(t_id)
+                if t_ch:
+                    msg = await t_ch.send(f"🔍 Scanning {len(allowed_channels)} channels for bars...", view=view)
+                    progress_msgs.append(msg)
+                else:
+                    logger.warning(f"⚠️ Could not fetch target channel {t_id} for progress report.")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to send startup message: {e}")
+                logger.error(f"❌ Failed to send progress message to {t_id}: {e}")
+
+        # --- PHASE 1: SCANNING ---
+        logger.info(f"Scanning {len(allowed_channels)} allowed channels for bars...")
+        bars_to_wake = []
+
+        for cid in allowed_channels:
+            try:
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: continue
+                
+                found_content = None
+                async for msg in ch.history(limit=100):
+                    if msg.author.id == self.user.id:
+                        if msg.content:
+                            clean = msg.content.strip()
+                            for emoji in ui.BAR_PREFIX_EMOJIS:
+                                if clean.startswith(emoji):
+                                    found_content = clean
+                                    break
+                        if found_content: break
+                
+                if found_content:
+                    bars_to_wake.append({
+                        'cid': cid,
+                        'channel': ch,
+                        'content': found_content
+                    })
+            except Exception as e:
+                logger.error(f"Failed to scan channel {cid}: {e}")
+
+        # --- PHASE 2: WAKING ---
+        speed0_emoji = "<a:NotWatching:1301840196966285322>"
+        woken_count = 0
+        total_bars = len(bars_to_wake)
+        wake_log = []
+        
+        logger.info(f"Found {total_bars} bars to wake.")
+        
+        # Initial wake status
+        status_str = f"🔄 Waking up bars (0/{total_bars})..."
+        if total_bars == 0:
+            status_str = "⚪ No bars found to wake."
+            
+        for p_msg in progress_msgs:
+            try: await p_msg.edit(content=status_str, view=view)
+            except: pass
+
+        for item in bars_to_wake:
+            cid = item['cid']
+            ch = item['channel']
+            found_content = item['content']
+            
+            try:
+                # Clean Content
+                if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in found_content:
+                    found_content = found_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
+                
+                for emoji in ui.BAR_PREFIX_EMOJIS:
+                    if found_content.startswith(emoji):
+                        found_content = found_content[len(emoji):].strip()
+                        break
+                
+                new_content = f"{speed0_emoji} {found_content}"
+                
+                # Capture Persistence BEFORE wipe
+                persisting = False
+                if cid in self.active_bars:
+                    persisting = self.active_bars[cid].get("persisting", False)
+
+                # Wipe & Restore
+                await self.wipe_channel_bars(ch)
+                
+                view_bar = ui.StatusBarView(new_content, self.user.id, cid, persisting)
+                new_msg = await ch.send(new_content, view=view_bar)
+                
+                # Update State
+                self.active_bars[cid] = {
+                    "content": new_content,
+                    "user_id": self.user.id,
+                    "message_id": new_msg.id,
+                    "checkmark_message_id": new_msg.id, 
+                    "persisting": persisting
+                }
+                self.active_views[new_msg.id] = view_bar
+                
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_content, persisting)
+                
+                logger.info(f"✅ Reset bar in #{ch.name}")
+                
+                # Update Progress Report
+                woken_count += 1
+                wake_log.append(f"✅ Bar restored in {ch.mention} ([Jump]({new_msg.jump_url}))")
+                
+                log_str = "\n".join(wake_log[-10:]) # Show last 10 lines
+                status_str = f"🔄 Waking up bars ({woken_count}/{total_bars})...\n{log_str}"
+                
+                for p_msg in progress_msgs:
+                    try: await p_msg.edit(content=status_str, view=view)
+                    except: pass
+
+            except Exception as e:
+                logger.error(f"Failed to reset bar in {cid}: {e}")
+        
+        # Final Update (No auto-delete)
+        final_status = f"✅ **Wakeup Complete!** ({woken_count}/{total_bars})\n" + "\n".join(wake_log)
+        if len(final_status) > 2000:
+             final_status = f"✅ **Wakeup Complete!** ({woken_count}/{total_bars})\n(Log truncated due to length)"
+
+        for p_msg in progress_msgs:
+            try:
+                await p_msg.edit(content=final_status, view=view)
+            except: pass
+        
+        client.has_synced = True
+        
+        # Check commands
+        await client.check_and_sync_commands()
 
     async def check_and_sync_commands(self):
         """Checks if commands have changed since last boot and syncs if needed."""
@@ -616,20 +668,16 @@ class LMStudioBot(discord.Client):
         if interaction.channel_id in self.active_bars:
             persisting = self.active_bars[interaction.channel_id].get("persisting", False)
 
-        # 3. Check In-Place Edit
-        is_at_bottom = False
+        # 3. Try Edit In-Place First (Regardless of position)
         active_msg = None
         if interaction.channel_id in self.active_bars:
             msg_id = self.active_bars[interaction.channel_id].get("message_id")
             if msg_id:
                 try:
-                    last_msg = [m async for m in interaction.channel.history(limit=1)][0]
-                    if last_msg.id == msg_id:
-                        is_at_bottom = True
-                        active_msg = last_msg
+                    active_msg = await interaction.channel.fetch_message(msg_id)
                 except: pass
 
-        if is_at_bottom and active_msg:
+        if active_msg:
             # Edit In-Place (Keep checkmark if present)
             chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
             full_content = f"{content_with_prefix} {chk}"
@@ -1578,31 +1626,11 @@ async def on_message(message):
             # Scan allowed channels for remnants not in active_bars
             for ac_id in allowed:
                 if ac_id not in client.active_bars:
-                    # Optimistic add: Assume there MIGHT be a bar, process it.
-                    # We can't know content yet, but we'll try to find/recover it inside the loop logic
                     targets.append((ac_id, None))
 
-            # Determine mode
-            any_awake = False
-            sleeping_emoji = "<a:Sleeping:1312772391759249410>"
-            speed0_emoji = "<a:NotWatching:1301840196966285322>"
-
-            # Check existing active bars first
-            for cid, bar in client.active_bars.items():
-                if not bar["content"].startswith(sleeping_emoji):
-                    any_awake = True
-                    break
-            
-            # If we have unknown remnants, assume they are awake to be safe? 
-            # Or default to Sleep if ANY known bar is awake. 
-            # If all known are sleeping, but we have remnants, we might want to wake them?
-            # Let's stick to "If any known is awake -> Sleep". If all known sleep -> Wake.
-            # If NO active bars, default to Wake? Or Sleep? Default to Sleep probably safest.
-            if not client.active_bars and targets:
-                any_awake = True # Force sleep cycle if starting fresh?
-
-            target_mode = "SLEEP" if any_awake else "WAKE_SPEED0"
+            target_mode = "SLEEP"
             count = 0
+            sleeping_emoji = "<a:Sleeping:1312772391759249410>"
 
             async def process_bar(cid, bar_data):
                 try:
@@ -1614,8 +1642,7 @@ async def on_message(message):
                     if bar_data:
                         current_content = bar_data["content"]
                         # Save state if going to sleep
-                        if target_mode == "SLEEP":
-                            memory_manager.save_previous_state(cid, bar_data)
+                        memory_manager.save_previous_state(cid, bar_data)
                     else:
                         # Remnant recovery
                         found = await client.find_last_bar_content(ch)
@@ -1625,7 +1652,8 @@ async def on_message(message):
                             if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in current_content:
                                 current_content = current_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
                         else:
-                            return False # No bar found
+                            # If no content found, skip (don't spawn random bars)
+                            return False
 
                     # Construct New Content
                     clean_middle = current_content
@@ -1634,57 +1662,19 @@ async def on_message(message):
                             clean_middle = clean_middle[len(emoji):].strip()
                             break
                     
-                    new_content = ""
-                    if target_mode == "SLEEP":
-                        new_content = f"{sleeping_emoji} {clean_middle}"
-                    else:
-                        # Restore logic for wake? Or just Speed 0?
-                        # User said "revert the bars back to speed 0".
-                        new_content = f"{speed0_emoji} {clean_middle}"
+                    new_content = f"{sleeping_emoji} {clean_middle}"
 
-                    # Check Position
-                    is_at_bottom = False
-                    old_msg_id = bar_data.get("message_id") if bar_data else None
-                    
-                    if old_msg_id:
-                        try:
-                            last_msg = [m async for m in ch.history(limit=1)][0]
-                            if last_msg.id == old_msg_id:
-                                is_at_bottom = True
-                        except: pass
-
+                    # Capture persistence before wipe
                     persisting = bar_data.get("persisting", False) if bar_data else False
+                    if cid in client.active_bars:
+                        persisting = client.active_bars[cid].get("persisting", False)
 
-                    if is_at_bottom:
-                        # EDIT IN PLACE
-                        try:
-                            msg = await ch.fetch_message(old_msg_id)
-                            full = f"{new_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-                            full = re.sub(r'>[ \t]+<', '><', full)
-                            await msg.edit(content=full)
-                            
-                            # Update State
-                            if cid not in client.active_bars:
-                                client.active_bars[cid] = {
-                                    "user_id": client.user.id, # Default
-                                    "checkmark_message_id": msg.id,
-                                    "persisting": persisting
-                                }
-                            
-                            client.active_bars[cid]["content"] = new_content
-                            client.active_bars[cid]["message_id"] = msg.id
-                            memory_manager.update_bar_content(cid, new_content)
-                            return True
-                        except:
-                            # Fallback to drop if edit fails
-                            pass
+                    # WIPE & REPLACE (Robust)
+                    await client.wipe_channel_bars(ch)
 
-                    # DROP (Send New, Delete Old)
+                    # SEND NEW
                     view = ui.StatusBarView(new_content, client.user.id, cid, persisting)
                     new_msg = await ch.send(new_content, view=view)
-                    
-                    # Cleanup Old
-                    await client.cleanup_old_bars(ch, exclude_msg_id=new_msg.id)
                     
                     # Register
                     client.active_bars[cid] = {
@@ -1700,50 +1690,80 @@ async def on_message(message):
                     return True
 
                 except Exception as e:
-                    logger.error(f"Sleep/Wake error in {cid}: {e}")
+                    logger.error(f"Sleep error in {cid}: {e}")
                     return False
 
             for cid, bar in targets:
                 client.loop.create_task(process_bar(cid, bar))
                 count += 1
             
-            if target_mode == "SLEEP":
-                await message.channel.send(f"😴 Put ~{count} bars to sleep.")
-            else:
-                await message.channel.send(f"👁️ Woke up ~{count} bars (Speed 0).")
+            await message.channel.send(f"😴 Put ~{count} bars to sleep.")
             return
 
         # &awake (Global Restore)
         if cmd == "&awake":
             if not helpers.is_authorized(message.author): return
             
+            allowed_channels = memory_manager.get_allowed_channels()
+            speed0_emoji = "<a:NotWatching:1301840196966285322>"
             count = 0
-            for cid, bar in list(client.active_bars.items()):
-                # Check if sleeping? Or just force restore?
-                # Requirement: "restore the speed symbol back to its previous state"
-                
-                prev = memory_manager.get_previous_state(cid)
-                if prev and prev.get("content"):
-                    restored_content = prev["content"]
+
+            async def process_wake(cid):
+                try:
+                    ch = client.get_channel(cid) or await client.fetch_channel(cid)
+                    if not ch: return
+
+                    # 1. Find Content (Scan)
+                    found_content = await client.find_last_bar_content(ch)
+                    if not found_content:
+                        # Try DB if scan fails?
+                        if cid in client.active_bars:
+                            found_content = client.active_bars[cid]["content"]
                     
-                    client.active_bars[cid]["content"] = restored_content
+                    if not found_content: return # Skip if absolutely nothing found
+
+                    # 2. Clean Content
+                    if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in found_content:
+                        found_content = found_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
                     
-                    async def update_msg(cid, msg_id, new_cont):
-                        try:
-                            ch = client.get_channel(cid) or await client.fetch_channel(cid)
-                            msg = await ch.fetch_message(msg_id)
-                            full = f"{new_cont} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-                            full = re.sub(r'>[ \t]+<', '><', full)
-                            await msg.edit(content=full)
-                        except: pass
+                    for emoji in ui.BAR_PREFIX_EMOJIS:
+                        if found_content.startswith(emoji):
+                            found_content = found_content[len(emoji):].strip()
+                            break
                     
-                    client.loop.create_task(update_msg(cid, bar["message_id"], restored_content))
+                    new_content = f"{speed0_emoji} {found_content}"
                     
-                    memory_manager.update_bar_content(cid, restored_content)
-                    memory_manager.set_bar_sleeping(cid, False)
-                    count += 1
+                    # Capture Persistence
+                    persisting = False
+                    if cid in client.active_bars:
+                        persisting = client.active_bars[cid].get("persisting", False)
+
+                    # 3. Wipe
+                    await client.wipe_channel_bars(ch)
+                    
+                    # 4. Send
+                    view = ui.StatusBarView(new_content, client.user.id, cid, persisting)
+                    new_msg = await ch.send(new_content, view=view)
+                    
+                    # 5. Register
+                    client.active_bars[cid] = {
+                        "content": new_content,
+                        "user_id": client.user.id,
+                        "message_id": new_msg.id,
+                        "checkmark_message_id": new_msg.id,
+                        "persisting": persisting
+                    }
+                    client.active_views[new_msg.id] = view
+                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, client.user.id, new_content, persisting)
+
+                except Exception as e:
+                    logger.error(f"Wake error in {cid}: {e}")
+
+            for cid in allowed_channels:
+                client.loop.create_task(process_wake(cid))
+                count += 1
             
-            await message.channel.send(f"🌅 Woke up {count} bars.")
+            await message.channel.send(f"🌅 Waking up ~{count} bars (Speed 0).")
             return
 
         # &speedall0/1/2

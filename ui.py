@@ -231,6 +231,28 @@ class StatusBarView(discord.ui.View):
 
 
 # ==========================================
+# WAKEUP REPORT VIEW
+# ==========================================
+
+class WakeupReportView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Dismiss", style=discord.ButtonStyle.secondary, custom_id="wakeup_dismiss_btn")
+    async def dismiss_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check auth? Probably not needed for a dismiss button on a system message, but we can restrict to admin if needed.
+        # For now, allow anyone to dismiss to reduce clutter if they see it.
+        # Or maybe restrict to the user who rebooted? We don't track that easily here.
+        # Let's allow admins or the original invoker. But since we don't have invoker ID here easily...
+        # Let's just allow admins.
+        if not helpers.is_authorized(interaction.user):
+             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+             return
+        
+        await interaction.message.delete()
+
+
+# ==========================================
 # VIEW
 # ==========================================
 
