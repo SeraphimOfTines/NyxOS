@@ -117,8 +117,8 @@ class LMStudioBot(discord.Client):
                 # Perform the drop (Force move checkmark for persistence)
                 await self.drop_status_bar(channel_id, move_check=True)
                 
-                # Wait debounce period (2.0 seconds)
-                await asyncio.sleep(2.0)
+                # Wait debounce period (0.5 seconds)
+                await asyncio.sleep(0.5)
                 
                 if channel_id in self.pending_drops:
                     self.pending_drops.remove(channel_id)
@@ -149,10 +149,17 @@ class LMStudioBot(discord.Client):
         
         # --- Handle Old Message & Checkmark ---
         if move_check:
+            is_at_bottom = False
+            if old_msg_id:
+                try:
+                    async for msg in channel.history(limit=1):
+                        if msg.id == old_msg_id: is_at_bottom = True; break
+                except: pass
+
             # OPTIMIZATION: Consolidate checkmark onto existing bar without deleting it.
             # User request: "have the bar not be deleted, but simply delete the check above it and edit the message"
             # This turns "Drop All" into "Merge Checkmark" if the bar exists.
-            if old_msg_id:
+            if is_at_bottom and old_msg_id:
                 try:
                     old_msg = await channel.fetch_message(old_msg_id)
                     
