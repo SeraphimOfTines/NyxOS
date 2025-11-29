@@ -114,8 +114,8 @@ class LMStudioBot(discord.Client):
     async def _process_drop_queue(self, channel_id):
         try:
             while True:
-                # Perform the drop (Force move checkmark for persistence)
-                await self.drop_status_bar(channel_id, move_check=True)
+                # Perform the drop (Do NOT move checkmark for auto-mode)
+                await self.drop_status_bar(channel_id, move_check=False)
                 
                 # Wait debounce period (0.5 seconds)
                 await asyncio.sleep(0.5)
@@ -957,7 +957,7 @@ async def debugtest_command(interaction: discord.Interaction):
     file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
     await interaction.followup.send(msg, file=file)
 
-@client.tree.command(name="bar", description="Create a persistent Uplink Bar/sticker.")
+@client.tree.command(name="bar", description="Create an Auto Mode Uplink Bar/sticker.")
 async def bar_command(interaction: discord.Interaction, content: str = None):
     # Auto-find content if None
     if content is None:
