@@ -49,6 +49,7 @@ FLAVOR_TEXT = {
     "GOOD_BOT_REACTION": "💙",
     "WAKE_WORD_REACTION": "<a:Thinking:1322962569300017214>",
     "BAR_DROP": "⬇️ Drop",
+    "BAR_DROP_ALL": "⏬ Drop All",
     "BAR_DELETE": "🗑️ Delete",
     "BAR_PERSIST_OFF": "🔁 Persist: OFF",
     "BAR_PERSIST_ON": "✅ Persist: ON",
@@ -173,7 +174,17 @@ class StatusBarView(discord.ui.View):
         
         await interaction.response.defer()
         if hasattr(interaction.client, "drop_status_bar"):
-            await interaction.client.drop_status_bar(self.channel_id)
+            await interaction.client.drop_status_bar(self.channel_id, move_check=False)
+        else:
+            await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
+
+    @discord.ui.button(label=FLAVOR_TEXT["BAR_DROP_ALL"], style=discord.ButtonStyle.primary, custom_id="bar_drop_all_btn")
+    async def drop_all_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.check_auth(interaction, button): return
+        
+        await interaction.response.defer()
+        if hasattr(interaction.client, "drop_status_bar"):
+            await interaction.client.drop_status_bar(self.channel_id, move_check=True)
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 

@@ -101,7 +101,7 @@ class LMStudioBot(discord.Client):
         self.add_view(ui.ResponseView())
         self.loop.create_task(self.heartbeat_task())
 
-    async def drop_status_bar(self, channel_id):
+    async def drop_status_bar(self, channel_id, move_check=False):
         if channel_id not in self.active_bars:
             return
         
@@ -117,36 +117,68 @@ class LMStudioBot(discord.Client):
             try: channel = await self.fetch_channel(channel_id)
             except: return
 
-        # --- Handle Old Message (Split Logic) ---
         old_msg_id = bar_data.get("message_id")
         check_msg_id = bar_data.get("checkmark_message_id")
         
-        if old_msg_id:
-            try:
-                old_msg = await channel.fetch_message(old_msg_id)
-                
-                if old_msg_id == check_msg_id:
-                    # SPLIT: Old message becomes checkmark archive
-                    # Remove View to stop interactions on archived checkmark
-                    await old_msg.edit(content=ui.FLAVOR_TEXT["CHECKMARK_EMOJI"], view=None)
-                else:
-                    # DROP: Old message was just content, delete it
+        # --- Handle Old Message & Checkmark ---
+        if move_check:
+            # DROP ALL: We want the checkmark on the NEW message.
+            # Delete old messages completely.
+            if old_msg_id:
+                try:
+                    old_msg = await channel.fetch_message(old_msg_id)
                     await old_msg.delete()
-            except discord.NotFound: pass
-            except Exception as e: logger.warning(f"Failed to handle old bar: {e}")
-        
+                except: pass
+            
+            # If checkmark was separate, delete it too
+            if check_msg_id and check_msg_id != old_msg_id:
+                try:
+                    check_msg = await channel.fetch_message(check_msg_id)
+                    await check_msg.delete()
+                except: pass
+            
+            # Construct new content WITH checkmark
+            # Ensure we don't double add if it was somehow stored in content
+            base_content = bar_data["content"]
+            chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+            if chk not in base_content:
+                # Check for newline separator preference?
+                # Usually space is fine, or newline if multi-line bar.
+                sep = "\n" if "\n" in base_content else " "
+                final_content = f"{base_content}{sep}{chk}"
+            else:
+                final_content = base_content
+                
+        else:
+            # STANDARD DROP (SPLIT): Leave checkmark behind if possible
+            if old_msg_id:
+                try:
+                    old_msg = await channel.fetch_message(old_msg_id)
+                    
+                    if old_msg_id == check_msg_id:
+                        # SPLIT: Old message becomes checkmark archive
+                        await old_msg.edit(content=ui.FLAVOR_TEXT["CHECKMARK_EMOJI"], view=None)
+                    else:
+                        # DROP: Old message was just content, delete it
+                        await old_msg.delete()
+                except: pass
+            
+            # New content WITHOUT checkmark (unless it was already there?)
+            # We assume bar_data["content"] is clean.
+            final_content = bar_data["content"]
+
         # --- Send New Message ---
-        view = ui.StatusBarView(bar_data["content"], bar_data["user_id"], channel_id, bar_data["persisting"])
+        view = ui.StatusBarView(final_content, bar_data["user_id"], channel_id, bar_data["persisting"])
         try:
-            new_msg = await channel.send(bar_data["content"], view=view)
+            new_msg = await channel.send(final_content, view=view)
             
             # Update State
             self.active_bars[channel_id]["message_id"] = new_msg.id
             self.active_views[new_msg.id] = view 
             
-            # If checkmark was previously on old_msg (or this is first run), it stays behind (disjointed).
-            # So checkmark_message_id remains what it was (pointing to old_msg_id, now archived).
-            # Unless this is init, handled by /bar command.
+            if move_check:
+                self.active_bars[channel_id]["checkmark_message_id"] = new_msg.id
+            # Else: checkmark_message_id remains pointing to old message (or wherever it was)
             
         except Exception as e:
             logger.error(f"Failed to drop status bar: {e}")
@@ -280,7 +312,7 @@ class LMStudioBot(discord.Client):
             # Strip Checkmark
             chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
             if chk in content:
-                content = content.replace(chk, "")
+                content = content.replace(chk, "").strip()
             
             # Strip ANY existing prefix
             content = content.strip()
@@ -290,38 +322,37 @@ class LMStudioBot(discord.Client):
                     break # Only strip one prefix
         
         # If no content found, we can't update "middle symbols".
-        # User said: "if it's not present within the last 100 messages" -> implied check done in find_last_bar_content
         if not content:
             await interaction.response.send_message("❌ No active bar found to update.", ephemeral=True, delete_after=2.0)
             return
 
-        # Construct new content
-        full_content = f"{new_prefix_emoji} {content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+        # 2. Construct new content (Clean)
+        content_with_prefix = f"{new_prefix_emoji} {content}"
+        content_with_prefix = re.sub(r'>[ \t]+<', '><', content_with_prefix)
         
-        # Strip spaces between emojis (horizontally)
-        full_content = re.sub(r'>[ \t]+<', '><', full_content)
+        # Full content for sending (With Checkmark)
+        full_content = f"{content_with_prefix} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
         
         # 3. Cleanup old
         await self.cleanup_old_bars(interaction.channel)
         
+        # Preserve persistence
+        persisting = False
+        if interaction.channel_id in self.active_bars:
+            persisting = self.active_bars[interaction.channel_id].get("persisting", False)
+        
         # 4. Send new
         await interaction.response.defer(ephemeral=True)
         
-        view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, False)
+        view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
         msg = await interaction.channel.send(full_content, view=view)
         
         self.active_bars[interaction.channel_id] = {
-            "content": full_content, # Store full content? No, usually content is just middle. 
-            # Wait, StatusBarView takes "content" and sends it. 
-            # bar_command stores "content" (middle) but sends "full_content".
-            # Here full_content HAS the prefix and checkmark.
-            # If we store full_content as "content", subsequent updates might double-prefix if not careful.
-            # But my strip logic handles ANY prefix.
-            "content": full_content, 
+            "content": content_with_prefix, # Store CLEAN content
             "user_id": interaction.user.id,
             "message_id": msg.id,
             "checkmark_message_id": msg.id,
-            "persisting": False
+            "persisting": persisting
         }
         self.active_views[msg.id] = view
         
@@ -338,9 +369,14 @@ class LMStudioBot(discord.Client):
         # Send new
         full_content = new_content
         
+        # Preserve persistence
+        persisting = False
+        if interaction.channel_id in self.active_bars:
+            persisting = self.active_bars[interaction.channel_id].get("persisting", False)
+        
         await interaction.response.defer(ephemeral=True)
         
-        view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, False)
+        view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
         msg = await interaction.channel.send(full_content, view=view)
         
         self.active_bars[interaction.channel_id] = {
@@ -348,7 +384,7 @@ class LMStudioBot(discord.Client):
             "user_id": interaction.user.id,
             "message_id": msg.id,
             "checkmark_message_id": msg.id,
-            "persisting": False
+            "persisting": persisting
         }
         self.active_views[msg.id] = view
         
