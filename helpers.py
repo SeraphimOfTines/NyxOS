@@ -112,12 +112,15 @@ def is_authorized(user_obj):
     # Check Roles
     if hasattr(user_obj, "roles"):
         role_ids = [r.id for r in user_obj.roles]
+        
+        # Debug Logging
+        # logger.debug(f"Checking Auth for {user_obj} with Roles: {role_ids}")
+        
         if any(rid in config.ADMIN_ROLE_IDS for rid in role_ids): return True
         if any(rid in config.SPECIAL_ROLE_IDS for rid in role_ids): return True
         
-        # Debug Log for failure
-        # logger.debug(f"Auth Failed for {user_obj}: Roles {role_ids} not in Admin {config.ADMIN_ROLE_IDS}")
-    
+        logger.warning(f"Auth Failed for {user_obj}. User Roles: {role_ids}. Allowed Admin: {config.ADMIN_ROLE_IDS}. Allowed Special: {config.SPECIAL_ROLE_IDS}")
+        
     return False
 
 def sanitize_llm_response(text):
@@ -151,5 +154,5 @@ def restore_hyperlinks(text):
     so this restores them for Discord display.
     """
     if not text: return ""
-    return re.sub(r'\((.+?)\)\((https?://[^\s)]+)\)', r'[\1](\2)', text)
+    return re.sub(r'\(((?:[^()]|\([^()]*\))+)\)\((https?://[^\s)]+)\)', r'[\1](\2)', text)
     

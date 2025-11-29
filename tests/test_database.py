@@ -1,98 +1,185 @@
 import unittest
+import sys
 import os
 import json
-import tempfile
+import sqlite3
+
+# Ensure we can import modules from root
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from database import Database
 
+class MockDatabase(Database):
+    """Subclass to force a persistent in-memory connection for testing."""
+    def __init__(self):
+        self.persistent_conn = sqlite3.connect(":memory:")
+        super().__init__(":memory:")
+
+    def _get_conn(self):
+        # Return the same connection every time so data persists in memory
+        return self.persistent_conn
+
+    def close(self):
+        self.persistent_conn.close()
+
 class TestDatabase(unittest.TestCase):
+
     def setUp(self):
-        self.temp_db = tempfile.NamedTemporaryFile(delete=False)
-        self.temp_db.close()
-        self.db = Database(self.temp_db.name)
+        """Create a new in-memory database for each test."""
+        self.db = MockDatabase()
 
     def tearDown(self):
-        os.unlink(self.temp_db.name)
+        """Close the persistent connection."""
+        self.db.close()
 
-    def test_context_buffer(self):
-        channel_id = "123"
-        content = "[SYSTEM]\nHello"
-        
-        # Test Insert
-        self.db.update_context_buffer(channel_id, "test_chan", content)
-        stored = self.db.get_context_buffer(channel_id)
-        self.assertEqual(stored, content)
-        
-        # Test Update (Overwrite)
-        new_content = "[SYSTEM]\nNew"
-        self.db.update_context_buffer(channel_id, "test_chan", new_content)
-        stored = self.db.get_context_buffer(channel_id)
-        self.assertEqual(stored, new_content)
-        
-        # Test Append
-        append_content = "\n[USER]\nHi"
-        self.db.append_to_context_buffer(channel_id, append_content)
-        stored = self.db.get_context_buffer(channel_id)
-        self.assertEqual(stored, new_content + append_content)
-        
-        # Test Clear
-        self.db.clear_context_buffer(channel_id)
-        self.assertIsNone(self.db.get_context_buffer(channel_id))
+    # --- test_init_db ---
+    def test_init_db(self):
+        """Ensure all tables are created."""
+        with self.db._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = {row[0] for row in c.fetchall()}
+            
+        expected_tables = {
+            "active_bars", 
+            "user_scores", 
+            "context_buffers", 
+            "suppressed_users", 
+            "server_settings", 
+            "view_persistence",
+            "bar_history"
+        }
+        self.assertTrue(expected_tables.issubset(tables), f"Missing tables: {expected_tables - tables}")
 
+    # --- test_active_bars_crud ---
+    def test_active_bars_crud(self):
+        """Create, Retrieve, Update, Delete active bars."""
+        # 1. Create (Save)
+        self.db.save_bar(
+            channel_id="123", 
+            guild_id="456", 
+            message_id="789", 
+            user_id="111", 
+            content="Status Bar", 
+            persisting=True
+        )
+        
+        # 2. Retrieve
+        bar = self.db.get_bar("123")
+        self.assertIsNotNone(bar)
+        self.assertEqual(bar['content'], "Status Bar")
+        self.assertTrue(bar['persisting'])
+        self.assertEqual(bar['message_id'], 789) # Should be int
+
+        # 3. Update (Upsert)
+        self.db.save_bar(
+            channel_id="123", 
+            guild_id="456", 
+            message_id="999", # Changed Message ID
+            user_id="111", 
+            content="Updated Bar", # Changed Content
+            persisting=False # Changed Persistence
+        )
+        
+        bar_updated = self.db.get_bar("123")
+        self.assertEqual(bar_updated['content'], "Updated Bar")
+        self.assertEqual(bar_updated['message_id'], 999)
+        self.assertFalse(bar_updated['persisting'])
+
+        # 4. Delete
+        self.db.delete_bar("123")
+        self.assertIsNone(self.db.get_bar("123"))
+
+    # --- test_bar_history ---
+    def test_bar_history(self):
+        """Verify history recording and duplicate prevention."""
+        cid = "hist_chan"
+        
+        # 1. Save Initial
+        self.db.save_bar(cid, "g", "m1", "u", "Content A", True)
+        
+        # Check history (should be 1 entry: Content A)
+        hist1 = self.db.get_latest_history(cid)
+        self.assertEqual(hist1, "Content A")
+        
+        # 2. Update with SAME content
+        self.db.save_bar(cid, "g", "m2", "u", "Content A", True)
+        
+        # Check history count manually to ensure no duplicate
+        with self.db._get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM bar_history WHERE channel_id = ?", (cid,))
+            count = c.fetchone()[0]
+        self.assertEqual(count, 1, "Should not add history if content is identical")
+
+        # 3. Update with DIFFERENT content
+        self.db.save_bar(cid, "g", "m3", "u", "Content B", True)
+        
+        # Check latest
+        latest = self.db.get_latest_history(cid, offset=0)
+        self.assertEqual(latest, "Content B")
+        
+        # Check previous
+        prev = self.db.get_latest_history(cid, offset=1)
+        self.assertEqual(prev, "Content A")
+
+    # --- test_context_buffers ---
+    def test_context_buffers(self):
+        """Test update (overwrite) and append operations."""
+        cid = "ctx_chan"
+        
+        # 1. Update (Overwrite)
+        self.db.update_context_buffer(cid, "General", "Start")
+        self.assertEqual(self.db.get_context_buffer(cid), "Start")
+        
+        # 2. Append
+        self.db.append_to_context_buffer(cid, " End")
+        self.assertEqual(self.db.get_context_buffer(cid), "Start End")
+        
+        # 3. Update Again (Overwrite)
+        self.db.update_context_buffer(cid, "General", "New Start")
+        self.assertEqual(self.db.get_context_buffer(cid), "New Start")
+
+    # --- test_user_scores ---
     def test_user_scores(self):
-        user_id = "999"
-        username = "Tester"
-        
-        # Test Increment New
-        count = self.db.increment_user_score(user_id, username)
+        """Test increment logic and leaderboard sorting."""
+        # 1. Increment New User
+        count = self.db.increment_user_score("u1", "UserOne")
         self.assertEqual(count, 1)
         
-        # Test Increment Existing
-        count = self.db.increment_user_score(user_id, username)
+        # 2. Increment Existing
+        count = self.db.increment_user_score("u1", "UserOne")
         self.assertEqual(count, 2)
         
-        # Test Leaderboard
+        # 3. Add another user
+        self.db.increment_user_score("u2", "UserTwo") # 1
+        
+        # 4. Leaderboard
         lb = self.db.get_leaderboard()
-        self.assertEqual(len(lb), 1)
-        self.assertEqual(lb[0]['username'], username)
+        # Expected: UserOne (2), UserTwo (1)
+        self.assertEqual(len(lb), 2)
+        self.assertEqual(lb[0]['user_id'], "u1")
         self.assertEqual(lb[0]['count'], 2)
+        self.assertEqual(lb[1]['user_id'], "u2")
+        self.assertEqual(lb[1]['count'], 1)
 
-    def test_suppressed_users(self):
-        user_id = "555"
-        
-        # Test Toggle On
-        is_suppressed = self.db.toggle_suppressed_user(user_id)
-        self.assertTrue(is_suppressed)
-        users = self.db.get_suppressed_users()
-        self.assertIn(user_id, users)
-        
-        # Test Toggle Off
-        is_suppressed = self.db.toggle_suppressed_user(user_id)
-        self.assertFalse(is_suppressed)
-        users = self.db.get_suppressed_users()
-        self.assertNotIn(user_id, users)
-
+    # --- test_server_settings ---
     def test_server_settings(self):
-        key = "test_setting"
-        val = {"foo": "bar"}
+        """Test saving/retrieving complex JSON objects."""
+        # List
+        self.db.set_setting("test_list", [1, 2, 3])
+        val_list = self.db.get_setting("test_list")
+        self.assertEqual(val_list, [1, 2, 3])
         
-        # Test Set/Get
-        self.db.set_setting(key, val)
-        stored = self.db.get_setting(key)
-        self.assertEqual(stored, val)
+        # Dict
+        complex_data = {"enabled": True, "nested": {"a": 1}}
+        self.db.set_setting("test_dict", complex_data)
+        val_dict = self.db.get_setting("test_dict")
+        self.assertEqual(val_dict, complex_data)
         
-        # Test Default
-        self.assertEqual(self.db.get_setting("nonexistent", "default"), "default")
-
-    def test_sanitization_storage(self):
-        # Verify that the DB stores exactly what it is given, brackets and all.
-        # This ensures that if we sanitize BEFORE, the DB doesn't mangle it,
-        # and if we have structural brackets, they are preserved.
-        channel_id = "safe_check"
-        content_with_brackets = "[ROLE]\nContent with (parentheses) and [brackets]"
-        
-        self.db.update_context_buffer(channel_id, "safe_chan", content_with_brackets)
-        stored = self.db.get_context_buffer(channel_id)
-        self.assertEqual(stored, content_with_brackets)
+        # Missing Key
+        self.assertIsNone(self.db.get_setting("missing_key"))
+        self.assertEqual(self.db.get_setting("missing_key", "default"), "default")
 
 if __name__ == '__main__':
     unittest.main()

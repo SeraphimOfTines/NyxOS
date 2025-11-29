@@ -90,12 +90,22 @@ except Exception as e:
 
 # --- DATA SANITIZATION ---
 # Ensure IDs are integers to prevent auth failures
-try:
-    ADMIN_ROLE_IDS = [int(uid) for uid in ADMIN_ROLE_IDS]
-    SPECIAL_ROLE_IDS = [int(uid) for uid in SPECIAL_ROLE_IDS]
-    BOT_ROLE_IDS = [int(uid) for uid in BOT_ROLE_IDS]
-except Exception as e:
-    print(f"⚠️ Warning: Failed to sanitize Role IDs: {e}")
+def sanitize_ids(id_list, list_name):
+    sanitized = []
+    if not isinstance(id_list, list):
+        print(f"⚠️ Warning: {list_name} is not a list. Resetting to empty list.")
+        return []
+        
+    for uid in id_list:
+        try:
+            sanitized.append(int(uid))
+        except Exception as e:
+            print(f"⚠️ Warning: Invalid ID '{uid}' in {list_name} ignored. Error: {e}")
+    return sanitized
+
+ADMIN_ROLE_IDS = sanitize_ids(ADMIN_ROLE_IDS, "ADMIN_ROLE_IDS")
+SPECIAL_ROLE_IDS = sanitize_ids(SPECIAL_ROLE_IDS, "SPECIAL_ROLE_IDS")
+BOT_ROLE_IDS = sanitize_ids(BOT_ROLE_IDS, "BOT_ROLE_IDS")
 
 # Overrides from ENV (take precedence over config.txt)
 if os.getenv("MY_SYSTEM_ID"): MY_SYSTEM_ID = os.getenv("MY_SYSTEM_ID")

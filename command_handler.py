@@ -27,11 +27,12 @@ async def handle_prefix_command(client, message):
         if not helpers.is_authorized(message.author):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
-        if message.channel.id in config.ALLOWED_CHANNEL_IDS:
+        
+        current_allowed = memory_manager.get_allowed_channels()
+        if message.channel.id in current_allowed:
             await message.channel.send("✅ Channel already whitelisted.")
         else:
-            config.ALLOWED_CHANNEL_IDS.append(message.channel.id)
-            config.save_allowed_channels(config.ALLOWED_CHANNEL_IDS)
+            memory_manager.add_allowed_channel(message.channel.id)
             await message.channel.send(f"😄 I'll talk in this channel!")
         return True
 
@@ -40,9 +41,10 @@ async def handle_prefix_command(client, message):
         if not helpers.is_authorized(message.author):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
-        if message.channel.id in config.ALLOWED_CHANNEL_IDS:
-            config.ALLOWED_CHANNEL_IDS.remove(message.channel.id)
-            config.save_allowed_channels(config.ALLOWED_CHANNEL_IDS)
+        
+        current_allowed = memory_manager.get_allowed_channels()
+        if message.channel.id in current_allowed:
+            memory_manager.remove_allowed_channel(message.channel.id)
             await message.channel.send(f"🤐 I'll ignore this channel!")
         else:
             await message.channel.send("⚠️ Channel not in whitelist.")
@@ -166,12 +168,7 @@ async def handle_prefix_command(client, message):
             runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
             
             # Load Suite
-            loader = unittest.TestLoader()
-            suite = unittest.TestSuite()
-            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
-            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
-            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
-            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommandHandler))
+            suite = tests.test_suite.get_complete_suite()
             
             # Run in a separate thread to avoid event loop conflicts
             start_time = time.time()

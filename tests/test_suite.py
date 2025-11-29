@@ -15,9 +15,24 @@ import config
 import services
 import ui
 import NyxOS
+from tests.test_config import TestConfig
 
 class TestHelpers(unittest.TestCase):
     """Tests for helpers.py"""
+
+    def setUp(self):
+        # Save original config values
+        self.orig_admin_roles = config.ADMIN_ROLE_IDS
+        self.orig_special_roles = config.SPECIAL_ROLE_IDS
+        self.orig_user_titles = config.USER_TITLES
+        self.orig_system_id = config.MY_SYSTEM_ID
+
+    def tearDown(self):
+        # Restore original config values
+        config.ADMIN_ROLE_IDS = self.orig_admin_roles
+        config.SPECIAL_ROLE_IDS = self.orig_special_roles
+        config.USER_TITLES = self.orig_user_titles
+        config.MY_SYSTEM_ID = self.orig_system_id
 
     def test_get_safe_mime_type(self):
         # Case 1: Known Extension
@@ -440,6 +455,9 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         with patch('helpers.is_authorized', return_value=True):
             # Patch NyxOS.client
             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
+                # FIX: active_bars must be a dict, otherwise .items() returns a coroutine on the mock
+                mock_client.active_bars = {} 
+                
                 # Patch os.execl and sys.executable
                 with patch('os.execl') as mock_execl, \
                      patch('sys.executable', '/usr/bin/python'):
@@ -485,21 +503,31 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
                      mock_exit.assert_called_with(0)
                      self.assertTrue(os.path.exists(config.SHUTDOWN_FLAG_FILE))
 
-def run_comprehensive_suite():
+def get_complete_suite():
+    """
+    Returns a TestSuite containing ALL tests found in the 'tests/' directory.
+    This includes:
+    1. The inline test classes defined in this file (TestHelpers, TestUI, etc.)
+    2. Any separate test files (test_admin_auth.py, test_database.py, etc.)
+    3. TestConfig from test_config.py
+    """
     loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
     
-    suite.addTests(loader.loadTestsFromTestCase(TestHelpers))
-    suite.addTests(loader.loadTestsFromTestCase(TestMemoryManager))
-    suite.addTests(loader.loadTestsFromTestCase(TestServices))
-    suite.addTests(loader.loadTestsFromTestCase(TestUI))
-    suite.addTests(loader.loadTestsFromTestCase(TestServerAdmin))
-    suite.addTests(loader.loadTestsFromTestCase(TestCommands))
+    # Discover all files matching test_*.py in the current directory
+    start_dir = os.path.dirname(os.path.abspath(__file__))
+    suite = loader.discover(start_dir=start_dir, pattern='test_*.py')
+    
+    return suite
+
+def run_comprehensive_suite():
+    suite = get_complete_suite()
     
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     
     return result
+
+run_suite = run_comprehensive_suite
 
 if __name__ == '__main__':
     run_comprehensive_suite()

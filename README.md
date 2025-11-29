@@ -2,9 +2,9 @@
 
 # 🌙 NyxOS
 
-This is an experimental personal project for running an LLM on local hardware via LM Studio, which integrates it with Discord. 
+This is an experimental personal project for running an LLM on local hardware via LM Studio, which integrates it with Discord. It's highly specialized for my needs, so some of the features may not make a lot of sense, but they are invaluable to me!
 
-It works natively on Linux right now. If you want to run it on Windows, you can run it through Windows Subsystem for Linux (WSL).
+It works on Windows and Linux!
 
 <img width="601" height="336" alt="image" src="https://github.com/user-attachments/assets/5a2dcebd-f399-4e31-830d-4f80f6c86723" />
 

@@ -1337,16 +1337,9 @@ async def debugtest_command(interaction: discord.Interaction):
     runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
     
     # Load Suite
-    loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestUI))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServerAdmin))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommands))
-    
-    # Run in a separate thread to avoid event loop conflicts
+    suite = tests.test_suite.get_complete_suite()
+        
+        # Capture Output
     start_time = time.time()
     result = await asyncio.to_thread(runner.run, suite)
     duration = time.time() - start_time
@@ -1877,6 +1870,21 @@ async def on_message(message):
             await client.replace_bar_content(mock_intr, content)
             return
 
+        # &debugauth
+        if cmd == "&debugauth":
+            # Diagnostic command to check user roles and config
+            roles = [r.id for r in message.author.roles] if hasattr(message.author, "roles") else "No Roles (User Object?)"
+            response = (
+                f"**Debug Auth:**\n"
+                f"User: {message.author} (ID: {message.author.id})\n"
+                f"Roles: {roles}\n\n"
+                f"**Configured Admins:** {config.ADMIN_ROLE_IDS}\n"
+                f"**Configured Special:** {config.SPECIAL_ROLE_IDS}\n"
+                f"**Is Authorized:** {helpers.is_authorized(message.author)}"
+            )
+            await message.channel.send(response)
+            return
+
         # &cleanbars
         if cmd == "&cleanbars":
             if not helpers.is_authorized(message.author): return
@@ -2201,14 +2209,7 @@ async def on_message(message):
                 runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
                 
                 # Load Suite
-                loader = unittest.TestLoader()
-                suite = unittest.TestSuite()
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestUI))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServerAdmin))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommands))
+                suite = tests.test_suite.get_complete_suite()
                 
                 # Run in a separate thread to avoid event loop conflicts
                 start_time = time.time()

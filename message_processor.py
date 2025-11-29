@@ -58,7 +58,7 @@ async def process_message(client, message):
                 if role.id in config.BOT_ROLE_IDS: should_respond = True; break
         if not should_respond:
             for rid in config.BOT_ROLE_IDS:
-                if f"<@&{rid}>" in message.content: should_respond = True; break
+                if f"<@&{rid}>".format(rid) in message.content: should_respond = True; break
     
     # Check Reply (Robust)
     target_message_id = None
@@ -144,7 +144,8 @@ async def process_message(client, message):
             return
 
     if should_respond:
-        if message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
+        allowed_channels = memory_manager.get_allowed_channels()
+        if message.channel.id not in allowed_channels: return
 
         if message.channel.id not in client.boot_cleared_channels:
             logger.info(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
