@@ -130,7 +130,7 @@ class LMStudioBot(discord.Client):
 
     async def wait_for_ghost_and_drop(self, channel_id, message_id):
         """Waits to see if a message is proxied (deleted) before dropping bar."""
-        await asyncio.sleep(1.5) 
+        await asyncio.sleep(2.5) 
         try:
             channel = self.get_channel(channel_id)
             if not channel: channel = await self.fetch_channel(channel_id)
