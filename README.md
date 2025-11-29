@@ -11,40 +11,38 @@ It works natively on Linux right now. If you want to run it on Windows, you can 
 ## ✨ Features
 
 ### 🧠 Core Intelligence
-*   **Full LLM Integration**: Talks via local hardware using LM Studio.
-*   **Vision-Language Support**: Can see images attached in Discord and recall images sent earlier.
-*   **Web Search**: Browse the web using Kagi. She generates her own search queries. (Use `&web` to force a search).
+*   **Local LLM Brain**:  She talks via LM Studio running on your own hardware. No cloud fees, total privacy.
+*   **Vision Support**:  She can see images you attach! 🖼️
+*   **Smart Web Search**:  Powered by Kagi. She autonomously Googles things if she needs facts, or you can force it with `&web`.
+*   **Context-Aware**:  Keeps track of conversations per-channel. Memories auto-fade after 8 hours of silence (or you can wipe them manually).
 
-### 🧩 Integration & Memory
-*   **PluralKit Integration**: System-aware! Waits for proxies to resolve and correctly attributes "Good Bot" points to the system owner.
-*   **Persistent Memory**:
-    *   Rolling context window.
-    *   Per-channel memory.
-    *   **Auto-Flush**: Clears memory after 8 hours of inactivity.
-    *   Manual flush command available.
+### 📡 The "Uplink Bar"
+A persistent, stylized status bar that hangs out at the bottom of the chat.
+*   **Live Status**:  Shows what she's doing (Thinking, Reading, Sleeping, Watching).
+*   **Checkmark System**:  Leaves a little "All Caught Up" checkmark behind so you know where you left off.
+*   **Auto-Drop**:  The bar automatically moves down when she replies, keeping the chat clean.
+*   **Sleep Mode**:  Put all bars to sleep with `/sleep` when you're done for the day.
 
-### 🎨 Interactive UI
-*   **Regenerate**: Infinite retries with a 5s cooldown.
-*   **Good Bot**: Tracks score on a leaderboard with anti-spam protection.
-*   **Bug Reports**: Dedicated form for bug tracking.
+### 🧩 Integration
+*   **PluralKit Native**:  Fully system-aware! She recognizes proxies, resolves them to the real system owner, and handles "Good Bot" points correctly.
+*   **Embed Nuke**:  Hate link previews clogging the chat? `/killmyembeds` auto-suppresses them for you (or globally for the server).
 
-### 🛠️ Server Administration
-*   **Embed Suppression**: Toggle `&killmyembeds` to auto-nuke link previews. Admins can toggle this server-wide.
-*   **Channel Whitelist**: Restrict bot activity to specific channels.
-*   **Smart Sync**: Slash commands only sync on code changes to avoid API rate limits.
-*   **Debug Suite**: Admin-only mode unlocking tools like Test Message, Wipe Logs/Memory, Reboot, and Shutdown.
-*   **Response Whitelist**: Only Admins and Special roles can talk to her!
+### 🛠️ Admin & Reliability
+*   **Channel Whitelist**:  She only speaks where allowed (unless you enable Global Mode).
+*   **Debug Suite**:  Built-in tools to run unit tests, wipe logs, or reboot the process right from Discord.
+*   **Robustness**:  Auto-restarts on crashes, handles shutdowns gracefully, and sanitizes inputs to keep the LLM from getting confused.
+*   **Smart Sync**:  Slash commands only sync when the code actually changes to save API calls.
 
-### 🛡️ Robustness
-*   Graceful shutdowns and reboots.
-*   Input sanitization to protect LLM memory.
-*   Hyperlink reconstruction for valid Discord Markdown.
+### 🎮 Fun Stuff
+*   **Good Bot Leaderboard**:  Track who pets the bot the most with `/goodbot`.
+*   **Infinite Regen**:  Don't like a reply? Hit retry forever (with a tiny cooldown).
+*   **Bug Reports**:  Submit issues directly through a Discord modal form.
 
 ## ⚡ Quick Start
 
 ### 1. Clone & Enter
 ```bash
-git clone https://github.com/yourusername/nyxos.git
+git clone https://github.com/seraphimoftines/nyxos.git
 cd nyxos
 ```
 
@@ -90,25 +88,36 @@ You can toggle between the public PluralKit API and a local instance in `config.
 Ping (`@NyxOS`) or reply to her to wake her up!
 
 ### 🕹️ Commands
-(Works with Slash `/` and Prefix `&`)
+(Most work with both Slash `/` and Prefix `&`)
 
-| User Commands | Description |
+**General**
+| Command | Description |
 | :--- | :--- |
-| `&help` | Show command list. |
-| `&killmyembeds` | Toggle link preview suppression for you. |
-| `&goodbot` | Show the leaderboard. |
+| `&help` | Show the full command list. |
+| `&killmyembeds` | Toggle link preview suppression for yourself. |
+| `&goodbot` | Check the leaderboard. |
 | `&web <query>` | Force a web search. |
+| `/reportbug` | Submit a bug report via form. |
 
-| Admin Commands | Description |
+**Uplink Bar**
+| Command | Description |
+| :--- | :--- |
+| `/bar <text>` | Spawn a new status bar in the current channel. |
+| `/drop` | Force the bar to move to the bottom. |
+| `/sleep` | Put all bars to sleep (inactive). |
+| `/wake` | Wake up all bars in allowed channels. |
+| `/idle` | Set all bars to "Not Watching". |
+| `&global <text>` | Update the text on ALL active bars instantly. |
+
+**Admin**
+| Command | Description |
 | :--- | :--- |
 | `&addchannel` | Whitelist current channel. |
 | `&removechannel` | Blacklist current channel. |
 | `&clearmemory` | Wipe current channel memory. |
 | `&suppressembedson` | Enable server-wide embed suppression. |
-| `&suppressembedsoff` | Disable server-wide embed suppression. |
-| `&debug` | Toggle debug mode (unlocks admin UI buttons). |
-| `&reboot` | Restart bot process. |
-| `&shutdown` | Gracefully shutdown. |
+| `&debug` | Toggle debug mode (unlocks buttons: Reboot, Shutdown, Test, Wipe). |
+| `/debugtest` | Run the internal unit test suite. |
 
 ## 🐛 Bugs
 Still lots of them! But fewer than before.
