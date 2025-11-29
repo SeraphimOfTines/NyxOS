@@ -199,8 +199,17 @@ class StatusBarView(discord.ui.View):
                 self.persisting
             )
         
-        # If enabled, immediately drop (send new copy) to activate behavior
-        if self.persisting:
+        # Check if at bottom
+        is_at_bottom = False
+        try:
+            async for last_msg in interaction.channel.history(limit=1):
+                if last_msg.id == interaction.message.id:
+                    is_at_bottom = True
+        except: pass
+
+        # If enabled and NOT at bottom, drop/resend. 
+        # If disabled, OR if enabled but already at bottom, just update in place.
+        if self.persisting and not is_at_bottom:
              await interaction.response.defer()
              if hasattr(interaction.client, "drop_status_bar"):
                  await interaction.client.drop_status_bar(self.channel_id, move_check=False)
