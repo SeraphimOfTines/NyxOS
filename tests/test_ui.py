@@ -27,7 +27,7 @@ class TestUI(unittest.IsolatedAsyncioTestCase):
         self.interaction.client.loop.create_task = MagicMock()
         
         # Mock config bug channel
-        self.bug_patch = patch('config.BUG_REPORT_CHANNEL_ID', 888)
+        self.bug_patch = patch('ui.config.BUG_REPORT_CHANNEL_ID', 888)
         self.bug_patch.start()
 
         # Mock Services

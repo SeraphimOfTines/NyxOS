@@ -17,7 +17,7 @@ logger = logging.getLogger("UI")
 # ==========================================
 FLAVOR_TEXT = {
     "RETRY_BUTTON": "🔃 Retry",
-    "RETRY_THINKING": "# <a:Pausing:1385258657532481597> Thinking . . .",
+    "RETRY_THINKING": "# 🤔 Thinking . . .",
     "RETRY_DONE": "Regenerated!",
     "DELETE_BUTTON": "🗑️",
     "DELETE_MESSAGE": "# <a:SeraphCometFire:1326369374755491881> Message deleted <a:SeraphCometFire:1326369374755491881>",

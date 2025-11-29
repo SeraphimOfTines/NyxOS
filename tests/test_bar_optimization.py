@@ -9,6 +9,20 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import NyxOS
 import ui
 
+class AsyncIterator:
+    def __init__(self, items):
+        self.items = items
+
+    def __aiter__(self):
+        self.iter = iter(self.items)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self.iter)
+        except StopIteration:
+            raise StopAsyncIteration
+
 class TestBarOptimization(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # Initialize Bot with mocks
@@ -22,6 +36,9 @@ class TestBarOptimization(unittest.IsolatedAsyncioTestCase):
         self.mock_channel.id = 12345
         self.mock_channel.guild.id = 67890
         self.mock_channel.send = AsyncMock()
+        
+        # Mock history to return empty by default to avoid warnings. MUST be MagicMock.
+        self.mock_channel.history = MagicMock(return_value=AsyncIterator([]))
         
         self.client.get_channel = MagicMock(return_value=self.mock_channel)
         self.client.fetch_channel = AsyncMock(return_value=self.mock_channel)
@@ -66,6 +83,9 @@ class TestBarOptimization(unittest.IsolatedAsyncioTestCase):
             return None
             
         self.mock_channel.fetch_message.side_effect = fetch_side_effect
+        
+        # Mock history to find old_msg. MUST be MagicMock, not AsyncMock, as history() is not awaited.
+        self.mock_channel.history = MagicMock(return_value=AsyncIterator([old_msg]))
 
         # EXECUTE
         await self.client.drop_status_bar(channel_id, move_check=True)

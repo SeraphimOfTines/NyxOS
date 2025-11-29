@@ -30,8 +30,16 @@ class TestPluralKitConfig(unittest.IsolatedAsyncioTestCase):
         if "USE_LOCAL_PLURALKIT" in os.environ:
             del os.environ["USE_LOCAL_PLURALKIT"]
         
-        import config
-        importlib.reload(config)
+        # Mock open to raise FileNotFoundError for config.txt
+        original_open = open
+        def mock_open_fn(file, *args, **kwargs):
+            if str(file).endswith("config.txt"):
+                raise FileNotFoundError("Mocked missing config.txt")
+            return original_open(file, *args, **kwargs)
+
+        with patch('builtins.open', side_effect=mock_open_fn):
+            import config
+            importlib.reload(config)
         
         self.assertFalse(config.USE_LOCAL_PLURALKIT)
         self.assertIn("api.pluralkit.me", config.PLURALKIT_MESSAGE_API)
