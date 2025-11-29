@@ -193,10 +193,11 @@ class StatusBarView(discord.ui.View):
     async def delete_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self.check_auth(interaction, button): return
         
-        # Remove from global state
+        # Remove from global state and DB
         if hasattr(interaction.client, "active_bars"):
             if self.channel_id in interaction.client.active_bars:
                 del interaction.client.active_bars[self.channel_id]
+                memory_manager.delete_bar(self.channel_id)
         
         await interaction.message.delete()
 
@@ -209,6 +210,17 @@ class StatusBarView(discord.ui.View):
         # Update global state
         if hasattr(interaction.client, "active_bars") and self.channel_id in interaction.client.active_bars:
             interaction.client.active_bars[self.channel_id]['persisting'] = self.persisting
+            
+            # Sync to DB (Full save needed as persisting is a column)
+            bar_data = interaction.client.active_bars[self.channel_id]
+            memory_manager.save_bar(
+                self.channel_id,
+                interaction.guild_id,
+                bar_data["message_id"],
+                bar_data["user_id"],
+                bar_data["content"],
+                self.persisting
+            )
             
         self.update_buttons()
         await interaction.response.edit_message(view=self)

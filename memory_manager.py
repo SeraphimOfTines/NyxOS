@@ -24,14 +24,44 @@ def wipe_all_memories():
         logger.error(f"Failed to wipe all memories: {e}")
 
 def wipe_all_logs():
-    """Deletes the Logs directory and recreates it."""
+    import os
+    import config
     try:
+        import shutil
         if os.path.exists(config.LOGS_DIR):
             shutil.rmtree(config.LOGS_DIR)
-        os.makedirs(config.LOGS_DIR, exist_ok=True)
-        logger.info("Wiped all logs.")
+            os.makedirs(config.LOGS_DIR)
     except Exception as e:
-        logger.error(f"Failed to wipe all logs: {e}")
+        print(f"Failed to wipe logs: {e}")
+
+# --- Active Bars (DB Facade) ---
+
+def save_bar(channel_id, guild_id, message_id, user_id, content, persisting):
+    db.save_bar(channel_id, guild_id, message_id, user_id, content, persisting)
+
+def get_bar(channel_id):
+    return db.get_bar(channel_id)
+
+def delete_bar(channel_id):
+    db.delete_bar(channel_id)
+
+def get_all_bars():
+    return db.get_all_bars()
+
+def update_bar_content(channel_id, content):
+    db.update_bar_content(channel_id, content)
+
+def update_bar_message_id(channel_id, message_id):
+    db.update_bar_message_id(channel_id, message_id)
+
+def set_bar_sleeping(channel_id, is_sleeping, original_prefix=None):
+    db.set_bar_sleeping(channel_id, is_sleeping, original_prefix)
+
+def save_previous_state(channel_id, state):
+    db.save_previous_state(channel_id, state)
+
+def get_previous_state(channel_id):
+    return db.get_previous_state(channel_id)
 
 def log_conversation(channel_name, user_name, user_id, content):
     """Writes to the human-readable daily logs (kept as files)."""

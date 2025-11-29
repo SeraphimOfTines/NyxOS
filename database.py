@@ -54,10 +54,156 @@ class Database:
                     timestamp TIMESTAMP
                 )""")
                 
+                # Active Bars (Status Stickers)
+                c.execute("""CREATE TABLE IF NOT EXISTS active_bars (
+                    channel_id TEXT PRIMARY KEY,
+                    guild_id TEXT,
+                    message_id TEXT,
+                    user_id TEXT,
+                    content TEXT,
+                    original_prefix TEXT,
+                    is_sleeping INTEGER DEFAULT 0,
+                    persisting INTEGER DEFAULT 0,
+                    previous_state TEXT,
+                    timestamp TIMESTAMP
+                )""")
+                
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             raise
+
+    # --- Active Bars Methods ---
+
+    def save_bar(self, channel_id, guild_id, message_id, user_id, content, persisting):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("""
+                    INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(channel_id) DO UPDATE SET
+                        message_id = excluded.message_id,
+                        user_id = excluded.user_id,
+                        content = excluded.content,
+                        persisting = excluded.persisting,
+                        timestamp = excluded.timestamp
+                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, datetime.now()))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save bar: {e}")
+
+    def get_bar(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT * FROM active_bars WHERE channel_id = ?", (str(channel_id),))
+                row = c.fetchone()
+                if row:
+                    # Map row to dict
+                    return {
+                        "channel_id": int(row[0]),
+                        "guild_id": int(row[1]) if row[1] else None,
+                        "message_id": int(row[2]),
+                        "user_id": int(row[3]),
+                        "content": row[4],
+                        "original_prefix": row[5],
+                        "is_sleeping": bool(row[6]),
+                        "persisting": bool(row[7]),
+                        "previous_state": json.loads(row[8]) if row[8] else None,
+                        "timestamp": row[9]
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get bar: {e}")
+            return None
+
+    def delete_bar(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM active_bars WHERE channel_id = ?", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to delete bar: {e}")
+
+    def get_all_bars(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT * FROM active_bars")
+                rows = c.fetchall()
+                bars = {}
+                for row in rows:
+                    bars[int(row[0])] = {
+                        "channel_id": int(row[0]),
+                        "guild_id": int(row[1]) if row[1] else None,
+                        "message_id": int(row[2]),
+                        "user_id": int(row[3]),
+                        "content": row[4],
+                        "original_prefix": row[5],
+                        "is_sleeping": bool(row[6]),
+                        "persisting": bool(row[7]),
+                        "previous_state": json.loads(row[8]) if row[8] else None,
+                        "timestamp": row[9]
+                    }
+                return bars
+        except Exception as e:
+            logger.error(f"Failed to get all bars: {e}")
+            return {}
+
+    def update_bar_content(self, channel_id, content):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("UPDATE active_bars SET content = ? WHERE channel_id = ?", (content, str(channel_id)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update bar content: {e}")
+
+    def update_bar_message_id(self, channel_id, message_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("UPDATE active_bars SET message_id = ? WHERE channel_id = ?", (str(message_id), str(channel_id)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update bar message_id: {e}")
+
+    def set_bar_sleeping(self, channel_id, is_sleeping, original_prefix=None):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                if is_sleeping:
+                    c.execute("UPDATE active_bars SET is_sleeping = 1, original_prefix = ? WHERE channel_id = ?", (original_prefix, str(channel_id)))
+                else:
+                    c.execute("UPDATE active_bars SET is_sleeping = 0 WHERE channel_id = ?", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to set bar sleeping: {e}")
+
+    def save_previous_state(self, channel_id, state):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                json_state = json.dumps(state)
+                c.execute("UPDATE active_bars SET previous_state = ? WHERE channel_id = ?", (json_state, str(channel_id)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save previous state: {e}")
+
+    def get_previous_state(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT previous_state FROM active_bars WHERE channel_id = ?", (str(channel_id),))
+                row = c.fetchone()
+                if row and row[0]:
+                    return json.loads(row[0])
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get previous state: {e}")
+            return None
 
     # --- View Persistence Methods ---
 
