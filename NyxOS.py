@@ -122,8 +122,53 @@ class LMStudioBot(discord.Client):
         
         # --- Handle Old Message & Checkmark ---
         if move_check:
-            # DROP ALL: We want the checkmark on the NEW message.
-            # Delete old messages completely.
+            # OPTIMIZATION: Consolidate checkmark onto existing bar without deleting it.
+            # User request: "have the bar not be deleted, but simply delete the check above it and edit the message"
+            # This turns "Drop All" into "Merge Checkmark" if the bar exists.
+            if old_msg_id:
+                try:
+                    old_msg = await channel.fetch_message(old_msg_id)
+                    
+                    # 1. Delete separate checkmark
+                    if check_msg_id and check_msg_id != old_msg_id:
+                        try:
+                            check_msg = await channel.fetch_message(check_msg_id)
+                            await check_msg.delete()
+                        except: pass
+                    
+                    # 2. Construct new content WITH checkmark
+                    base_content = bar_data["content"]
+                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                    if chk not in base_content:
+                        sep = "\n" if "\n" in base_content else " "
+                        final_content = f"{base_content}{sep}{chk}"
+                    else:
+                        final_content = base_content
+
+                    # 3. Edit Message (Update View)
+                    view = ui.StatusBarView(final_content, bar_data["user_id"], channel_id, bar_data["persisting"])
+                    await old_msg.edit(content=final_content, view=view)
+                    
+                    # 4. Update State
+                    self.active_bars[channel_id]["checkmark_message_id"] = old_msg_id
+                    self.active_views[old_msg_id] = view
+                    
+                    # Sync to DB
+                    memory_manager.save_bar(
+                        channel_id, 
+                        channel.guild.id if channel.guild else None,
+                        old_msg_id,
+                        bar_data["user_id"],
+                        base_content,
+                        bar_data["persisting"]
+                    )
+                    return # Optimization complete, do not drop/resend
+                    
+                except Exception as e:
+                    logger.warning(f"Optimized drop failed (fallback to resend): {e}")
+                    # If edit fails (e.g. deleted), fall through to standard delete/resend logic
+            
+            # FALLBACK: Delete old messages completely (if they exist and edit failed)
             if old_msg_id:
                 try:
                     old_msg = await channel.fetch_message(old_msg_id)
