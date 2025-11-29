@@ -68,6 +68,14 @@ class Database:
                     timestamp TIMESTAMP
                 )""")
                 
+                # Bar History (For Restore)
+                c.execute("""CREATE TABLE IF NOT EXISTS bar_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT,
+                    content TEXT,
+                    timestamp TIMESTAMP
+                )""")
+                
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
@@ -79,6 +87,7 @@ class Database:
         try:
             with self._get_conn() as conn:
                 c = conn.cursor()
+                # 1. Upsert Active Bar
                 c.execute("""
                     INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, timestamp)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -89,9 +98,34 @@ class Database:
                         persisting = excluded.persisting,
                         timestamp = excluded.timestamp
                 """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, datetime.now()))
+                
+                # 2. Check History
+                # Get the most recent history entry for this channel
+                c.execute("SELECT content FROM bar_history WHERE channel_id = ? ORDER BY id DESC LIMIT 1", (str(channel_id),))
+                row = c.fetchone()
+                last_content = row[0] if row else None
+                
+                # 3. Insert if new or different
+                # We only save clean content changes.
+                if content != last_content:
+                    c.execute("INSERT INTO bar_history (channel_id, content, timestamp) VALUES (?, ?, ?)", 
+                              (str(channel_id), content, datetime.now()))
+
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to save bar: {e}")
+
+    def get_latest_history(self, channel_id, offset=0):
+        """Retrieves a bar content from history with offset (0 = latest, 1 = previous)."""
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT content FROM bar_history WHERE channel_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?", (str(channel_id), int(offset)))
+                row = c.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            logger.error(f"Failed to get latest history: {e}")
+            return None
 
     def get_bar(self, channel_id):
         try:

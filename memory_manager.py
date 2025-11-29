@@ -63,6 +63,9 @@ def save_previous_state(channel_id, state):
 def get_previous_state(channel_id):
     return db.get_previous_state(channel_id)
 
+def get_bar_history(channel_id, offset=0):
+    return db.get_latest_history(channel_id, offset)
+
 def log_conversation(channel_name, user_name, user_id, content):
     """Writes to the human-readable daily logs (kept as files)."""
     today = datetime.now().strftime("%Y-%m-%d")

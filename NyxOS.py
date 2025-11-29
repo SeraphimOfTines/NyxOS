@@ -68,6 +68,8 @@ class LMStudioBot(discord.Client):
         self.boot_cleared_channels = set()
         self.has_synced = False
         self.abort_signals = set()
+        self.active_drop_tasks = set()
+        self.pending_drops = set()
 
     def get_tree_hash(self):
         """Generates a hash of the current command tree structure."""
@@ -101,15 +103,40 @@ class LMStudioBot(discord.Client):
         self.add_view(ui.ResponseView())
         self.loop.create_task(self.heartbeat_task())
 
+    def request_bar_drop(self, channel_id):
+        """Debounced drop request manager."""
+        if channel_id in self.active_drop_tasks:
+            self.pending_drops.add(channel_id)
+        else:
+            self.active_drop_tasks.add(channel_id)
+            self.loop.create_task(self._process_drop_queue(channel_id))
+
+    async def _process_drop_queue(self, channel_id):
+        try:
+            while True:
+                # Perform the drop (Force move checkmark for persistence)
+                await self.drop_status_bar(channel_id, move_check=True)
+                
+                # Wait debounce period (2.0 seconds)
+                await asyncio.sleep(2.0)
+                
+                if channel_id in self.pending_drops:
+                    self.pending_drops.remove(channel_id)
+                    # Loop again to process pending
+                else:
+                    break
+        finally:
+            self.active_drop_tasks.discard(channel_id)
+
     async def drop_status_bar(self, channel_id, move_check=False):
         if channel_id not in self.active_bars:
             return
         
-        # Cooldown Check (Prevent Race Conditions)
-        now = time.time()
-        if now - self.bar_drop_cooldowns.get(channel_id, 0) < 2.0:
-            return
-        self.bar_drop_cooldowns[channel_id] = now
+        # Cooldown Removed - handled by request_bar_drop or manual commands
+        # now = time.time()
+        # if now - self.bar_drop_cooldowns.get(channel_id, 0) < 2.0:
+        #    return
+        # self.bar_drop_cooldowns[channel_id] = now
         
         bar_data = self.active_bars[channel_id]
         channel = self.get_channel(channel_id)
@@ -380,6 +407,54 @@ class LMStudioBot(discord.Client):
         except Exception as e:
             logger.warning(f"Bar cleanup scan failed: {e}")
 
+    async def wipe_channel_bars(self, channel):
+        """Aggressively wipes all bar messages and checkmarks from history."""
+        count = 0
+        try:
+            # 1. Clear Active State
+            if channel.id in self.active_bars:
+                del self.active_bars[channel.id]
+                memory_manager.delete_bar(channel.id)
+
+            # 2. Scan and Delete
+            async for msg in channel.history(limit=100):
+                if msg.author.id == self.user.id:
+                    is_target = False
+                    
+                    # Check Components (Buttons)
+                    if msg.components:
+                        for row in msg.components:
+                            for child in row.children:
+                                if getattr(child, "custom_id", "").startswith("bar_"):
+                                    is_target = True
+                                    break
+                            if is_target: break
+                    
+                    # Check Content Prefix
+                    if not is_target and msg.content:
+                        for emoji in ui.BAR_PREFIX_EMOJIS:
+                            if msg.content.strip().startswith(emoji):
+                                is_target = True
+                                break
+                    
+                    # Check Checkmark
+                    if not is_target and msg.content:
+                        if msg.content.strip() == ui.FLAVOR_TEXT['CHECKMARK_EMOJI']:
+                            is_target = True
+                    
+                    # Check "Uplink Bar" in content (legacy check) or specific formatting?
+                    # Just stick to known signatures.
+
+                    if is_target:
+                        try: 
+                            await msg.delete()
+                            count += 1
+                            await asyncio.sleep(0.5) # Rate limit
+                        except: pass
+        except Exception as e:
+            logger.warning(f"Wipe bars failed: {e}")
+        return count
+
     async def find_last_bar_content(self, channel):
         """Finds content from DB or scan."""
         # 1. DB
@@ -413,61 +488,113 @@ class LMStudioBot(discord.Client):
         return None
 
     async def update_bar_prefix(self, interaction, new_prefix_emoji):
-        """Updates the bar prefix, preserving content, and drops it."""
+        """Updates the bar prefix. Edits in-place if bottom. Drops WITHOUT checkmark if moving."""
         # 1. Find existing content
         content = None
         found_raw = await self.find_last_bar_content(interaction.channel)
         
         if found_raw:
             content = found_raw
-            # Strip Checkmark
             chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
             if chk in content:
                 content = content.replace(chk, "").strip()
             
-            # Strip ANY existing prefix
             content = content.strip()
             for emoji in ui.BAR_PREFIX_EMOJIS:
                 if content.startswith(emoji):
                     content = content[len(emoji):].strip()
-                    break # Only strip one prefix
+                    break
         
-        # If no content found, we can't update "middle symbols".
         if not content:
             await interaction.response.send_message("❌ No active bar found to update.", ephemeral=True, delete_after=2.0)
             return
 
-        # 2. Construct new content (Clean)
         content_with_prefix = f"{new_prefix_emoji} {content}"
         content_with_prefix = re.sub(r'>[ \t]+<', '><', content_with_prefix)
         
-        # Full content for sending (With Checkmark)
-        full_content = f"{content_with_prefix} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-        
-        # 3. Cleanup old
-        await self.cleanup_old_bars(interaction.channel)
-        
-        # Preserve persistence
         persisting = False
         if interaction.channel_id in self.active_bars:
             persisting = self.active_bars[interaction.channel_id].get("persisting", False)
+
+        # 3. Check In-Place Edit
+        is_at_bottom = False
+        active_msg = None
+        if interaction.channel_id in self.active_bars:
+            msg_id = self.active_bars[interaction.channel_id].get("message_id")
+            if msg_id:
+                try:
+                    last_msg = [m async for m in interaction.channel.history(limit=1)][0]
+                    if last_msg.id == msg_id:
+                        is_at_bottom = True
+                        active_msg = last_msg
+                except: pass
+
+        if is_at_bottom and active_msg:
+            # Edit In-Place (Keep checkmark if present)
+            chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+            full_content = f"{content_with_prefix} {chk}"
+            full_content = re.sub(r'>[ \t]+<', '><', full_content)
+
+            try:
+                await active_msg.edit(content=full_content)
+                
+                self.active_bars[interaction.channel_id]["content"] = content_with_prefix
+                self.active_bars[interaction.channel_id]["checkmark_message_id"] = active_msg.id 
+                
+                memory_manager.save_bar(
+                    interaction.channel_id, 
+                    interaction.guild_id,
+                    active_msg.id,
+                    interaction.user.id,
+                    content_with_prefix,
+                    persisting
+                )
+                try: await interaction.response.send_message("Updated.", ephemeral=True, delete_after=0.1)
+                except: pass
+                return
+            except Exception as e:
+                logger.warning(f"In-place edit failed, falling back to drop: {e}")
+
+        # 4. Drop (Leave Checkmark Behind)
+        bar_data = self.active_bars.get(interaction.channel_id)
+        old_msg_id = bar_data.get("message_id") if bar_data else None
+        check_msg_id = bar_data.get("checkmark_message_id") if bar_data else None
         
-        # 4. Send new
+        # Handle Old Message
+        if old_msg_id:
+            try:
+                old_msg = await interaction.channel.fetch_message(old_msg_id)
+                if check_msg_id == old_msg_id:
+                    # Convert to Checkmark Only
+                    await old_msg.edit(content=ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], view=None)
+                else:
+                    # Just Delete (Checkmark is elsewhere)
+                    await old_msg.delete()
+            except: pass
+
+        # Send New Bar (NO CHECKMARK)
+        full_content = content_with_prefix 
+        
         await interaction.response.defer(ephemeral=True)
         
         view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
         msg = await interaction.channel.send(full_content, view=view)
         
+        # Update State
+        # checkmark_message_id stays pointing to the old one (check_msg_id) or becomes old_msg_id if we just split it
+        new_check_id = check_msg_id
+        if old_msg_id and check_msg_id == old_msg_id:
+            new_check_id = old_msg_id # It stays there
+        
         self.active_bars[interaction.channel_id] = {
-            "content": content_with_prefix, # Store CLEAN content
+            "content": content_with_prefix, 
             "user_id": interaction.user.id,
             "message_id": msg.id,
-            "checkmark_message_id": msg.id,
+            "checkmark_message_id": new_check_id,
             "persisting": persisting
         }
         self.active_views[msg.id] = view
         
-        # Sync to DB
         memory_manager.save_bar(
             interaction.channel_id, 
             interaction.guild_id,
@@ -520,6 +647,30 @@ class LMStudioBot(discord.Client):
         )
         
         await interaction.delete_original_response()
+
+# --- Helper Class for Internal Interaction Mocking ---
+class MockInteraction:
+    def __init__(self, client, channel, user):
+        self.client = client
+        self.channel = channel
+        self.channel_id = channel.id
+        self.user = user
+        self.guild = channel.guild if hasattr(channel, 'guild') else None
+        self.guild_id = channel.guild.id if hasattr(channel, 'guild') and channel.guild else None
+        self.response = self.MockResponse(channel)
+    
+    async def delete_original_response(self): pass
+
+    class MockResponse:
+        def __init__(self, channel):
+            self.channel = channel
+        async def send_message(self, content, ephemeral=False, delete_after=None):
+            if delete_after:
+                await self.channel.send(content, delete_after=delete_after)
+            else:
+                await self.channel.send(content)
+        async def defer(self, ephemeral=False): pass
+        async def delete_original_response(self): pass
 
 client = LMStudioBot()
 
@@ -799,7 +950,7 @@ async def debugtest_command(interaction: discord.Interaction):
     file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
     await interaction.followup.send(msg, file=file)
 
-@client.tree.command(name="bar", description="Create a persistent status bar/sticker.")
+@client.tree.command(name="bar", description="Create a persistent Uplink Bar/sticker.")
 async def bar_command(interaction: discord.Interaction, content: str = None):
     # Auto-find content if None
     if content is None:
@@ -852,6 +1003,34 @@ async def bar_command(interaction: discord.Interaction, content: str = None):
         False
     )
 
+@client.tree.command(name="restore", description="Restore the last Uplink Bar content from history.")
+async def restore_command(interaction: discord.Interaction):
+    content = memory_manager.get_bar_history(interaction.channel_id, 0) # 0 = Latest
+    if not content:
+        await interaction.response.send_message("❌ No history found for this channel.", ephemeral=True)
+        return
+    
+    await client.replace_bar_content(interaction, content)
+
+@client.tree.command(name="restore2", description="Restore the BACKUP Uplink Bar content (previous).")
+async def restore2_command(interaction: discord.Interaction):
+    content = memory_manager.get_bar_history(interaction.channel_id, 1) # 1 = Previous
+    if not content:
+        await interaction.response.send_message("❌ No backup history found (restore2).", ephemeral=True)
+        return
+    
+    await client.replace_bar_content(interaction, content)
+
+@client.tree.command(name="cleanbars", description="Wipe all Uplink Bar artifacts and checkmarks from the channel.")
+async def cleanbars_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    count = await client.wipe_channel_bars(interaction.channel)
+    await interaction.followup.send(f"🧹 Wiped {count} Uplink Bar artifacts.")
+
 @client.tree.command(name="dropcheck", description="Bring the checkmark down to the current bar.")
 async def dropcheck_command(interaction: discord.Interaction):
     channel_id = interaction.channel_id
@@ -901,7 +1080,7 @@ async def reading_command(interaction: discord.Interaction):
 
 @client.tree.command(name="backlogging", description="Set status to Backlogging.")
 async def backlogging_command(interaction: discord.Interaction):
-    await client.update_bar_prefix(interaction, "<a:Backlogging:000000000000000000>")
+    await client.update_bar_prefix(interaction, "<a:Backlogging:1290067150861500588>")
 
 @client.tree.command(name="sleeping", description="Set status to Sleeping.")
 async def sleeping_command(interaction: discord.Interaction):
@@ -917,7 +1096,7 @@ async def brb_command(interaction: discord.Interaction):
 
 @client.tree.command(name="processing", description="Set status to Processing.")
 async def processing_command(interaction: discord.Interaction):
-    await client.update_bar_prefix(interaction, "<a:Processing:000000000000000000>")
+    await client.update_bar_prefix(interaction, "<a:Processing:1223643308140793969>")
 
 @client.tree.command(name="angel", description="Set status to Angel.")
 async def angel_command(interaction: discord.Interaction):
@@ -956,21 +1135,21 @@ async def linkcheck_command(interaction: discord.Interaction):
     
     await interaction.response.send_message(f"[Jump to Checkmark]({link})", ephemeral=True, delete_after=2.0)
 
-@client.tree.command(name="drop", description="Drop (refresh) the current status bar.")
+@client.tree.command(name="drop", description="Drop (refresh) the current Uplink Bar.")
 async def drop_command(interaction: discord.Interaction):
     if interaction.channel_id not in client.active_bars:
         await interaction.response.send_message("❌ No active bar in this channel. Use `/bar` to create one.", ephemeral=True)
         return
     
     await interaction.response.defer(ephemeral=True)
-    await client.drop_status_bar(interaction.channel_id)
+    await client.drop_status_bar(interaction.channel_id, move_check=True)
     await interaction.delete_original_response()
 
 @client.tree.command(name="help", description="Show the help index.")
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
     embed.add_field(name="General Commands", value="`/killmyembeds` - Toggle auto-suppression of link embeds.\n`/goodbot` - Show the Good Bot leaderboard.\n`/reportbug` - Submit a bug report.", inline=False)
-    embed.add_field(name="Admin Commands", value="`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/addchannel` - Whitelist channel.\n`/removechannel` - Blacklist channel.\n`/suppressembedson/off` - Toggle server-wide embed suppression.\n`/clearmemory` - Clear current channel memory.\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test msg (Debug).\n`/clearallmemory` - Wipe ALL memories (Debug).\n`/wipelogs` - Wipe ALL logs (Debug).\n`/synccommands` - Force sync slash commands.", inline=False)
+    embed.add_field(name="Admin Commands", value="`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/addchannel` - Whitelist channel.\n`/removechannel` - Blacklist channel.\n`/suppressembedson/off` - Toggle server-wide embed suppression.\n`/clearmemory` - Clear current channel memory.\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test msg (Debug).\n`/clearallmemory` - Wipe ALL memories (Debug).\n`/wipelogs` - Wipe ALL logs (Debug).\n`/synccommands` - Force sync slash commands.\n`/restore` - Restore last Uplink Bar.\n`/restore2` - Restore backup Uplink Bar.\n`/cleanbars` - Wipe Uplink Bar artifacts.", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ==========================================
@@ -1070,7 +1249,8 @@ async def on_message(message):
     if message.channel.id in client.active_bars:
         bar_data = client.active_bars[message.channel.id]
         if bar_data["persisting"]:
-             client.loop.create_task(client.drop_status_bar(message.channel.id))
+             # Use debounced request
+             client.request_bar_drop(message.channel.id)
 
     # --- PREFIX COMMANDS ---
     if message.content.startswith("&"):
@@ -1193,10 +1373,10 @@ async def on_message(message):
         status_map = {
             "&thinking": "<a:Thinking:1322962569300017214>",
             "&reading": "<a:Reading:1378593438265770034>",
-            "&backlogging": "<a:Backlogging:000000000000000000>",
+            "&backlogging": "<a:Backlogging:1290067150861500588>",
             "&sleeping": "<a:Sleeping:1312772391759249410>",
             "&typing": "<a:Typing:000000000000000000>",
-            "&processing": "<a:Processing:000000000000000000>",
+            "&processing": "<a:Processing:1223643308140793969>",
             "&angel": "<a:Angel:000000000000000000>",
             "&pausing": "<a:Pausing:1385258657532481597>",
             "&speed0": "<a:NotWatching:1301840196966285322>",
@@ -1239,29 +1419,6 @@ async def on_message(message):
             # So checkmark moves. This seems correct for "dropping the bar".
             
             # Create a mock interaction object to reuse update_bar_prefix
-            class MockInteraction:
-                def __init__(self, client, channel, user):
-                    self.client = client
-                    self.channel = channel
-                    self.channel_id = channel.id
-                    self.user = user
-                    self.guild = channel.guild if hasattr(channel, 'guild') else None
-                    self.guild_id = channel.guild.id if hasattr(channel, 'guild') and channel.guild else None
-                    self.response = self.MockResponse(channel)
-                
-                async def delete_original_response(self): pass
-
-                class MockResponse:
-                    def __init__(self, channel):
-                        self.channel = channel
-                    async def send_message(self, content, ephemeral=False, delete_after=None):
-                        if delete_after:
-                            await self.channel.send(content, delete_after=delete_after)
-                        else:
-                            await self.channel.send(content)
-                    async def defer(self, ephemeral=False): pass
-                    async def delete_original_response(self): pass
-
             mock_intr = MockInteraction(client, message.channel, message.author)
             
             if cmd == "&angel":
@@ -1274,21 +1431,32 @@ async def on_message(message):
 
         # &restore
         if cmd == "&restore":
-            channel_id = message.channel.id
-            prev_state = memory_manager.get_previous_state(channel_id)
-            if not prev_state:
-                await message.channel.send("❌ No backup state found for this channel.", delete_after=2.0)
+            content = memory_manager.get_bar_history(message.channel.id, 0) # 0 = Latest
+            if not content:
+                await message.channel.send("❌ No history found for this channel.", delete_after=2.0)
                 return
-            
-            # Restore content
-            # This implies overwriting current bar with backup.
-            # prev_state is a dict of the bar data.
-            content = prev_state.get("content")
-            if not content: return
             
             # Just create a new bar with this content
             mock_intr = MockInteraction(client, message.channel, message.author)
             await client.replace_bar_content(mock_intr, content)
+            return
+
+        # &restore2
+        if cmd == "&restore2":
+            content = memory_manager.get_bar_history(message.channel.id, 1) # 1 = Previous
+            if not content:
+                await message.channel.send("❌ No backup history found (restore2).", delete_after=2.0)
+                return
+            
+            mock_intr = MockInteraction(client, message.channel, message.author)
+            await client.replace_bar_content(mock_intr, content)
+            return
+
+        # &cleanbars
+        if cmd == "&cleanbars":
+            if not helpers.is_authorized(message.author): return
+            count = await client.wipe_channel_bars(message.channel)
+            await message.channel.send(f"🧹 Wiped {count} Uplink Bar artifacts.", delete_after=3.0)
             return
 
         # &sleep (Global)
@@ -1680,7 +1848,7 @@ async def on_message(message):
         if cmd == "&help":
             embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
             embed.add_field(name="General Commands", value="`&killmyembeds` - Toggle auto-suppression of link embeds.\n`&goodbot` - Show the Good Bot leaderboard.\n`&reportbug` - How to report bugs.", inline=False)
-            embed.add_field(name="Admin Commands", value="`&enableall` - Enable Global Chat (All Channels).\n`&disableall` - Disable Global Chat (Whitelist Only).\n`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&debugtest` - Run Unit Tests (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
+            embed.add_field(name="Admin Commands", value="`&enableall` - Enable Global Chat (All Channels).\n`&disableall` - Disable Global Chat (Whitelist Only).\n`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&debugtest` - Run Unit Tests (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.\n`&restore` - Restore last Uplink Bar.\n`&restore2` - Restore backup Uplink Bar.\n`&cleanbars` - Wipe Uplink Bar artifacts.", inline=False)
             await message.channel.send(embed=embed)
             return
 
