@@ -295,11 +295,11 @@ class LMStudioBot(discord.Client):
             await interaction.response.send_message("❌ No active bar found to update.", ephemeral=True, delete_after=2.0)
             return
 
-        # 2. Construct new content
+        # Construct new content
         full_content = f"{new_prefix_emoji} {content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
         
         # Strip spaces between emojis (horizontally)
-        full_content = re.sub(r'>\s+<', '><', full_content)
+        full_content = re.sub(r'>[ \t]+<', '><', full_content)
         
         # 3. Cleanup old
         await self.cleanup_old_bars(interaction.channel)
@@ -333,7 +333,7 @@ class LMStudioBot(discord.Client):
         await self.cleanup_old_bars(interaction.channel)
         
         # Strip spaces between emojis
-        new_content = re.sub(r'>\s+<', '><', new_content)
+        new_content = re.sub(r'>[ \t]+<', '><', new_content)
         
         # Send new
         full_content = new_content
@@ -654,7 +654,7 @@ async def bar_command(interaction: discord.Interaction, content: str = None):
     content = content.strip()
     
     # Remove spaces between emojis (e.g. > < becomes ><)
-    content = re.sub(r'>\s+<', '><', content)
+    content = re.sub(r'>[ \t]+<', '><', content)
 
     # Initial content includes checkmark
     full_content = f"{content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
@@ -929,7 +929,7 @@ async def on_message(message):
 
             content = content.strip()
             # Remove spaces between emojis
-            content = re.sub(r'>\s+<', '><', content)
+            content = re.sub(r'>[ \t]+<', '><', content)
 
             # Initial content includes checkmark
             full_content = f"{content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
@@ -1062,6 +1062,8 @@ async def on_message(message):
                     self.guild_id = channel.guild.id if hasattr(channel, 'guild') and channel.guild else None
                     self.response = self.MockResponse(channel)
                 
+                async def delete_original_response(self): pass
+
                 class MockResponse:
                     def __init__(self, channel):
                         self.channel = channel
