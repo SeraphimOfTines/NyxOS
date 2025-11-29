@@ -5,6 +5,7 @@ from datetime import datetime
 import config
 import services
 import memory_manager
+import helpers
 import logging
 import sys
 import os
@@ -51,7 +52,26 @@ FLAVOR_TEXT = {
     "BAR_DELETE": "🗑️ Delete",
     "BAR_PERSIST_OFF": "🔁 Persist: OFF",
     "BAR_PERSIST_ON": "✅ Persist: ON",
+    "CHECKMARK_EMOJI": "<a:AllCaughtUp:1289323947082387526>",
 }
+
+BAR_PREFIX_EMOJIS = [
+    "<a:WatchingOccasionally:1301837550159269888>",
+    "<a:WatchingClosely:1301838354832425010>",
+    "<a:NotWatching:1301840196966285322>",
+    "<a:Thinking:1322962569300017214>", # /thinking
+    "<a:Sleeping:1312772391759249410>", # /sleeping (from shutdown msg)
+    "<a:Reading:1378593438265770034>",
+    "<a:Backlogging:1290067150861500588>", 
+    "<a:Typing:1223747307657232405>",
+    "<a:Processing:1223643308140793969>",
+    "<a:Pausing:1385258657532481597>",
+    "<a:Angel:000000000000000000>",
+    "<a:DarkAngel:000000000000000000>"
+]
+
+ANGEL_CONTENT = "<a:SacredMagicStrong:1316971256830103583><a:SeraphWingLeft:1297050718754312192><a:SacredEyeLuminara:1296698905744113715><a:SeraphWingRight:1297051921651073055><a:SacredMagicStrong:1316971256830103583>\n<a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466><a:SacredWind:1296975869566259396><a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466>"
+DARK_ANGEL_CONTENT = "<a:SacredMagicStrong:1316971256830103583><a:SeraphWingLeft:1297050718754312192><a:SacredEyeYami:1418478480336879716><a:SeraphWingRight:1297051921651073055><a:SacredMagicStrong:1316971256830103583>\n<a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466><a:SacredWind:1296975869566259396><a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466>"
 
 # ==========================================
 # BUG REPORT MODAL

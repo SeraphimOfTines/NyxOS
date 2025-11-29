@@ -117,20 +117,37 @@ class LMStudioBot(discord.Client):
             try: channel = await self.fetch_channel(channel_id)
             except: return
 
-        # Delete old message
-        if bar_data.get("message_id"):
-            try:
-                old_msg = await channel.fetch_message(bar_data["message_id"])
-                await old_msg.delete()
-            except discord.NotFound: pass
-            except Exception as e: logger.warning(f"Failed to delete old bar: {e}")
+        # --- Handle Old Message (Split Logic) ---
+        old_msg_id = bar_data.get("message_id")
+        check_msg_id = bar_data.get("checkmark_message_id")
         
-        # Send new message
+        if old_msg_id:
+            try:
+                old_msg = await channel.fetch_message(old_msg_id)
+                
+                if old_msg_id == check_msg_id:
+                    # SPLIT: Old message becomes checkmark archive
+                    # Remove View to stop interactions on archived checkmark
+                    await old_msg.edit(content=ui.FLAVOR_TEXT["CHECKMARK_EMOJI"], view=None)
+                else:
+                    # DROP: Old message was just content, delete it
+                    await old_msg.delete()
+            except discord.NotFound: pass
+            except Exception as e: logger.warning(f"Failed to handle old bar: {e}")
+        
+        # --- Send New Message ---
         view = ui.StatusBarView(bar_data["content"], bar_data["user_id"], channel_id, bar_data["persisting"])
         try:
             new_msg = await channel.send(bar_data["content"], view=view)
+            
+            # Update State
             self.active_bars[channel_id]["message_id"] = new_msg.id
             self.active_views[new_msg.id] = view 
+            
+            # If checkmark was previously on old_msg (or this is first run), it stays behind (disjointed).
+            # So checkmark_message_id remains what it was (pointing to old_msg_id, now archived).
+            # Unless this is init, handled by /bar command.
+            
         except Exception as e:
             logger.error(f"Failed to drop status bar: {e}")
 
@@ -185,19 +202,34 @@ class LMStudioBot(discord.Client):
         except: pass
 
     async def cleanup_old_bars(self, channel):
-        """Scans last 20 messages and deletes any status bars found."""
+        """Scans last 100 messages and deletes any status bars or stray checkmarks found."""
         try:
-            async for msg in channel.history(limit=20):
-                if msg.author.id == self.user.id and msg.components:
-                    is_bar = False
-                    for row in msg.components:
-                        for child in row.children:
-                            if getattr(child, "custom_id", "").startswith("bar_"):
-                                is_bar = True
-                                break
-                        if is_bar: break
+            async for msg in channel.history(limit=100):
+                if msg.author.id == self.user.id:
+                    is_target = False
                     
-                    if is_bar:
+                    # 1. Check Components (Buttons)
+                    if msg.components:
+                        for row in msg.components:
+                            for child in row.children:
+                                if getattr(child, "custom_id", "").startswith("bar_"):
+                                    is_target = True
+                                    break
+                            if is_target: break
+                    
+                    # 2. Check Content Prefix (Bar Emojis)
+                    if not is_target and msg.content:
+                        for emoji in ui.BAR_PREFIX_EMOJIS:
+                            if msg.content.strip().startswith(emoji):
+                                is_target = True
+                                break
+                    
+                    # 3. Check for Stray Checkmark
+                    if not is_target and msg.content:
+                        if msg.content.strip() == ui.FLAVOR_TEXT['CHECKMARK_EMOJI']:
+                            is_target = True
+
+                    if is_target:
                         try: await msg.delete()
                         except: pass
             
@@ -207,6 +239,120 @@ class LMStudioBot(discord.Client):
 
         except Exception as e:
             logger.warning(f"Bar cleanup failed: {e}")
+
+    async def find_last_bar_content(self, channel):
+        """Finds the content of the most recent status bar in the channel (last 100 messages)."""
+        try:
+            async for msg in channel.history(limit=100):
+                if msg.author.id == self.user.id:
+                    is_bar = False
+                    
+                    # 1. Check Components
+                    if msg.components:
+                        for row in msg.components:
+                            for child in row.children:
+                                if getattr(child, "custom_id", "").startswith("bar_"):
+                                    is_bar = True
+                                    break
+                            if is_bar: break
+                    
+                    # 2. Check Content Prefix (Fallback)
+                    if not is_bar and msg.content:
+                        for emoji in ui.BAR_PREFIX_EMOJIS:
+                            if msg.content.strip().startswith(emoji):
+                                is_bar = True
+                                break
+                
+                    if is_bar:
+                        return msg.content
+        except Exception as e:
+            logger.warning(f"Find last bar failed: {e}")
+        return None
+
+    async def update_bar_prefix(self, interaction, new_prefix_emoji):
+        """Updates the bar prefix, preserving content, and drops it."""
+        # 1. Find existing content
+        content = None
+        found_raw = await self.find_last_bar_content(interaction.channel)
+        
+        if found_raw:
+            content = found_raw
+            # Strip Checkmark
+            chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+            if chk in content:
+                content = content.replace(chk, "")
+            
+            # Strip ANY existing prefix
+            content = content.strip()
+            for emoji in ui.BAR_PREFIX_EMOJIS:
+                if content.startswith(emoji):
+                    content = content[len(emoji):].strip()
+                    break # Only strip one prefix
+        
+        # If no content found, we can't update "middle symbols".
+        # User said: "if it's not present within the last 100 messages" -> implied check done in find_last_bar_content
+        if not content:
+            await interaction.response.send_message("❌ No active bar found to update.", ephemeral=True, delete_after=2.0)
+            return
+
+        # 2. Construct new content
+        full_content = f"{new_prefix_emoji} {content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+        
+        # Strip spaces between emojis (horizontally)
+        full_content = re.sub(r'>\s+<', '><', full_content)
+        
+        # 3. Cleanup old
+        await self.cleanup_old_bars(interaction.channel)
+        
+        # 4. Send new
+        await interaction.response.defer(ephemeral=True)
+        
+        view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, False)
+        msg = await interaction.channel.send(full_content, view=view)
+        
+        self.active_bars[interaction.channel_id] = {
+            "content": full_content, # Store full content? No, usually content is just middle. 
+            # Wait, StatusBarView takes "content" and sends it. 
+            # bar_command stores "content" (middle) but sends "full_content".
+            # Here full_content HAS the prefix and checkmark.
+            # If we store full_content as "content", subsequent updates might double-prefix if not careful.
+            # But my strip logic handles ANY prefix.
+            "content": full_content, 
+            "user_id": interaction.user.id,
+            "message_id": msg.id,
+            "checkmark_message_id": msg.id,
+            "persisting": False
+        }
+        self.active_views[msg.id] = view
+        
+        await interaction.delete_original_response()
+
+    async def replace_bar_content(self, interaction, new_content):
+        """Replaces the entire bar content (preserving checkmark) and drops it."""
+        # Cleanup old
+        await self.cleanup_old_bars(interaction.channel)
+        
+        # Strip spaces between emojis
+        new_content = re.sub(r'>\s+<', '><', new_content)
+        
+        # Send new
+        full_content = new_content
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, False)
+        msg = await interaction.channel.send(full_content, view=view)
+        
+        self.active_bars[interaction.channel_id] = {
+            "content": full_content,
+            "user_id": interaction.user.id,
+            "message_id": msg.id,
+            "checkmark_message_id": msg.id,
+            "persisting": False
+        }
+        self.active_views[msg.id] = view
+        
+        await interaction.delete_original_response()
 
 client = LMStudioBot()
 
@@ -487,19 +633,151 @@ async def debugtest_command(interaction: discord.Interaction):
     await interaction.followup.send(msg, file=file)
 
 @client.tree.command(name="bar", description="Create a persistent status bar/sticker.")
-async def bar_command(interaction: discord.Interaction, content: str):
+async def bar_command(interaction: discord.Interaction, content: str = None):
+    # Auto-find content if None
+    if content is None:
+        found_content = await client.find_last_bar_content(interaction.channel)
+        if found_content:
+            # Strip existing checkmark if present to avoid duplication
+            chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+            if chk in found_content:
+                content = found_content.replace(chk, "").strip()
+            else:
+                content = found_content
+        else:
+            await interaction.response.send_message("❌ No content provided and no existing bar found to clone.", ephemeral=True)
+            return
+
     await client.cleanup_old_bars(interaction.channel)
 
-    # Setup active bar entry
+    # Strip whitespace from user input or found content
+    content = content.strip()
+    
+    # Remove spaces between emojis (e.g. > < becomes ><)
+    content = re.sub(r'>\s+<', '><', content)
+
+    # Initial content includes checkmark
+    full_content = f"{content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+
+    await interaction.response.defer(ephemeral=True)
+    await interaction.delete_original_response()
+    
+    # Create manually first time to init IDs correctly
+    view = ui.StatusBarView(content, interaction.user.id, interaction.channel_id, False)
+    msg = await interaction.channel.send(full_content, view=view)
+    
     client.active_bars[interaction.channel_id] = {
         "content": content,
         "user_id": interaction.user.id,
-        "message_id": None,
+        "message_id": msg.id,
+        "checkmark_message_id": msg.id, # Initially together
         "persisting": False
     }
+    client.active_views[msg.id] = view
+
+@client.tree.command(name="dropcheck", description="Bring the checkmark down to the current bar.")
+async def dropcheck_command(interaction: discord.Interaction):
+    channel_id = interaction.channel_id
+    if channel_id not in client.active_bars:
+        await interaction.response.send_message("❌ No active bar.", ephemeral=True)
+        return
+
+    bar_data = client.active_bars[channel_id]
+    curr_msg_id = bar_data.get("message_id")
+    check_msg_id = bar_data.get("checkmark_message_id")
+
+    if curr_msg_id == check_msg_id:
+        await interaction.response.defer(ephemeral=True)
+        await interaction.delete_original_response()
+        return
+
+    await interaction.response.defer(ephemeral=True)
     
-    await interaction.response.send_message("Creating bar...", ephemeral=True, delete_after=1.0)
-    await client.drop_status_bar(interaction.channel_id)
+    # 1. Delete old checkmark (Archive)
+    if check_msg_id:
+        try:
+            old_check = await interaction.channel.fetch_message(check_msg_id)
+            await old_check.delete()
+        except: pass
+
+                # 2. Update current bar to include checkmark
+    if curr_msg_id:
+        try:
+            curr_msg = await interaction.channel.fetch_message(curr_msg_id)
+            sep = "\n" if "\n" in bar_data["content"] else " "
+            new_content = f"{bar_data['content']}{sep}{ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+            await curr_msg.edit(content=new_content)
+            
+            # Update state
+            client.active_bars[channel_id]["checkmark_message_id"] = curr_msg_id
+            await interaction.delete_original_response()
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to update bar: {e}", ephemeral=True)
+
+@client.tree.command(name="thinking", description="Set status to Thinking.")
+async def thinking_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:Thinking:1322962569300017214>")
+
+@client.tree.command(name="reading", description="Set status to Reading.")
+async def reading_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:Reading:000000000000000000>")
+
+@client.tree.command(name="backlogging", description="Set status to Backlogging.")
+async def backlogging_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:Backlogging:000000000000000000>")
+
+@client.tree.command(name="sleeping", description="Set status to Sleeping.")
+async def sleeping_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:Sleeping:1312772391759249410>")
+
+@client.tree.command(name="typing", description="Set status to Typing.")
+async def typing_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:Typing:000000000000000000>")
+
+@client.tree.command(name="brb", description="Set status to BRB.")
+async def brb_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:BRB:000000000000000000>")
+
+@client.tree.command(name="processing", description="Set status to Processing.")
+async def processing_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:Processing:000000000000000000>")
+
+@client.tree.command(name="angel", description="Set status to Angel.")
+async def angel_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:Angel:000000000000000000>")
+
+@client.tree.command(name="pausing", description="Set status to Pausing.")
+async def pausing_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:Pausing:1385258657532481597>")
+
+@client.tree.command(name="notwatching", description="Set status to Not Watching.")
+async def notwatching_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:NotWatching:1301840196966285322>")
+
+@client.tree.command(name="watchingslowly", description="Set status to Watching Slowly/Occasionally.")
+async def watchingslowly_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:WatchingOccasionally:1301837550159269888>")
+
+@client.tree.command(name="watchingclosely", description="Set status to Watching Closely.")
+async def watchingclosely_command(interaction: discord.Interaction):
+    await client.update_bar_prefix(interaction, "<a:WatchingClosely:1301838354832425010>")
+
+@client.tree.command(name="linkcheck", description="Get a link to the current checkmark message.")
+async def linkcheck_command(interaction: discord.Interaction):
+    channel_id = interaction.channel_id
+    if channel_id not in client.active_bars:
+        await interaction.response.send_message("❌ No active bar.", ephemeral=True, delete_after=2.0)
+        return
+
+    check_msg_id = client.active_bars[channel_id].get("checkmark_message_id")
+    if not check_msg_id:
+        await interaction.response.send_message("❌ No checkmark found.", ephemeral=True, delete_after=2.0)
+        return
+
+    guild_id = interaction.guild_id if interaction.guild else "@me"
+    link = f"https://discord.com/channels/{guild_id}/{channel_id}/{check_msg_id}"
+    
+    await interaction.response.send_message(f"[Jump to Checkmark]({link})", ephemeral=True, delete_after=2.0)
 
 @client.tree.command(name="drop", description="Drop (refresh) the current status bar.")
 async def drop_command(interaction: discord.Interaction):
@@ -509,7 +787,7 @@ async def drop_command(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     await client.drop_status_bar(interaction.channel_id)
-    await interaction.followup.send("✅ Bar dropped.", ephemeral=True)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="help", description="Show the help index.")
 async def help_command(interaction: discord.Interaction):
@@ -628,8 +906,20 @@ async def on_message(message):
                 return
 
             content = message.content[5:].strip()
+            
+            # Auto-find content if empty
             if not content:
-                await message.channel.send("❌ Usage: `&bar <text/emojis>`")
+                found_content = await client.find_last_bar_content(message.channel)
+                if found_content:
+                    # Strip existing checkmark
+                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                    if chk in found_content:
+                        content = found_content.replace(chk, "").strip()
+                    else:
+                        content = found_content
+            
+            if not content:
+                await message.channel.send("❌ Usage: `&bar <text/emojis>` or have an existing bar to clone.")
                 return
             
             try: await message.delete()
@@ -637,13 +927,160 @@ async def on_message(message):
             
             await client.cleanup_old_bars(message.channel)
 
+            content = content.strip()
+            # Remove spaces between emojis
+            content = re.sub(r'>\s+<', '><', content)
+
+            # Initial content includes checkmark
+            full_content = f"{content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+            
+            view = ui.StatusBarView(content, message.author.id, message.channel.id, False)
+            msg = await message.channel.send(full_content, view=view)
+
             client.active_bars[message.channel.id] = {
                 "content": content,
                 "user_id": message.author.id,
-                "message_id": None,
+                "message_id": msg.id,
+                "checkmark_message_id": msg.id,
                 "persisting": False
             }
-            await client.drop_status_bar(message.channel.id)
+            client.active_views[msg.id] = view
+            return
+
+        # &dropcheck
+        if cmd == "&dropcheck":
+            try: await message.delete()
+            except: pass
+            
+            channel_id = message.channel.id
+            if channel_id not in client.active_bars:
+                return
+
+            bar_data = client.active_bars[channel_id]
+            curr_msg_id = bar_data.get("message_id")
+            check_msg_id = bar_data.get("checkmark_message_id")
+
+            if curr_msg_id == check_msg_id: return
+
+            # 1. Delete old checkmark
+            if check_msg_id:
+                try:
+                    old_check = await message.channel.fetch_message(check_msg_id)
+                    await old_check.delete()
+                except: pass
+
+            # 2. Update current bar
+            if curr_msg_id:
+                try:
+                    curr_msg = await message.channel.fetch_message(curr_msg_id)
+                    sep = "\n" if "\n" in bar_data["content"] else " "
+                    new_content = f"{bar_data['content']}{sep}{ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+                    await curr_msg.edit(content=new_content)
+                    client.active_bars[channel_id]["checkmark_message_id"] = curr_msg_id
+                except: pass
+            return
+
+        # &linkcheck
+        if cmd == "&linkcheck":
+            try: await message.delete()
+            except: pass
+            
+            channel_id = message.channel.id
+            if channel_id not in client.active_bars:
+                await message.channel.send("❌ No active bar.", delete_after=2.0)
+                return
+
+            check_msg_id = client.active_bars[channel_id].get("checkmark_message_id")
+            if not check_msg_id:
+                await message.channel.send("❌ No checkmark found.", delete_after=2.0)
+                return
+
+            # Construct link manually since we have IDs
+            guild_id = message.guild.id if message.guild else "@me"
+            link = f"https://discord.com/channels/{guild_id}/{channel_id}/{check_msg_id}"
+            
+            await message.channel.send(f"[Jump to Checkmark]({link})", delete_after=2.0)
+            return
+
+        # Status Shortcuts
+        status_map = {
+            "&thinking": "<a:Thinking:1322962569300017214>",
+            "&reading": "<a:Reading:000000000000000000>",
+            "&backlogging": "<a:Backlogging:000000000000000000>",
+            "&sleeping": "<a:Sleeping:1312772391759249410>",
+            "&typing": "<a:Typing:000000000000000000>",
+            "&processing": "<a:Processing:000000000000000000>",
+            "&angel": "<a:Angel:000000000000000000>",
+            "&pausing": "<a:Pausing:1385258657532481597>",
+            "&notwatching": "<a:NotWatching:1301840196966285322>",
+            "&watchingslowly": "<a:WatchingOccasionally:1301837550159269888>",
+            "&watchingclosely": "<a:WatchingClosely:1301838354832425010>"
+        }
+        
+        if cmd in status_map or cmd == "&darkangel":
+            try: await message.delete()
+            except: pass
+            
+            # If we are changing status on a bar that HAS the checkmark, we must SPLIT it.
+            # Because update_bar_prefix creates a NEW message with the new prefix + old content + checkmark.
+            # Wait, update_bar_prefix Logic:
+            # 1. Finds old content (strips checkmark)
+            # 2. Constructs new content (prefix + content + checkmark)
+            # 3. cleanup_old_bars -> DELETES old message
+            # 4. Sends new message.
+            #
+            # If checkmark was on the old message, it gets deleted and re-sent on the new one.
+            # This effectively "drops" the bar.
+            # The user requirement was: "/notwatching... will always drop the bar... keeping the rest of the emoji intact."
+            # So dropping is correct behavior for status updates.
+            
+            # HOWEVER, if we want to emulate `drop_status_bar` logic where checkmark stays behind if disjointed...
+            # `update_bar_prefix` essentially re-creates the bar.
+            # If we want the checkmark to stay behind (split), we need to handle it.
+            # But `update_bar_prefix` appends `CHECKMARK_EMOJI` to the new content.
+            # So it brings the checkmark along.
+            
+            # Re-reading the user request: "The new symbols... make the bar search look for the first emoji... to move it down since it can be ambiguous."
+            # "/notwatching... will always drop the bar and replace any symbols in the leftmost slot... keeping the rest... intact."
+            # It sounds like "dropping" means moving it to the bottom. Bringing the checkmark is usually implied by "dropping".
+            # If the user wants to leave the checkmark behind, they would use `/drop` then update?
+            # No, standard behavior for `&bar` / `/bar` is to bring checkmark.
+            # `update_bar_prefix` uses `cleanup_old_bars` which deletes the old message.
+            
+            # Wait, `cleanup_old_bars` deletes the old message. If checkmark was there, it's gone.
+            # Then `update_bar_prefix` sends new message with checkmark.
+            # So checkmark moves. This seems correct for "dropping the bar".
+            
+            # Create a mock interaction object to reuse update_bar_prefix
+            class MockInteraction:
+                def __init__(self, client, channel, user):
+                    self.client = client
+                    self.channel = channel
+                    self.channel_id = channel.id
+                    self.user = user
+                    self.guild = channel.guild if hasattr(channel, 'guild') else None
+                    self.guild_id = channel.guild.id if hasattr(channel, 'guild') and channel.guild else None
+                    self.response = self.MockResponse(channel)
+                
+                class MockResponse:
+                    def __init__(self, channel):
+                        self.channel = channel
+                    async def send_message(self, content, ephemeral=False, delete_after=None):
+                        if delete_after:
+                            await self.channel.send(content, delete_after=delete_after)
+                        else:
+                            await self.channel.send(content)
+                    async def defer(self, ephemeral=False): pass
+                    async def delete_original_response(self): pass
+
+            mock_intr = MockInteraction(client, message.channel, message.author)
+            
+            if cmd == "&angel":
+                await client.replace_bar_content(mock_intr, ui.ANGEL_CONTENT)
+            elif cmd == "&darkangel": # Add darkangel handler
+                 await client.replace_bar_content(mock_intr, ui.DARK_ANGEL_CONTENT)
+            else:
+                await client.update_bar_prefix(mock_intr, status_map[cmd])
             return
 
         # &drop
