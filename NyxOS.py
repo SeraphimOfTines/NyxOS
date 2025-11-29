@@ -165,6 +165,9 @@ class LMStudioBot(discord.Client):
         
         # --- Handle Old Message & Checkmark ---
         if move_check:
+            # WIPE ANY STRAY CHECKMARKS (User Request)
+            await self.wipe_stray_checks(channel)
+
             is_at_bottom = False
             if old_msg_id:
                 try:
@@ -740,6 +743,18 @@ class LMStudioBot(discord.Client):
             await message.edit(suppress=True)
         except: pass
 
+    async def wipe_stray_checks(self, channel):
+        """Scans recent history for stray checkmarks and deletes them."""
+        try:
+            async for msg in channel.history(limit=20):
+                if msg.author.id == self.user.id:
+                    # Check content strictly
+                    if msg.content.strip() == ui.FLAVOR_TEXT['CHECKMARK_EMOJI']:
+                        try: await msg.delete()
+                        except: pass
+        except Exception as e:
+            logger.warning(f"Stray check wipe failed: {e}")
+
     async def cleanup_old_bars(self, channel, exclude_msg_id=None):
         """Uses DB index to find and delete the active bar, or scans if DB is empty."""
         # 1. Check DB Index first
@@ -760,6 +775,9 @@ class LMStudioBot(discord.Client):
                     msg = await channel.fetch_message(chk_id)
                     await msg.delete()
                 except: pass
+
+            # WIPE ANY STRAY CHECKMARKS (User Request)
+            await self.wipe_stray_checks(channel)
             
             # Remove from Memory and DB ONLY if we are not excluding (meaning we are wiping)
             # If excluding, we assume the caller has already updated the DB with the new ID.
