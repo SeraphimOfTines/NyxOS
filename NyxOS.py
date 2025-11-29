@@ -288,6 +288,287 @@ class LMStudioBot(discord.Client):
         except Exception as e:
             logger.error(f"Failed to drop status bar: {e}")
 
+    async def sleep_all_bars(self):
+        """
+        Puts all active bars and remnants in allowed channels to sleep.
+        Returns the number of bars processed.
+        """
+        # 1. Consolidate targets: Active Bars + Remnants in Allowed Channels
+        targets = list(self.active_bars.items())
+        allowed = memory_manager.get_allowed_channels()
+        
+        # Scan allowed channels for remnants not in active_bars
+        for ac_id in allowed:
+            if ac_id not in self.active_bars:
+                targets.append((ac_id, None))
+
+        sleeping_emoji = "<a:Sleeping:1312772391759249410>"
+
+        async def process_bar(cid, bar_data):
+            try:
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: return False
+
+                # Resolve Content
+                current_content = ""
+                if bar_data:
+                    current_content = bar_data["content"]
+                    # Save state if going to sleep
+                    memory_manager.save_previous_state(cid, bar_data)
+                else:
+                    # Remnant recovery
+                    found = await self.find_last_bar_content(ch)
+                    if found:
+                        current_content = found
+                        # Strip checkmark
+                        if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in current_content:
+                            current_content = current_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
+                    else:
+                        # If no content found, skip (don't spawn random bars)
+                        return False
+
+                # Construct New Content
+                clean_middle = current_content
+                for emoji in ui.BAR_PREFIX_EMOJIS:
+                    if clean_middle.startswith(emoji):
+                        clean_middle = clean_middle[len(emoji):].strip()
+                        break
+                
+                new_content = f"{sleeping_emoji} {clean_middle}"
+
+                # Capture persistence before wipe
+                persisting = bar_data.get("persisting", False) if bar_data else False
+                if cid in self.active_bars:
+                    persisting = self.active_bars[cid].get("persisting", False)
+
+                # WIPE & REPLACE (Robust)
+                await self.wipe_channel_bars(ch)
+
+                # SEND NEW
+                view = ui.StatusBarView(new_content, self.user.id, cid, persisting)
+                new_msg = await ch.send(new_content, view=view)
+                
+                # Register
+                self.active_bars[cid] = {
+                    "content": new_content,
+                    "user_id": self.user.id,
+                    "message_id": new_msg.id,
+                    "checkmark_message_id": new_msg.id,
+                    "persisting": persisting
+                }
+                self.active_views[new_msg.id] = view
+                
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_content, persisting)
+                return True
+
+            except Exception as e:
+                logger.error(f"Sleep error in {cid}: {e}")
+                return False
+
+        tasks = []
+        for cid, bar in targets:
+            tasks.append(process_bar(cid, bar))
+        
+        # Wait for all tasks to complete and count successes
+        results = await asyncio.gather(*tasks)
+        return sum(1 for r in results if r)
+
+    async def idle_all_bars(self):
+        """
+        Sets all active bars and remnants in allowed channels to IDLE (Not Watching).
+        Returns the number of bars processed.
+        """
+        # 1. Consolidate targets: Active Bars + Remnants in Allowed Channels
+        targets = list(self.active_bars.items())
+        allowed = memory_manager.get_allowed_channels()
+        
+        # Scan allowed channels for remnants not in active_bars
+        for ac_id in allowed:
+            if ac_id not in self.active_bars:
+                targets.append((ac_id, None))
+
+        idle_emoji = "<a:NotWatching:1301840196966285322>" # speed0
+
+        async def process_bar(cid, bar_data):
+            try:
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: return False
+
+                # Resolve Content
+                current_content = ""
+                if bar_data:
+                    current_content = bar_data["content"]
+                    # Save state if needed (sleep saves previous state, idle might not strictly need to but good practice?)
+                    # For now, we won't save 'previous state' explicitly for idle unless requested, 
+                    # as idle is a form of active status.
+                else:
+                    # Remnant recovery
+                    found = await self.find_last_bar_content(ch)
+                    if found:
+                        current_content = found
+                        # Strip checkmark
+                        if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in current_content:
+                            current_content = current_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
+                    else:
+                        # If no content found, skip (don't spawn random bars)
+                        return False
+
+                # Construct New Content
+                clean_middle = current_content
+                for emoji in ui.BAR_PREFIX_EMOJIS:
+                    if clean_middle.startswith(emoji):
+                        clean_middle = clean_middle[len(emoji):].strip()
+                        break
+                
+                new_content = f"{idle_emoji} {clean_middle}"
+
+                # Capture persistence before wipe
+                persisting = bar_data.get("persisting", False) if bar_data else False
+                if cid in self.active_bars:
+                    persisting = self.active_bars[cid].get("persisting", False)
+
+                # WIPE & REPLACE (Robust)
+                await self.wipe_channel_bars(ch)
+
+                # SEND NEW
+                view = ui.StatusBarView(new_content, self.user.id, cid, persisting)
+                new_msg = await ch.send(new_content, view=view)
+                
+                # Register
+                self.active_bars[cid] = {
+                    "content": new_content,
+                    "user_id": self.user.id,
+                    "message_id": new_msg.id,
+                    "checkmark_message_id": new_msg.id,
+                    "persisting": persisting
+                }
+                self.active_views[new_msg.id] = view
+                
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_content, persisting)
+                return True
+
+            except Exception as e:
+                logger.error(f"Idle error in {cid}: {e}")
+                return False
+
+        tasks = []
+        for cid, bar in targets:
+            tasks.append(process_bar(cid, bar))
+        
+        # Wait for all tasks to complete and count successes
+        results = await asyncio.gather(*tasks)
+        return sum(1 for r in results if r)
+
+    async def global_update_bars(self, new_text_suffix):
+        """
+        Updates the content (suffix) of all active bars while preserving their current status emoji.
+        Does NOT move the bar (edits in place).
+        """
+        # For &global, we probably only care about ACTIVE bars that we can edit.
+        # If we want to catch remnants, we'd have to 'resurrect' them, which 'moves' them.
+        # The prompt says "does not move the bar". This strongly implies editing existing messages.
+        # So we will target only self.active_bars.
+        
+        targets = list(self.active_bars.items())
+        count = 0
+
+        async def process_update(cid, bar_data):
+            try:
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: return False
+
+                msg_id = bar_data.get("message_id")
+                if not msg_id: return False
+
+                # Get current content to find emoji
+                current_content = bar_data.get("content", "")
+                
+                # Identify prefix
+                prefix = ""
+                for emoji in ui.BAR_PREFIX_EMOJIS:
+                    if current_content.startswith(emoji):
+                        prefix = emoji
+                        break
+                
+                # If no prefix found (custom?), decide behavior. 
+                # Prompt says "changes everything past the first emoji".
+                # If we can't find a known emoji, maybe we shouldn't touch it or assume no emoji?
+                # Let's assume if no known emoji, we prepend nothing (or maybe it's all suffix).
+                # But safe bet is to require a known prefix or else just replace all?
+                # Let's try to preserve the "first part" if it looks like an emoji (starts with <a:?)
+                if not prefix and current_content.startswith("<a:"):
+                     # Simple heuristic for unknown emojis
+                     end_idx = current_content.find(">")
+                     if end_idx != -1:
+                         prefix = current_content[:end_idx+1]
+                
+                # Construct new content
+                # Clean user input
+                clean_suffix = new_text_suffix.strip()
+                # Remove spaces between emojis in suffix
+                clean_suffix = re.sub(r'>[ \t]+<', '><', clean_suffix)
+                
+                if prefix:
+                    final_content = f"{prefix} {clean_suffix}"
+                else:
+                    # If no prefix, maybe just use the new text? Or use default speed1?
+                    # Prompt says "past the first emoji". If none, maybe the whole thing changes.
+                    final_content = clean_suffix
+
+                # Handle Checkmark (if merged)
+                check_id = bar_data.get("checkmark_message_id")
+                has_merged_check = (check_id == msg_id)
+                
+                content_to_send = final_content
+                if has_merged_check:
+                    # Re-append checkmark if it was there
+                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                    if chk not in content_to_send:
+                         sep = "\n" if "\n" in content_to_send else " "
+                         content_to_send = f"{content_to_send}{sep}{chk}"
+
+                # EDIT IN PLACE
+                try:
+                    msg = await ch.fetch_message(msg_id)
+                    view = ui.StatusBarView(content_to_send, bar_data["user_id"], cid, bar_data.get("persisting", False))
+                    await msg.edit(content=content_to_send, view=view)
+                    
+                    # Update State (Base content usually doesn't have checkmark for storage, logic varies)
+                    # Standard logic: store "content" as the base text (without checkmark ideally).
+                    # But drop_status_bar re-adds it.
+                    # Let's store the BASE content (final_content without checkmark appended specifically for display).
+                    
+                    self.active_bars[cid]["content"] = final_content
+                    self.active_views[msg_id] = view
+                    
+                    memory_manager.save_bar(
+                        cid, 
+                        ch.guild.id, 
+                        msg_id, 
+                        bar_data["user_id"], 
+                        final_content, 
+                        bar_data.get("persisting", False)
+                    )
+                    return True
+                except discord.NotFound:
+                    # Message deleted. Cannot edit.
+                    # "Does not move" -> Do not respawn.
+                    return False
+                except Exception as e:
+                    logger.error(f"Global update edit failed in {cid}: {e}")
+                    return False
+
+            except Exception as e:
+                logger.error(f"Global update error in {cid}: {e}")
+                return False
+
+        tasks = []
+        for cid, bar in targets:
+            tasks.append(process_update(cid, bar))
+        
+        results = await asyncio.gather(*tasks)
+        return sum(1 for r in results if r)
+
     async def on_ready(self):
         logger.info('# ==========================================')
         logger.info('#                NyxOS v2.0')
@@ -1203,6 +1484,26 @@ async def cleanbars_command(interaction: discord.Interaction):
     count = await client.wipe_channel_bars(interaction.channel)
     await interaction.followup.send(f"🧹 Wiped {count} Uplink Bar artifacts.")
 
+@client.tree.command(name="sleep", description="Put all bars to sleep.")
+async def sleep_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=False)
+    count = await client.sleep_all_bars()
+    await interaction.followup.send(f"😴 Put ~{count} bars to sleep.")
+
+@client.tree.command(name="idle", description="Set all bars to Idle (Not Watching).")
+async def idle_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=False)
+    count = await client.idle_all_bars()
+    await interaction.followup.send(f"😶 Set ~{count} bars to Idle.")
+
 @client.tree.command(name="dropcheck", description="Bring the checkmark down to the current bar.")
 async def dropcheck_command(interaction: discord.Interaction):
     channel_id = interaction.channel_id
@@ -1253,10 +1554,6 @@ async def reading_command(interaction: discord.Interaction):
 @client.tree.command(name="backlogging", description="Set status to Backlogging.")
 async def backlogging_command(interaction: discord.Interaction):
     await client.update_bar_prefix(interaction, "<a:Backlogging:1290067150861500588>")
-
-@client.tree.command(name="sleeping", description="Set status to Sleeping.")
-async def sleeping_command(interaction: discord.Interaction):
-    await client.update_bar_prefix(interaction, "<a:Sleeping:1312772391759249410>")
 
 @client.tree.command(name="typing", description="Set status to Typing.")
 async def typing_command(interaction: discord.Interaction):
@@ -1530,7 +1827,6 @@ async def on_message(message):
             "&thinking": "<a:Thinking:1322962569300017214>",
             "&reading": "<a:Reading:1378593438265770034>",
             "&backlogging": "<a:Backlogging:1290067150861500588>",
-            "&sleeping": "<a:Sleeping:1312772391759249410>",
             "&typing": "<a:Typing:000000000000000000>",
             "&processing": "<a:Processing:1223643308140793969>",
             "&angel": "<a:Angel:000000000000000000>",
@@ -1619,85 +1915,30 @@ async def on_message(message):
         if cmd == "&sleep":
             if not helpers.is_authorized(message.author): return
             
-            # 1. Consolidate targets: Active Bars + Remnants in Allowed Channels
-            targets = list(client.active_bars.items())
-            allowed = memory_manager.get_allowed_channels()
-            
-            # Scan allowed channels for remnants not in active_bars
-            for ac_id in allowed:
-                if ac_id not in client.active_bars:
-                    targets.append((ac_id, None))
-
-            target_mode = "SLEEP"
-            count = 0
-            sleeping_emoji = "<a:Sleeping:1312772391759249410>"
-
-            async def process_bar(cid, bar_data):
-                try:
-                    ch = client.get_channel(cid) or await client.fetch_channel(cid)
-                    if not ch: return False
-
-                    # Resolve Content
-                    current_content = ""
-                    if bar_data:
-                        current_content = bar_data["content"]
-                        # Save state if going to sleep
-                        memory_manager.save_previous_state(cid, bar_data)
-                    else:
-                        # Remnant recovery
-                        found = await client.find_last_bar_content(ch)
-                        if found:
-                            current_content = found
-                            # Strip checkmark
-                            if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in current_content:
-                                current_content = current_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
-                        else:
-                            # If no content found, skip (don't spawn random bars)
-                            return False
-
-                    # Construct New Content
-                    clean_middle = current_content
-                    for emoji in ui.BAR_PREFIX_EMOJIS:
-                        if clean_middle.startswith(emoji):
-                            clean_middle = clean_middle[len(emoji):].strip()
-                            break
-                    
-                    new_content = f"{sleeping_emoji} {clean_middle}"
-
-                    # Capture persistence before wipe
-                    persisting = bar_data.get("persisting", False) if bar_data else False
-                    if cid in client.active_bars:
-                        persisting = client.active_bars[cid].get("persisting", False)
-
-                    # WIPE & REPLACE (Robust)
-                    await client.wipe_channel_bars(ch)
-
-                    # SEND NEW
-                    view = ui.StatusBarView(new_content, client.user.id, cid, persisting)
-                    new_msg = await ch.send(new_content, view=view)
-                    
-                    # Register
-                    client.active_bars[cid] = {
-                        "content": new_content,
-                        "user_id": client.user.id,
-                        "message_id": new_msg.id,
-                        "checkmark_message_id": new_msg.id,
-                        "persisting": persisting
-                    }
-                    client.active_views[new_msg.id] = view
-                    
-                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, client.user.id, new_content, persisting)
-                    return True
-
-                except Exception as e:
-                    logger.error(f"Sleep error in {cid}: {e}")
-                    return False
-
-            for cid, bar in targets:
-                client.loop.create_task(process_bar(cid, bar))
-                count += 1
-            
+            count = await client.sleep_all_bars()
             await message.channel.send(f"😴 Put ~{count} bars to sleep.")
+            return
+
+        # &idle (Global Idle)
+        if cmd == "&idle":
+            if not helpers.is_authorized(message.author): return
+            
+            count = await client.idle_all_bars()
+            await message.channel.send(f"😶 Set ~{count} bars to Idle.")
+            return
+
+        # &global (Global Text Update)
+        if cmd.startswith("&global"):
+            if not helpers.is_authorized(message.author): return
+            
+            # Extract content (everything after &global)
+            new_text = message.content[len("&global"):].strip()
+            if not new_text:
+                await message.channel.send("❌ Please provide text for the global update.", delete_after=3.0)
+                return
+                
+            count = await client.global_update_bars(new_text)
+            await message.channel.send(f"🌐 Updated text for ~{count} bars.", delete_after=3.0)
             return
 
         # &awake (Global Restore)
