@@ -1062,6 +1062,28 @@ class LMStudioBot(discord.Client):
                 
                 # Check Active Bar first
                 current_bar_data = self.active_bars.get(cid)
+                
+                # Restore previous state (speed) if available
+                restored_prefix = None
+                if current_bar_data:
+                    prev_state = current_bar_data.get("previous_state")
+                    if prev_state and "content" in prev_state:
+                        c = prev_state["content"]
+                        for emoji in ui.BAR_PREFIX_EMOJIS:
+                            if c.startswith(emoji):
+                                restored_prefix = emoji
+                                break
+                
+                if restored_prefix and restored_prefix != "<a:Thinking:1322962569300017214>":
+                    target_prefix = restored_prefix
+                elif current_bar_data:
+                     # If no previous state, check current content (if it wasn't overwritten by Thinking yet)
+                     c = current_bar_data.get("content", "")
+                     for emoji in ui.BAR_PREFIX_EMOJIS:
+                         if c.startswith(emoji) and emoji != "<a:Thinking:1322962569300017214>":
+                             target_prefix = emoji
+                             break
+                
                 valid_msg = None
                 
                 if current_bar_data:
