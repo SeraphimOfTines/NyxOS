@@ -2133,10 +2133,10 @@ async def on_message(message):
         cmd = message.content.split()[0].lower()
         
         # &bar
-        if cmd == "&bar":
+        if cmd in ["&bar", "&b"]:
             if not helpers.is_authorized(message.author): return
             
-            content = message.content[5:].strip()
+            content = message.content[len(cmd):].strip()
             if not content:
                 await message.channel.send("❌ Usage: `&bar <master text>`")
                 return
@@ -2184,6 +2184,17 @@ async def on_message(message):
             memory_manager.save_bar(message.channel.id, message.guild.id if message.guild else None, msg.id, message.author.id, base_content, False)
             
             await message.channel.send("✅ Channel whitelisted and bar created.", delete_after=3.0)
+            return
+
+        # &drop
+        if cmd in ["&drop", "&d"]:
+            if message.channel.id not in client.active_bars:
+                return
+            
+            try: await message.delete()
+            except: pass
+            
+            await client.drop_status_bar(message.channel.id, move_check=True)
             return
 
         # &removebar

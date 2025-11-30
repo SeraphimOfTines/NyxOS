@@ -10,20 +10,9 @@ import helpers
 import config
 
 class TestAdminAuth(unittest.TestCase):
-    def setUp(self):
-        # Save original config
-        self.original_admin_ids = config.ADMIN_ROLE_IDS
-        self.original_special_ids = config.SPECIAL_ROLE_IDS
-        
-        # Mock Config
-        config.ADMIN_ROLE_IDS = [999] # The Admin Role ID
-        config.SPECIAL_ROLE_IDS = []
-
-    def tearDown(self):
-        # Restore original config
-        config.ADMIN_ROLE_IDS = self.original_admin_ids
-        config.SPECIAL_ROLE_IDS = self.original_special_ids
-
+    
+    @patch.object(config, 'ADMIN_ROLE_IDS', [999])
+    @patch.object(config, 'SPECIAL_ROLE_IDS', [])
     def test_is_authorized_member_with_role(self):
         """Test 1: Regular Member with correct Role ID."""
         member = MagicMock()
@@ -33,6 +22,8 @@ class TestAdminAuth(unittest.TestCase):
         
         self.assertTrue(helpers.is_authorized(member))
 
+    @patch.object(config, 'ADMIN_ROLE_IDS', [999])
+    @patch.object(config, 'SPECIAL_ROLE_IDS', [])
     def test_is_authorized_member_without_role(self):
         """Test 2: Regular Member without Role."""
         member = MagicMock()
@@ -42,6 +33,8 @@ class TestAdminAuth(unittest.TestCase):
         
         self.assertFalse(helpers.is_authorized(member))
 
+    @patch.object(config, 'ADMIN_ROLE_IDS', [999])
+    @patch.object(config, 'SPECIAL_ROLE_IDS', [])
     def test_pk_proxy_lookup_logic(self):
         """
         Test 3: Simulate PK Proxy lookup failure due to String vs Int ID mismatch.

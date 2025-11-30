@@ -101,7 +101,7 @@ def is_authorized(user_obj):
             if uid in config.ADMIN_ROLE_IDS: return True
             if uid in config.SPECIAL_ROLE_IDS: return True
         except: pass
-        logger.debug(f"Auth Failed for ID {user_obj}: Not in Admin/Special lists.")
+        # logger.debug(f"Auth Failed for ID {user_obj}: Not in Admin/Special lists.")
         return False
 
     # Check object ID (Permissive)
@@ -115,8 +115,7 @@ def is_authorized(user_obj):
         if any(rid in config.ADMIN_ROLE_IDS for rid in role_ids): return True
         if any(rid in config.SPECIAL_ROLE_IDS for rid in role_ids): return True
         
-        # Debug Log for failure
-        # logger.debug(f"Auth Failed for {user_obj}: Roles {role_ids} not in Admin {config.ADMIN_ROLE_IDS}")
+        logger.debug(f"Auth Failed for {user_obj}: Roles {role_ids} not in Admin {config.ADMIN_ROLE_IDS} or Special {config.SPECIAL_ROLE_IDS}")
     
     return False
 

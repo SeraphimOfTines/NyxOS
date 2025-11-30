@@ -32,7 +32,7 @@ FLAVOR_TEXT = {
     "GOOD_BOT_HEADER": "# 💙 I'm such a good bot! 💙\n\n",
     "STARTUP_MESSAGE": "# <a:SATVRNCommand:1301834555086602240> I'm back online! Hi!",
     "REBOOT_MESSAGE": "# <a:Thinking:1322962569300017214> Rebooting . . .",
-    "SHUTDOWN_MESSAGE": "# <a:Sleeping:1312772391759249410> Shutting down . . . Goodnight!",
+    "SHUTDOWN_MESSAGE": "# <a:Sleeping:1312772391759249410> System Shutdown. Goodnight!",
     "CRASH_MESSAGE": "# <a:SeraphBurningFuck:1304766240648204298> I just crashed! <a:SeraphCryHandsSnap:1297004800117837906>",
     "REPORT_BUG_SLASH_ONLY": "ℹ️ Please use the `/reportbug` slash command to submit a report.",
     "EMBED_SUPPRESSION_ENABLED": "🔇 Hyperlink embeds will now be auto-suppressed for you.",
