@@ -1370,15 +1370,28 @@ async def reboot_command(interaction: discord.Interaction):
     # 2. Prepare Uplink List
     active_ids = list(client.active_bars.keys())
     uplink_count = len(active_ids)
-    uplink_list_text = ""
+    uplink_list_text = "# Active Uplinks\n"
     
-    for cid in active_ids:
-        ch = client.get_channel(cid)
-        name = ch.name if ch else f"Unknown-{cid}"
-        uplink_list_text += f"- {name} ({cid})\n"
-    
-    if not uplink_list_text:
-        uplink_list_text = "(No active uplinks)"
+    if not active_ids:
+        uplink_list_text += "(None)"
+    else:
+        for cid in active_ids:
+            bar_data = client.active_bars[cid]
+            msg_id = bar_data.get("message_id")
+            
+            ch = client.get_channel(cid)
+            if not ch:
+                try: ch = await client.fetch_channel(cid)
+                except: pass
+            
+            name = ch.name if ch else f"Channel {cid}"
+            guild_id = ch.guild.id if ch and ch.guild else "@me"
+            
+            if msg_id:
+                link = f"https://discord.com/channels/{guild_id}/{cid}/{msg_id}"
+                uplink_list_text += f"- [{name}]({link})\n"
+            else:
+                uplink_list_text += f"- {name}\n"
 
     # 3. Construct Console Message
     reboot_text = ui.FLAVOR_TEXT["REBOOT_MESSAGE"]
