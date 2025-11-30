@@ -8,6 +8,7 @@ import helpers
 import memory_manager
 import logging
 import rate_limiter
+from collections import OrderedDict
 
 logger = logging.getLogger("Services")
 
@@ -15,10 +16,11 @@ class APIService:
     def __init__(self):
         self.http_session = None
         self.db_pool = None
-        self.pk_user_cache = {}   
-        self.pk_proxy_tags = {}   
+        self.pk_user_cache = OrderedDict()   
+        self.pk_proxy_tags = OrderedDict()   
         self.my_system_members = set() 
         self.limiter = rate_limiter.limiter 
+        self.MAX_CACHE_SIZE = 500
 
     async def start(self):
         self.http_session = aiohttp.ClientSession()
@@ -83,7 +85,15 @@ class APIService:
                     """, user_id)
                     if row:
                         result = {'system_id': row['hid'], 'tag': row['tag']}
-                        self.pk_user_cache[user_id] = result
+                        
+                        # Cache Logic
+                        if user_id in self.pk_user_cache:
+                            self.pk_user_cache.move_to_end(user_id)
+                        else:
+                            self.pk_user_cache[user_id] = result
+                            if len(self.pk_user_cache) > self.MAX_CACHE_SIZE:
+                                self.pk_user_cache.popitem(last=False)
+                                
                         return result
                     # If no row, user might not be in a system or DB logic differs.
                     # Don't cache failure immediately to fallback to API? 
@@ -93,6 +103,7 @@ class APIService:
 
         # 2. Fallback to API / Cache
         if user_id in self.pk_user_cache:
+            self.pk_user_cache.move_to_end(user_id)
             return self.pk_user_cache[user_id]
 
         url = config.PLURALKIT_USER_API.format(user_id)
@@ -101,16 +112,23 @@ class APIService:
                 if resp.status == 200:
                     data = await resp.json()
                     result = {'system_id': data.get('id'), 'tag': data.get('tag')}
+                    
                     self.pk_user_cache[user_id] = result
+                    if len(self.pk_user_cache) > self.MAX_CACHE_SIZE:
+                        self.pk_user_cache.popitem(last=False)
+                    
                     return result
                 elif resp.status == 404:
                     self.pk_user_cache[user_id] = None
+                    if len(self.pk_user_cache) > self.MAX_CACHE_SIZE:
+                        self.pk_user_cache.popitem(last=False)
         except Exception as e:
             logger.warning(f"PK User API Exception: {e}")
         return None
 
     async def get_system_proxy_tags(self, system_id):
         if system_id in self.pk_proxy_tags:
+            self.pk_proxy_tags.move_to_end(system_id)
             return self.pk_proxy_tags[system_id]
 
         url = config.PLURALKIT_SYSTEM_MEMBERS.format(system_id)
@@ -123,7 +141,11 @@ class APIService:
                         ptags = m.get('proxy_tags', [])
                         for pt in ptags:
                             tags.append({'prefix': pt.get('prefix'), 'suffix': pt.get('suffix')})
+                    
                     self.pk_proxy_tags[system_id] = tags
+                    if len(self.pk_proxy_tags) > self.MAX_CACHE_SIZE:
+                        self.pk_proxy_tags.popitem(last=False)
+                        
         except Exception as e:
             logger.warning(f"Error fetching proxy tags: {e}")
         return tags

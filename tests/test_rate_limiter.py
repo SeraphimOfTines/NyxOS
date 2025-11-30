@@ -97,7 +97,7 @@ async def test_manual_add():
     
     # Manually add 4 entries
     for _ in range(4):
-        limiter.manual_add("test_action", key)
+        await limiter.manual_add("test_action", key)
         
     # Next wait should block
     task = asyncio.create_task(limiter.wait_for_slot("test_action", key))

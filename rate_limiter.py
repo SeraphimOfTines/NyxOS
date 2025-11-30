@@ -18,8 +18,11 @@ class RateLimiter:
             "delete_message": (5, 1),    # Per Channel
             "add_reaction": (1, 0.25),   # Per Channel (Burst)
             "edit_message": (5, 5),      # Per Channel
+            "direct_message": (5, 5),    # Per DM Channel
             "update_presence": (5, 60),  # Per Global/Shard
             "identify": (1, 5),          # Per Session
+            "channel_rename": (2, 600),  # Very Strict (10 mins)
+            "create_role": (250, 172800),# Per Guild (48 hours)
             "global": (45, 1)            # Safety net (Discord is 50/s)
         }
 

@@ -11,6 +11,7 @@ import time
 import signal
 import hashlib
 import subprocess
+from collections import OrderedDict, deque
 
 # Local Modules
 import config
@@ -96,11 +97,12 @@ class LMStudioBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
         
         # Runtime State
-        self.channel_cutoff_times = {}
-        self.good_bot_cooldowns = {} 
+        self.channel_cutoff_times = OrderedDict()
+        self.good_bot_cooldowns = OrderedDict() 
         self.processing_locks = set() 
-        self.active_views = {} 
+        self.active_views = OrderedDict() 
         self.active_bars = {}
+        self.bar_history = {} # Mapping channel_id -> deque(maxlen=2)
         self.bar_drop_cooldowns = {}
         self.last_bot_message_id = {} 
         self.boot_cleared_channels = set()
@@ -130,6 +132,40 @@ class LMStudioBot(discord.Client):
                      })
             data.append(cmd_dict)
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+    def _register_view(self, message_id, view):
+        """Registers a view with global LRU eviction (Limit ~2000)."""
+        if message_id in self.active_views:
+            self.active_views.move_to_end(message_id)
+        self.active_views[message_id] = view
+        if len(self.active_views) > 2000:
+            self.active_views.popitem(last=False)
+
+    def _register_bar_message(self, channel_id, message_id, view):
+        """Registers a bar message and view, ensuring only 2 layers of history are kept."""
+        # 1. Register to global LRU first (so it's trackable)
+        self._register_view(message_id, view)
+        
+        # 2. Manage History Pruning
+        if channel_id not in self.bar_history:
+            self.bar_history[channel_id] = []
+            
+        if message_id not in self.bar_history[channel_id]:
+            self.bar_history[channel_id].append(message_id)
+        
+        # Keep Current + 2 History = 3 Items Max
+        while len(self.bar_history[channel_id]) > 3:
+            old_id = self.bar_history[channel_id].pop(0)
+            # Explicitly remove from active_views memory
+            self.active_views.pop(old_id, None)
+
+    def _update_lru_cache(self, cache_dict, key, value, limit=1000):
+        """Updates an OrderedDict cache with LRU eviction."""
+        if key in cache_dict:
+            cache_dict.move_to_end(key)
+        cache_dict[key] = value
+        if len(cache_dict) > limit:
+            cache_dict.popitem(last=False)
 
     async def setup_hook(self):
         # Clean startup flags
@@ -241,7 +277,7 @@ class LMStudioBot(discord.Client):
                     
                     # 4. Update State
                     self.active_bars[channel_id]["checkmark_message_id"] = old_msg_id
-                    self.active_views[old_msg_id] = view
+                    self._register_bar_message(channel_id, old_msg_id, view)
                     
                     # Sync to DB
                     memory_manager.save_bar(
@@ -309,7 +345,7 @@ class LMStudioBot(discord.Client):
             
             # Update State
             self.active_bars[channel_id]["message_id"] = new_msg.id
-            self.active_views[new_msg.id] = view 
+            self._register_bar_message(channel_id, new_msg.id, view) 
             
             if move_check:
                 self.active_bars[channel_id]["checkmark_message_id"] = new_msg.id
@@ -409,7 +445,7 @@ class LMStudioBot(discord.Client):
                             "checkmark_message_id": msg.id,
                             "persisting": persisting
                         }
-                        self.active_views[msg.id] = view
+                        self._register_bar_message(cid, msg.id, view)
                         memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting)
                         return True
                     except Exception as e:
@@ -436,7 +472,7 @@ class LMStudioBot(discord.Client):
                     "checkmark_message_id": new_msg.id,
                     "persisting": persisting
                 }
-                self.active_views[new_msg.id] = view
+                self._register_bar_message(cid, new_msg.id, view)
                 
                 memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting)
                 return True
@@ -529,7 +565,7 @@ class LMStudioBot(discord.Client):
                             "checkmark_message_id": msg.id,
                             "persisting": persisting
                         }
-                        self.active_views[msg.id] = view
+                        self._register_bar_message(cid, msg.id, view)
                         memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting)
                         return True
                     except Exception as e:
@@ -553,7 +589,7 @@ class LMStudioBot(discord.Client):
                     "checkmark_message_id": new_msg.id,
                     "persisting": persisting
                 }
-                self.active_views[new_msg.id] = view
+                self._register_bar_message(cid, new_msg.id, view)
                 
                 memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting)
                 return True
@@ -642,7 +678,7 @@ class LMStudioBot(discord.Client):
                     await msg.edit(content=content_to_send, view=view)
                     
                     self.active_bars[cid]["content"] = final_content
-                    self.active_views[msg_id] = view
+                    self._register_bar_message(cid, msg_id, view)
                     
                     memory_manager.save_bar(
                         cid, 
@@ -750,7 +786,7 @@ class LMStudioBot(discord.Client):
                             "checkmark_message_id": msg.id,
                             "persisting": persisting
                          }
-                         self.active_views[msg.id] = view
+                         self._register_bar_message(cid, msg.id, view)
                          memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting)
                          return True
                      except Exception:
@@ -776,7 +812,7 @@ class LMStudioBot(discord.Client):
                     "checkmark_message_id": new_msg.id,
                     "persisting": persisting
                 }
-                self.active_views[new_msg.id] = view
+                self._register_bar_message(cid, new_msg.id, view)
                 memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting)
                 return True
 
@@ -885,7 +921,7 @@ class LMStudioBot(discord.Client):
                     
                     # Save State
                     self.active_bars[cid]["content"] = new_base_content
-                    self.active_views[msg_id] = view
+                    self._register_bar_message(cid, msg_id, view)
                     
                     memory_manager.save_bar(
                         cid, 
@@ -1059,8 +1095,12 @@ class LMStudioBot(discord.Client):
         custom_check = ui.FLAVOR_TEXT["CUSTOM_CHECKMARK"]
 
         for cid_str in bar_whitelist:
+            await asyncio.sleep(8) # 8 second delay between scans requested by user
+            
             try:
                 cid = int(cid_str)
+                if cid == 99999: continue # Skip invalid channel
+                
                 ch = self.get_channel(cid) or await self.fetch_channel(cid)
                 
                 if not ch: continue
@@ -1160,7 +1200,7 @@ class LMStudioBot(discord.Client):
                             "checkmark_message_id": valid_msg.id,
                             "persisting": persisting
                         }
-                        self.active_views[valid_msg.id] = view
+                        self._register_bar_message(cid, valid_msg.id, view)
                         memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
                         
                         link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{valid_msg.id}"
@@ -1183,7 +1223,7 @@ class LMStudioBot(discord.Client):
                         "checkmark_message_id": msg.id,
                         "persisting": persisting
                     }
-                    self.active_views[msg.id] = view
+                    self._register_bar_message(cid, msg.id, view)
                     memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting)
                     
                     link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{msg.id}"
@@ -1517,7 +1557,7 @@ class LMStudioBot(discord.Client):
             "checkmark_message_id": new_check_id,
             "persisting": persisting
         }
-        self.active_views[msg.id] = view
+        self._register_bar_message(interaction.channel_id, msg.id, view)
         
         memory_manager.save_bar(
             interaction.channel_id, 
@@ -1559,7 +1599,7 @@ class LMStudioBot(discord.Client):
             "checkmark_message_id": msg.id,
             "persisting": persisting
         }
-        self.active_views[msg.id] = view
+        self._register_bar_message(interaction.channel_id, msg.id, view)
         
         # Sync to DB
         memory_manager.save_bar(
@@ -1921,7 +1961,7 @@ async def clearmemory_command(interaction: discord.Interaction):
         return
     
     # Update cutoff time to NOW
-    client.channel_cutoff_times[interaction.channel_id] = interaction.created_at
+    client._update_lru_cache(client.channel_cutoff_times, interaction.channel_id, interaction.created_at, limit=500)
     
     memory_manager.clear_channel_memory(interaction.channel_id, interaction.channel.name)
     await interaction.response.send_message(ui.FLAVOR_TEXT["CLEAR_MEMORY_DONE"], ephemeral=False, delete_after=2.0)
@@ -2113,7 +2153,7 @@ async def addbar_command(interaction: discord.Interaction):
         "checkmark_message_id": msg.id,
         "persisting": False
     }
-    client.active_views[msg.id] = view
+    client._register_bar_message(interaction.channel_id, msg.id, view)
     memory_manager.save_bar(interaction.channel_id, interaction.guild_id, msg.id, interaction.user.id, base_content, False)
     
     await interaction.response.send_message("✅ Channel whitelisted and bar created.", ephemeral=False, delete_after=2.0)
@@ -2632,7 +2672,7 @@ async def on_message(message):
                         formatted_name = f"{real_name} (@{message.author.name})"
 
                     count = memory_manager.increment_good_bot(sender_id, formatted_name)
-                    client.good_bot_cooldowns[sender_id] = now
+                    client._update_lru_cache(client.good_bot_cooldowns, sender_id, now, limit=1000)
                     try: await message.add_reaction(ui.FLAVOR_TEXT["GOOD_BOT_REACTION"])
                     except: pass
                     
@@ -2896,7 +2936,7 @@ async def on_message(message):
                             sent_message = await message.reply(response_text, view=view, mention_author=False)
                         
                         if sent_message:
-                            client.active_views[sent_message.id] = view
+                            client._register_view(sent_message.id, view)
                             client.last_bot_message_id[message.channel.id] = sent_message.id
 
                             # --- SAVE VIEW STATE FOR PERSISTENCE ---
