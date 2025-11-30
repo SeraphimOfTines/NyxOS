@@ -25,3 +25,5 @@ injected_prompt.txt
 unit_tests.txt
 output.*
 .gemini
+MagicMock*
+status_state.json
