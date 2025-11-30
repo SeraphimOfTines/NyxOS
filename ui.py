@@ -57,6 +57,7 @@ FLAVOR_TEXT = {
     "REBOOT_SUB": "-# Waking {current}/{total} Uplinks",
     "STARTUP_HEADER": "# <a:SeraphErynianChip:1444481882988216473> System Online <a:SeraphErynianChip:1444481882988216473>",
     "STARTUP_SUB": "-# Good morning, I'm back online!",
+    "STARTUP_SUB_DONE": "-# NyxOS v2.0",
     "UPLINKS_HEADER": "# Active Uplinks",
     "COSMETIC_DIVIDER": "⋘───────⋅☾𓆩⭖𓆪☽⋅────────⋙",
     "CUSTOM_CHECKMARK": "<a:SeraphHyperYes:1331530716508459018>",

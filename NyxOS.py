@@ -1021,8 +1021,10 @@ class LMStudioBot(discord.Client):
         
         # Reset Header to Standard
         if hasattr(client, "startup_header_msg") and client.startup_header_msg:
+             # Use the "DONE" subtitle ("NyxOS v2.0") instead of the initial one ("Good morning...")
+             final_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
              try:
-                 await client.startup_header_msg.edit(content=startup_header_text)
+                 await client.startup_header_msg.edit(content=final_header)
              except: pass
         
         client.has_synced = True
