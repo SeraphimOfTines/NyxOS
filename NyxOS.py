@@ -990,7 +990,9 @@ class LMStudioBot(discord.Client):
                         self.active_views[valid_msg.id] = view
                         memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
                         
-                        wake_log.append(f"{custom_check} | {ch.mention} ONLINE")
+                        # Link format: [Name](<Link>) - Suppressed embed
+                        link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{valid_msg.id}"
+                        wake_log.append(f"{custom_check} | [{ch.name}](<{link}>)")
                     except Exception as e:
                          logger.warning(f"Startup edit failed for {cid}, attempting re-send: {e}")
                          # If edit fails, invalidate and fall through to POST NEW
@@ -1011,16 +1013,17 @@ class LMStudioBot(discord.Client):
                     self.active_views[msg.id] = view
                     memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting)
                     
-                    wake_log.append(f"{custom_check} New bar created in {ch.mention}")
+                    link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{msg.id}"
+                    wake_log.append(f"{custom_check} | [{ch.name}](<{link}>)")
 
                 woken_count += 1
                 
-                # Log Progress
-                log_str = "\n".join(wake_log[-5:])
-                status_str = f"{divider}\n🔄 Waking bars...\n{log_str}"
-                for p_msg in progress_msgs:
-                    try: await p_msg.edit(content=status_str)
-                    except: pass
+                # Log Progress (DISABLED per request to avoid broken links/updates)
+                # log_str = "\n".join(wake_log[-5:])
+                # status_str = f"{divider}\n🔄 Waking bars...\n{log_str}"
+                # for p_msg in progress_msgs:
+                #    try: await p_msg.edit(content=status_str)
+                #    except: pass
 
             except Exception as e:
                 logger.error(f"Failed to wake bar in {cid_str}: {e}")
