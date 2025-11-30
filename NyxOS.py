@@ -835,42 +835,19 @@ class LMStudioBot(discord.Client):
                         progress_msgs.append(msg)
 
                 else:
-                    # FRESH/CRASH FLOW
-                    recovered = False
+                    # FRESH/CRASH FLOW - ALWAYS WIPE TO PREVENT STACKING
                     try:
-                        # Scan for existing bot messages to edit
-                        history = [m async for m in t_ch.history(limit=10)]
-                        bot_msgs = [m for m in history if m.author.id == self.user.id]
-                        
-                        # We look for the 3 most recent bot messages (Body, Bar, Header)
-                        if len(bot_msgs) >= 3:
-                            b_msg = bot_msgs[0]
-                            bar_msg = bot_msgs[1]
-                            h_msg = bot_msgs[2]
-                            
-                            await h_msg.edit(content=startup_header_text)
-                            await bar_msg.edit(content=msg2_text)
-                            await b_msg.edit(content=body_text, view=None, embed=None)
-                            
-                            progress_msgs.append(b_msg)
-                            client.startup_header_msg = h_msg
-                            client.startup_bar_msg = bar_msg
-                            recovered = True
+                        await t_ch.purge(limit=100)
                     except: pass
 
-                    if not recovered:
-                        # WIPE AND RESEND
-                        try: await t_ch.purge(limit=100)
-                        except: pass
-
-                        h_msg = await t_ch.send(startup_header_text)
-                        client.startup_header_msg = h_msg
-                        
-                        bar_msg = await t_ch.send(msg2_text)
-                        client.startup_bar_msg = bar_msg
-                        
-                        msg = await t_ch.send(body_text, view=None)
-                        progress_msgs.append(msg)
+                    h_msg = await t_ch.send(startup_header_text)
+                    client.startup_header_msg = h_msg
+                    
+                    bar_msg = await t_ch.send(msg2_text)
+                    client.startup_bar_msg = bar_msg
+                    
+                    msg = await t_ch.send(body_text, view=None)
+                    progress_msgs.append(msg)
 
             except Exception as e:
                 logger.error(f"❌ Failed to send startup messages to {t_id}: {e}")
@@ -1562,24 +1539,34 @@ async def perform_reboot(interaction=None, message=None):
         except: pass
         console_id = channel_id
 
-    # 5. Loading Mode for Bars
+    # 5. Loading Mode for Bars (Concurrent)
     loading_emoji = "<a:Thinking:1322962569300017214>"
-    for cid, bar in list(client.active_bars.items()):
-        memory_manager.save_previous_state(cid, bar)
-        clean_middle = bar["content"]
-        for emoji in ui.BAR_PREFIX_EMOJIS:
-            if clean_middle.startswith(emoji):
-                clean_middle = clean_middle[len(emoji):].strip()
-                break
-        loading_content = f"{loading_emoji} {clean_middle}"
-        memory_manager.update_bar_content(cid, loading_content)
+    tasks = []
+    
+    async def set_thinking(cid, bar):
         try:
+            memory_manager.save_previous_state(cid, bar)
+            clean_middle = bar["content"]
+            for emoji in ui.BAR_PREFIX_EMOJIS:
+                if clean_middle.startswith(emoji):
+                    clean_middle = clean_middle[len(emoji):].strip()
+                    break
+            loading_content = f"{loading_emoji} {clean_middle}"
+            memory_manager.update_bar_content(cid, loading_content)
+            
             ch = client.get_channel(cid) or await client.fetch_channel(cid)
             msg = await ch.fetch_message(bar["message_id"])
             full = f"{loading_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
             full = re.sub(r'>[ \t]+<', '><', full)
             await msg.edit(content=full)
         except: pass
+
+    for cid, bar in list(client.active_bars.items()):
+        tasks.append(set_thinking(cid, bar))
+    
+    if tasks:
+        await asyncio.gather(*tasks)
+        await asyncio.sleep(1.0) # Give time for discord to catch up
 
     # 6. Write Meta & Restart
     meta = {
@@ -1624,24 +1611,34 @@ async def shutdown_command(interaction: discord.Interaction):
         except Exception as e:
             logger.warning(f"⚠️ Failed to send shutdown msg to system channel: {e}")
     
-    # Set Bars to Thinking Mode
+    # Set Bars to Thinking Mode (Concurrent)
     loading_emoji = "<a:Thinking:1322962569300017214>"
-    for cid, bar in list(client.active_bars.items()):
-        memory_manager.save_previous_state(cid, bar)
-        clean_middle = bar["content"]
-        for emoji in ui.BAR_PREFIX_EMOJIS:
-            if clean_middle.startswith(emoji):
-                clean_middle = clean_middle[len(emoji):].strip()
-                break
-        loading_content = f"{loading_emoji} {clean_middle}"
-        memory_manager.update_bar_content(cid, loading_content)
+    tasks = []
+
+    async def set_thinking(cid, bar):
         try:
+            memory_manager.save_previous_state(cid, bar)
+            clean_middle = bar["content"]
+            for emoji in ui.BAR_PREFIX_EMOJIS:
+                if clean_middle.startswith(emoji):
+                    clean_middle = clean_middle[len(emoji):].strip()
+                    break
+            loading_content = f"{loading_emoji} {clean_middle}"
+            memory_manager.update_bar_content(cid, loading_content)
+            
             ch = client.get_channel(cid) or await client.fetch_channel(cid)
             msg = await ch.fetch_message(bar["message_id"])
             full = f"{loading_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
             full = re.sub(r'>[ \t]+<', '><', full)
             await msg.edit(content=full)
         except: pass
+
+    for cid, bar in list(client.active_bars.items()):
+        tasks.append(set_thinking(cid, bar))
+    
+    if tasks:
+        await asyncio.gather(*tasks)
+        await asyncio.sleep(1.0) # Give discord time to propagate
 
     # Write shutdown flag so monitor knows it was intentional
     try:
