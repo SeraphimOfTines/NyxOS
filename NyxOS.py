@@ -815,6 +815,7 @@ class LMStudioBot(discord.Client):
                             progress_msgs.append(b_msg)
                             
                             client.startup_header_msg = h_msg
+                            client.startup_bar_msg = bar_msg
                         except:
                             # Edit failed? Fallback to wipe.
                             is_clean = False
@@ -827,7 +828,8 @@ class LMStudioBot(discord.Client):
                         h_msg = await t_ch.send(startup_header_text)
                         client.startup_header_msg = h_msg
                         
-                        await t_ch.send(msg2_text)
+                        bar_msg = await t_ch.send(msg2_text)
+                        client.startup_bar_msg = bar_msg
                         
                         msg = await t_ch.send(body_text, view=None)
                         progress_msgs.append(msg)
@@ -852,6 +854,7 @@ class LMStudioBot(discord.Client):
                             
                             progress_msgs.append(b_msg)
                             client.startup_header_msg = h_msg
+                            client.startup_bar_msg = bar_msg
                             recovered = True
                     except: pass
 
@@ -863,7 +866,9 @@ class LMStudioBot(discord.Client):
                         h_msg = await t_ch.send(startup_header_text)
                         client.startup_header_msg = h_msg
                         
-                        await t_ch.send(msg2_text)
+                        bar_msg = await t_ch.send(msg2_text)
+                        client.startup_bar_msg = bar_msg
+                        
                         msg = await t_ch.send(body_text, view=None)
                         progress_msgs.append(msg)
 
@@ -1810,6 +1815,12 @@ async def bar_command(interaction: discord.Interaction, content: str):
     
     memory_manager.set_master_bar(content)
     count = await client.propagate_master_bar()
+    
+    # Update Console/Startup Bar Message
+    if hasattr(client, "startup_bar_msg") and client.startup_bar_msg:
+        try: await client.startup_bar_msg.edit(content=content.strip())
+        except: pass
+
     await interaction.response.send_message(f"✅ Master Bar updated and propagated to {count} channels.", ephemeral=True)
 
 @client.tree.command(name="addbar", description="Whitelist this channel and spawn a bar.")
@@ -2129,6 +2140,12 @@ async def on_message(message):
             
             memory_manager.set_master_bar(content)
             count = await client.propagate_master_bar()
+            
+            # Update Console/Startup Bar Message
+            if hasattr(client, "startup_bar_msg") and client.startup_bar_msg:
+                try: await client.startup_bar_msg.edit(content=content.strip())
+                except: pass
+            
             await message.channel.send(f"✅ Master Bar updated and propagated to {count} channels.", delete_after=3.0)
             return
 
