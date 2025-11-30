@@ -190,8 +190,9 @@ class LMStudioBot(discord.Client):
                     base_content = bar_data["content"]
                     chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                     if chk not in base_content:
-                        sep = "\n" if "\n" in base_content else " "
-                        final_content = f"{base_content}{sep}{chk}"
+                        # FORCE INLINE
+                        final_content = f"{base_content} {chk}"
+                        final_content = re.sub(r'>[ \t]+<', '><', final_content)
                     else:
                         final_content = base_content
 
@@ -237,10 +238,9 @@ class LMStudioBot(discord.Client):
             base_content = bar_data["content"]
             chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
             if chk not in base_content:
-                # Check for newline separator preference?
-                # Usually space is fine, or newline if multi-line bar.
-                sep = "\n" if "\n" in base_content else " "
-                final_content = f"{base_content}{sep}{chk}"
+                # FORCE INLINE
+                final_content = f"{base_content} {chk}"
+                final_content = re.sub(r'>[ \t]+<', '><', final_content)
             else:
                 final_content = base_content
                 
@@ -524,8 +524,9 @@ class LMStudioBot(discord.Client):
                     # Re-append checkmark if it was there
                     chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                     if chk not in content_to_send:
-                         sep = "\n" if "\n" in content_to_send else " "
-                         content_to_send = f"{content_to_send}{sep}{chk}"
+                         # FORCE INLINE
+                         content_to_send = f"{content_to_send} {chk}"
+                         content_to_send = re.sub(r'>[ \t]+<', '><', content_to_send)
 
                 # EDIT IN PLACE
                 try:
@@ -566,6 +567,88 @@ class LMStudioBot(discord.Client):
         for cid, bar in targets:
             tasks.append(process_update(cid, bar))
         
+        results = await asyncio.gather(*tasks)
+        return sum(1 for r in results if r)
+
+    async def propagate_master_bar(self):
+        """
+        Clones the Master Bar content to all whitelisted active bars.
+        Preserves prefix and suffix (checkmark). Edits in-place.
+        """
+        master_content = memory_manager.get_master_bar()
+        if not master_content:
+            logger.warning("Propagate called but no Master Bar set.")
+            return 0
+        
+        master_content = master_content.strip()
+
+        whitelist = set(map(str, memory_manager.get_bar_whitelist()))
+        targets = [cid for cid in self.active_bars if str(cid) in whitelist]
+        
+        async def update_node(cid):
+            try:
+                bar_data = self.active_bars[cid]
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: return False
+                
+                msg_id = bar_data.get("message_id")
+                if not msg_id: return False
+                
+                # Get current prefix
+                current_content = bar_data.get("content", "")
+                prefix = ""
+                for emoji in ui.BAR_PREFIX_EMOJIS:
+                    if current_content.startswith(emoji):
+                        prefix = emoji
+                        break
+                
+                if not prefix:
+                    # Default to Idle if prefix lost/unknown
+                    prefix = "<a:NotWatching:1301840196966285322>"
+
+                # Build New Content
+                # Pattern: [Prefix] [Master] [Checkmark(if merged)]
+                new_base_content = f"{prefix} {master_content}"
+                new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
+
+                # Handle Checkmark
+                check_id = bar_data.get("checkmark_message_id")
+                has_merged_check = (check_id == msg_id)
+                
+                final_display_content = new_base_content
+                if has_merged_check:
+                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                    if chk not in final_display_content:
+                        # FORCE INLINE SPACE
+                        final_display_content = f"{final_display_content} {chk}"
+                        final_display_content = re.sub(r'>[ \t]+<', '><', final_display_content)
+                
+                # Edit
+                try:
+                    msg = await ch.fetch_message(msg_id)
+                    view = ui.StatusBarView(final_display_content, bar_data["user_id"], cid, bar_data.get("persisting", False))
+                    await msg.edit(content=final_display_content, view=view)
+                    
+                    # Save State
+                    self.active_bars[cid]["content"] = new_base_content
+                    self.active_views[msg_id] = view
+                    
+                    memory_manager.save_bar(
+                        cid, 
+                        ch.guild.id, 
+                        msg_id, 
+                        bar_data["user_id"], 
+                        new_base_content, 
+                        bar_data.get("persisting", False)
+                    )
+                    return True
+                except discord.NotFound:
+                    return False
+            except Exception as e:
+                logger.error(f"Propagate failed for {cid}: {e}")
+                return False
+
+        tasks = [update_node(cid) for cid in targets]
         results = await asyncio.gather(*tasks)
         return sum(1 for r in results if r)
 
@@ -618,107 +701,147 @@ class LMStudioBot(discord.Client):
             except Exception as e:
                 logger.error(f"❌ Failed to send progress message to {t_id}: {e}")
 
-        # --- PHASE 1: SCANNING ---
-        logger.info(f"Scanning {len(allowed_channels)} allowed channels for bars...")
-        bars_to_wake = []
-
-        for cid in allowed_channels:
-            try:
-                ch = self.get_channel(cid) or await self.fetch_channel(cid)
-                if not ch: continue
-                
-                found_content = None
-                async for msg in ch.history(limit=100):
-                    if msg.author.id == self.user.id:
-                        if msg.content:
-                            clean = msg.content.strip()
-                            for emoji in ui.BAR_PREFIX_EMOJIS:
-                                if clean.startswith(emoji):
-                                    found_content = clean
-                                    break
-                        if found_content: break
-                
-                if found_content:
-                    bars_to_wake.append({
-                        'cid': cid,
-                        'channel': ch,
-                        'content': found_content
-                    })
-            except Exception as e:
-                logger.error(f"Failed to scan channel {cid}: {e}")
-
-        # --- PHASE 2: WAKING ---
-        speed0_emoji = "<a:NotWatching:1301840196966285322>"
-        woken_count = 0
-        total_bars = len(bars_to_wake)
-        wake_log = []
+        # --- PHASE 1: SCANNING & RESTORATION ---
+        bar_whitelist = memory_manager.get_bar_whitelist()
+        master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+        master_content = master_content.strip()
         
-        logger.info(f"Found {total_bars} bars to wake.")
+        logger.info(f"Scanning {len(bar_whitelist)} whitelisted bar channels...")
         
-        # Initial wake status
-        status_str = f"🔄 Waking up bars (0/{total_bars})..."
-        if total_bars == 0:
-            status_str = "⚪ No bars found to wake."
-            
+        # Update progress message
+        status_str = f"🔍 Scanning {len(bar_whitelist)} channels for bars..."
         for p_msg in progress_msgs:
             try: await p_msg.edit(content=status_str, view=view)
             except: pass
 
-        for item in bars_to_wake:
-            cid = item['cid']
-            ch = item['channel']
-            found_content = item['content']
-            
-            try:
-                # Clean Content
-                if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in found_content:
-                    found_content = found_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
-                
-                for emoji in ui.BAR_PREFIX_EMOJIS:
-                    if found_content.startswith(emoji):
-                        found_content = found_content[len(emoji):].strip()
-                        break
-                
-                new_content = f"{speed0_emoji} {found_content}"
-                
-                # Capture Persistence BEFORE wipe
-                persisting = False
-                if cid in self.active_bars:
-                    persisting = self.active_bars[cid].get("persisting", False)
+        woken_count = 0
+        total_bars = len(bar_whitelist)
+        wake_log = []
 
-                # Wipe & Restore
-                await self.wipe_channel_bars(ch)
+        for cid_str in bar_whitelist:
+            try:
+                cid = int(cid_str)
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: continue
                 
-                view_bar = ui.StatusBarView(new_content, self.user.id, cid, persisting)
-                new_msg = await ch.send(new_content, view=view_bar)
+                # Determine Target Content
+                # We need to find the *current prefix* to preserve it, or default to Idle.
+                idle_prefix = "<a:NotWatching:1301840196966285322>"
+                target_prefix = idle_prefix
                 
-                # Update State
-                self.active_bars[cid] = {
-                    "content": new_content,
-                    "user_id": self.user.id,
-                    "message_id": new_msg.id,
-                    "checkmark_message_id": new_msg.id, 
-                    "persisting": persisting
-                }
-                self.active_views[new_msg.id] = view_bar
+                # Check Active Bar first
+                current_bar_data = self.active_bars.get(cid)
+                valid_msg = None
                 
-                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_content, persisting)
+                if current_bar_data:
+                     try:
+                         msg = await ch.fetch_message(current_bar_data["message_id"])
+                         valid_msg = msg
+                         # Extract existing prefix
+                         if "content" in current_bar_data:
+                             c = current_bar_data["content"]
+                             for emoji in ui.BAR_PREFIX_EMOJIS:
+                                 if c.startswith(emoji):
+                                     target_prefix = emoji
+                                     break
+                     except discord.NotFound:
+                         pass
+
+                # If no valid tracked message, look for remnants
+                if not valid_msg:
+                    found_remnant = None
+                    to_delete = []
+                    async for msg in ch.history(limit=50):
+                         if msg.author.id == self.user.id:
+                             is_bar = False
+                             # Check Components or Content
+                             if msg.components:
+                                 for row in msg.components:
+                                     for child in row.children:
+                                         if getattr(child, "custom_id", "").startswith("bar_"):
+                                             is_bar = True; break
+                                     if is_bar: break
+                             
+                             if not is_bar and msg.content:
+                                 for emoji in ui.BAR_PREFIX_EMOJIS:
+                                     if msg.content.strip().startswith(emoji):
+                                         is_bar = True; break
+                            
+                             if is_bar:
+                                 if not found_remnant:
+                                     found_remnant = msg
+                                     # Extract prefix from remnant
+                                     for emoji in ui.BAR_PREFIX_EMOJIS:
+                                         if msg.content.strip().startswith(emoji):
+                                             target_prefix = emoji
+                                             break
+                                 else:
+                                     to_delete.append(msg)
+                    
+                    # Destroy extras
+                    for m in to_delete:
+                        try: await m.delete()
+                        except: pass
+                    
+                    valid_msg = found_remnant
+
+                # Construct New Content
+                new_base_content = f"{target_prefix} {master_content}"
+                chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                 
-                logger.info(f"✅ Reset bar in #{ch.name}")
-                
-                # Update Progress Report
+                # Checkmark logic: merged
+                full_content = f"{new_base_content} {chk}"
+                full_content = re.sub(r'>[ \t]+<', '><', full_content)
+
+                persisting = current_bar_data.get("persisting", False) if current_bar_data else False
+
+                if valid_msg:
+                    # EDIT IN PLACE
+                    view = ui.StatusBarView(full_content, self.user.id, cid, persisting)
+                    await valid_msg.edit(content=full_content, view=view)
+                    
+                    # Update State
+                    self.active_bars[cid] = {
+                        "content": new_base_content,
+                        "user_id": self.user.id,
+                        "message_id": valid_msg.id,
+                        "checkmark_message_id": valid_msg.id,
+                        "persisting": persisting
+                    }
+                    self.active_views[valid_msg.id] = view
+                    memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
+                    
+                    wake_log.append(f"✅ Bar restored in {ch.mention}")
+
+                else:
+                    # POST NEW
+                    view = ui.StatusBarView(full_content, self.user.id, cid, persisting)
+                    msg = await ch.send(full_content, view=view)
+                    
+                    self.active_bars[cid] = {
+                        "content": new_base_content,
+                        "user_id": self.user.id,
+                        "message_id": msg.id,
+                        "checkmark_message_id": msg.id,
+                        "persisting": persisting
+                    }
+                    self.active_views[msg.id] = view
+                    memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting)
+                    
+                    wake_log.append(f"✅ New bar created in {ch.mention}")
+
                 woken_count += 1
-                wake_log.append(f"✅ Bar restored in {ch.mention} ([Jump]({new_msg.jump_url}))")
                 
-                log_str = "\n".join(wake_log[-10:]) # Show last 10 lines
-                status_str = f"🔄 Waking up bars ({woken_count}/{total_bars})...\n{log_str}"
-                
+                # Log Progress
+                log_str = "\n".join(wake_log[-5:])
+                status_str = f"🔄 Waking bars ({woken_count}/{total_bars})...\n{log_str}"
                 for p_msg in progress_msgs:
-                    try: await p_msg.edit(content=status_str, view=view)
+                    try: await p_msg.edit(content=status_str)
                     except: pass
 
             except Exception as e:
-                logger.error(f"Failed to reset bar in {cid}: {e}")
+                logger.error(f"Failed to wake bar in {cid_str}: {e}")
+
         
         # Final Update (No auto-delete)
         final_status = f"✅ **Wakeup Complete!** ({woken_count}/{total_bars})\n" + "\n".join(wake_log)
@@ -1403,58 +1526,68 @@ async def debugtest_command(interaction: discord.Interaction):
     file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
     await interaction.followup.send(msg, file=file)
 
-@client.tree.command(name="bar", description="Create an Auto Mode Uplink Bar/sticker.")
-async def bar_command(interaction: discord.Interaction, content: str = None):
-    # Auto-find content if None
-    if content is None:
-        found_content = await client.find_last_bar_content(interaction.channel)
-        if found_content:
-            # Strip existing checkmark if present to avoid duplication
-            chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-            if chk in found_content:
-                content = found_content.replace(chk, "").strip()
-            else:
-                content = found_content
-        else:
-            await interaction.response.send_message("❌ No content provided and no existing bar found to clone.", ephemeral=True)
-            return
+@client.tree.command(name="bar", description="Update the Master Bar content and propagate to all whitelisted channels.")
+async def bar_command(interaction: discord.Interaction, content: str):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+    
+    memory_manager.set_master_bar(content)
+    count = await client.propagate_master_bar()
+    await interaction.response.send_message(f"✅ Master Bar updated and propagated to {count} channels.", ephemeral=True)
 
+@client.tree.command(name="addbar", description="Whitelist this channel and spawn a bar.")
+async def addbar_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+        
+    memory_manager.add_bar_whitelist(interaction.channel_id)
+    
+    master_content = memory_manager.get_master_bar()
+    if not master_content:
+        master_content = "NyxOS Uplink Active"
+    
+    master_content = master_content.strip()
+    
+    # Default State: Idle
+    prefix = "<a:NotWatching:1301840196966285322>"
+    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+    
+    # Display Content
+    full_content = f"{prefix} {master_content} {chk}"
+    full_content = re.sub(r'>[ \t]+<', '><', full_content)
+    
+    # Cleanup old
     await client.cleanup_old_bars(interaction.channel)
-
-    # Strip whitespace from user input or found content
-    content = content.strip()
     
-    # Remove spaces between emojis (e.g. > < becomes ><)
-    content = re.sub(r'>[ \t]+<', '><', content)
-
-    # Initial content includes checkmark
-    full_content = f"{content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-
-    await interaction.response.defer(ephemeral=True)
-    await interaction.delete_original_response()
-    
-    # Create manually first time to init IDs correctly
-    view = ui.StatusBarView(content, interaction.user.id, interaction.channel_id, False)
+    view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, False)
     msg = await interaction.channel.send(full_content, view=view)
     
+    # Base content for storage/logic (Prefix + Master)
+    base_content = f"{prefix} {master_content}"
+    
     client.active_bars[interaction.channel_id] = {
-        "content": content,
+        "content": base_content,
         "user_id": interaction.user.id,
         "message_id": msg.id,
-        "checkmark_message_id": msg.id, # Initially together
+        "checkmark_message_id": msg.id,
         "persisting": False
     }
     client.active_views[msg.id] = view
+    memory_manager.save_bar(interaction.channel_id, interaction.guild_id, msg.id, interaction.user.id, base_content, False)
     
-    # Sync to DB
-    memory_manager.save_bar(
-        interaction.channel_id, 
-        interaction.guild_id,
-        msg.id,
-        interaction.user.id,
-        content,
-        False
-    )
+    await interaction.response.send_message("✅ Channel whitelisted and bar created.", ephemeral=True)
+
+@client.tree.command(name="removebar", description="Remove bar and un-whitelist channel.")
+async def removebar_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+
+    memory_manager.remove_bar_whitelist(interaction.channel_id)
+    await client.wipe_channel_bars(interaction.channel)
+    await interaction.response.send_message("✅ Bar removed and channel un-whitelisted.", ephemeral=True)
 
 @client.tree.command(name="restore", description="Restore the last Uplink Bar content from history.")
 async def restore_command(interaction: discord.Interaction):
@@ -1711,60 +1844,59 @@ async def on_message(message):
         
         # &bar
         if cmd == "&bar":
-            # Cooldown to prevent race conditions (User + Webhook)
-            if time.time() - client.bar_drop_cooldowns.get(message.channel.id, 0) < 2.0:
-                return
-
+            if not helpers.is_authorized(message.author): return
+            
             content = message.content[5:].strip()
-            
-            # Auto-find content if empty
             if not content:
-                found_content = await client.find_last_bar_content(message.channel)
-                if found_content:
-                    # Strip existing checkmark
-                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-                    if chk in found_content:
-                        content = found_content.replace(chk, "").strip()
-                    else:
-                        content = found_content
-            
-            if not content:
-                await message.channel.send("❌ Usage: `&bar <text/emojis>` or have an existing bar to clone.")
+                await message.channel.send("❌ Usage: `&bar <master text>`")
                 return
             
-            try: await message.delete()
-            except: pass
+            memory_manager.set_master_bar(content)
+            count = await client.propagate_master_bar()
+            await message.channel.send(f"✅ Master Bar updated and propagated to {count} channels.", delete_after=3.0)
+            return
+
+        # &addbar
+        if cmd == "&addbar":
+            if not helpers.is_authorized(message.author): return
+
+            memory_manager.add_bar_whitelist(message.channel.id)
+            
+            master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+            master_content = master_content.strip()
+
+            prefix = "<a:NotWatching:1301840196966285322>" # Idle
+            chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+            
+            full_content = f"{prefix} {master_content} {chk}"
+            full_content = re.sub(r'>[ \t]+<', '><', full_content)
             
             await client.cleanup_old_bars(message.channel)
-
-            content = content.strip()
-            # Remove spaces between emojis
-            content = re.sub(r'>[ \t]+<', '><', content)
-
-            # Initial content includes checkmark
-            full_content = f"{content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
             
-            view = ui.StatusBarView(content, message.author.id, message.channel.id, False)
+            view = ui.StatusBarView(full_content, message.author.id, message.channel.id, False)
             msg = await message.channel.send(full_content, view=view)
-
+            
+            base_content = f"{prefix} {master_content}"
             client.active_bars[message.channel.id] = {
-                "content": content,
+                "content": base_content,
                 "user_id": message.author.id,
                 "message_id": msg.id,
                 "checkmark_message_id": msg.id,
                 "persisting": False
             }
             client.active_views[msg.id] = view
+            memory_manager.save_bar(message.channel.id, message.guild.id if message.guild else None, msg.id, message.author.id, base_content, False)
             
-            # Sync to DB
-            memory_manager.save_bar(
-                message.channel.id, 
-                message.guild.id if message.guild else None,
-                msg.id,
-                message.author.id,
-                content,
-                False
-            )
+            await message.channel.send("✅ Channel whitelisted and bar created.", delete_after=3.0)
+            return
+
+        # &removebar
+        if cmd == "&removebar":
+            if not helpers.is_authorized(message.author): return
+
+            memory_manager.remove_bar_whitelist(message.channel.id)
+            await client.wipe_channel_bars(message.channel)
+            await message.channel.send("✅ Bar removed and channel un-whitelisted.", delete_after=3.0)
             return
 
         # &dropcheck

@@ -34,6 +34,23 @@ def wipe_all_logs():
     except Exception as e:
         print(f"Failed to wipe logs: {e}")
 
+# --- Master Bar & Whitelist (DB Facade) ---
+
+def set_master_bar(content):
+    db.set_master_bar(content)
+
+def get_master_bar():
+    return db.get_master_bar()
+
+def add_bar_whitelist(channel_id):
+    db.add_bar_whitelist(channel_id)
+
+def remove_bar_whitelist(channel_id):
+    db.remove_bar_whitelist(channel_id)
+
+def get_bar_whitelist():
+    return db.get_bar_whitelist()
+
 # --- Active Bars (DB Facade) ---
 
 def save_bar(channel_id, guild_id, message_id, user_id, content, persisting):

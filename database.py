@@ -75,11 +75,76 @@ class Database:
                     content TEXT,
                     timestamp TIMESTAMP
                 )""")
+
+                # Master Bar (Single Source of Truth)
+                c.execute("""CREATE TABLE IF NOT EXISTS master_bar (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    content TEXT
+                )""")
+
+                # Bar Whitelist
+                c.execute("""CREATE TABLE IF NOT EXISTS bar_whitelist (
+                    channel_id TEXT PRIMARY KEY
+                )""")
                 
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             raise
+
+    # --- Master Bar & Whitelist Methods ---
+
+    def set_master_bar(self, content):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("""
+                    INSERT INTO master_bar (id, content)
+                    VALUES (1, ?)
+                    ON CONFLICT(id) DO UPDATE SET content = excluded.content
+                """, (content,))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to set master bar: {e}")
+
+    def get_master_bar(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT content FROM master_bar WHERE id = 1")
+                row = c.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            logger.error(f"Failed to get master bar: {e}")
+            return None
+
+    def add_bar_whitelist(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("INSERT OR IGNORE INTO bar_whitelist (channel_id) VALUES (?)", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to add to bar whitelist: {e}")
+
+    def remove_bar_whitelist(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM bar_whitelist WHERE channel_id = ?", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to remove from bar whitelist: {e}")
+
+    def get_bar_whitelist(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT channel_id FROM bar_whitelist")
+                return [row[0] for row in c.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get bar whitelist: {e}")
+            return []
 
     # --- Active Bars Methods ---
 
