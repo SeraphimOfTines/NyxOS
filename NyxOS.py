@@ -803,13 +803,9 @@ class LMStudioBot(discord.Client):
                      try:
                          msg = await ch.fetch_message(current_bar_data["message_id"])
                          valid_msg = msg
-                         # Extract existing prefix
-                         if "content" in current_bar_data:
-                             c = current_bar_data["content"]
-                             for emoji in ui.BAR_PREFIX_EMOJIS:
-                                 if c.startswith(emoji):
-                                     target_prefix = emoji
-                                     break
+                         # STARTUP OVERRIDE: Force Idle (Speed 0) on boot per user request.
+                         # We deliberately ignore the existing prefix here.
+                         pass
                      except discord.NotFound:
                          pass
 
@@ -836,11 +832,9 @@ class LMStudioBot(discord.Client):
                              if is_bar:
                                  if not found_remnant:
                                      found_remnant = msg
-                                     # Extract prefix from remnant
-                                     for emoji in ui.BAR_PREFIX_EMOJIS:
-                                         if msg.content.strip().startswith(emoji):
-                                             target_prefix = emoji
-                                             break
+                                     # STARTUP OVERRIDE: Force Idle (Speed 0) on boot per user request.
+                                     # We deliberately ignore the existing prefix here.
+                                     pass
                                  else:
                                      to_delete.append(msg)
                     
