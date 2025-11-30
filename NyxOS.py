@@ -1068,7 +1068,10 @@ class LMStudioBot(discord.Client):
             
             try:
                 cid = int(cid_str)
-                if cid == 99999: continue
+                if cid == 99999:
+                    # Clean up invalid channel
+                    memory_manager.remove_bar_whitelist(cid)
+                    continue
                 
                 ch = self.get_channel(cid) or await self.fetch_channel(cid)
                 if not ch: continue
