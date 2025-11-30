@@ -943,7 +943,8 @@ class LMStudioBot(discord.Client):
         divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
         
         # Msg 1: Status + Divider
-        startup_header_text = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB']}\n{divider}"
+        # Use REBOOT header initially so it says "Rebooting..." during scan
+        startup_header_text = f"{ui.FLAVOR_TEXT['REBOOT_HEADER']}\n{ui.FLAVOR_TEXT['REBOOT_SUB'].format(current=0, total=len(allowed_channels))}\n{divider}"
         
         # Msg 2: Master Bar + Divider
         master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
@@ -982,10 +983,6 @@ class LMStudioBot(discord.Client):
                         c_bar = candidates[1]
                         c_header = candidates[2]
                         
-                        # Basic validation: Ensure they are sequential?
-                        # We just assume if we found 3, they are the ones.
-                        # We can check if they are contiguous in history, but "latest 3" is usually safe enough for a dedicated channel.
-                        
                         b_msg = c_body
                         bar_msg = c_bar
                         h_msg = c_header
@@ -998,7 +995,7 @@ class LMStudioBot(discord.Client):
                 success = False
                 if h_msg and bar_msg and b_msg:
                     try:
-                        # Edit Header
+                        # Edit Header (Set to Rebooting...)
                         await h_msg.edit(content=startup_header_text)
                         
                         # Edit Bar
@@ -1057,18 +1054,9 @@ class LMStudioBot(discord.Client):
                 cid = int(cid_str)
                 ch = self.get_channel(cid) or await self.fetch_channel(cid)
                 
-                # Dynamic Header Update: "Waking X/Y Uplinks..."
-                # DISABLED: User wants static "Good morning" subtitle.
-                # if hasattr(client, "startup_header_msg") and client.startup_header_msg:
-                #     temp_sub = ui.FLAVOR_TEXT["REBOOT_SUB"].format(current=woken_count + 1, total=total_bars)
-                #     temp_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{temp_sub}\n{divider}"
-                #     try: await client.startup_header_msg.edit(content=temp_header)
-                #     except: pass
-
                 if not ch: continue
                 
                 # Determine Target Content
-                # We need to find the *current prefix* to preserve it, or default to Idle.
                 idle_prefix = "<a:NotWatching:1301840196966285322>"
                 target_prefix = idle_prefix
                 
@@ -1080,8 +1068,6 @@ class LMStudioBot(discord.Client):
                      try:
                          msg = await ch.fetch_message(current_bar_data["message_id"])
                          valid_msg = msg
-                         # STARTUP OVERRIDE: Force Idle (Speed 0) on boot per user request.
-                         # We deliberately ignore the existing prefix here.
                          pass
                      except discord.NotFound:
                          pass
@@ -1109,13 +1095,10 @@ class LMStudioBot(discord.Client):
                              if is_bar:
                                  if not found_remnant:
                                      found_remnant = msg
-                                     # STARTUP OVERRIDE: Force Idle (Speed 0) on boot per user request.
-                                     # We deliberately ignore the existing prefix here.
                                      pass
                                  else:
                                      to_delete.append(msg)
                     
-                    # Destroy extras
                     for m in to_delete:
                         try: await m.delete()
                         except: pass
@@ -1126,7 +1109,6 @@ class LMStudioBot(discord.Client):
                 new_base_content = f"{target_prefix} {master_content}"
                 chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                 
-                # Checkmark logic: merged
                 full_content = f"{new_base_content} {chk}"
                 full_content = re.sub(r'>[ \t]+<', '><', full_content)
 
@@ -1138,7 +1120,6 @@ class LMStudioBot(discord.Client):
                         view = ui.StatusBarView(full_content, self.user.id, cid, persisting)
                         await valid_msg.edit(content=full_content, view=view)
                         
-                        # Update State
                         self.active_bars[cid] = {
                             "content": new_base_content,
                             "user_id": self.user.id,
@@ -1149,14 +1130,12 @@ class LMStudioBot(discord.Client):
                         self.active_views[valid_msg.id] = view
                         memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
                         
-                        # Link format: Raw Link (Requested by user)
                         link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{valid_msg.id}"
-                        # Force single line by removing whitespace from emoji
                         saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
+                        # Just store the link line, we will assemble the header later
                         wake_log.append(f"{saturn_emoji} {link.strip()}")
                     except Exception as e:
                          logger.warning(f"Startup edit failed for {cid}, attempting re-send: {e}")
-                         # If edit fails, invalidate and fall through to POST NEW
                          valid_msg = None
 
                 if not valid_msg:
@@ -1181,7 +1160,8 @@ class LMStudioBot(discord.Client):
                 woken_count += 1
                 
                 # Log Progress: Show channels appearing one after another
-                log_str = "\n".join(wake_log[-8:]) # Show last 8
+                # While scanning, we just show the last few lines
+                log_str = "\n".join(wake_log[-8:]) 
                 status_str = f"{divider}\n🔄 Waking bars...\n{log_str}"
                 for p_msg in progress_msgs:
                    try: await p_msg.edit(content=status_str)
@@ -1190,20 +1170,20 @@ class LMStudioBot(discord.Client):
             except Exception as e:
                 logger.error(f"Failed to wake bar in {cid_str}: {e}")
 
+        # Final Update: "Active Uplinks" Header + Full List
+        # We re-assemble the final string with the specific header user requested.
+        final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n" + "\n".join(wake_log)
         
-        # Final Update (No auto-delete, no count in final string)
-        final_status = f"{divider}\n" + "\n".join(wake_log)
-        if len(final_status) > 2000:
-             final_status = f"{divider}\n(Log truncated due to length)"
+        if len(final_body) > 2000:
+             final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(Log truncated due to length...)"
 
         for p_msg in progress_msgs:
             try:
-                await p_msg.edit(content=final_status, embed=None, view=None)
+                await p_msg.edit(content=final_body, embed=None, view=None)
             except: pass
         
-        # Reset Header to Standard
+        # Reset Header to "System Online"
         if hasattr(client, "startup_header_msg") and client.startup_header_msg:
-             # Use the "DONE" subtitle ("NyxOS v2.0") instead of the initial one ("Good morning...")
              final_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
              try:
                  await client.startup_header_msg.edit(content=final_header)

@@ -54,11 +54,11 @@ FLAVOR_TEXT = {
     "BAR_PERSIST_ON": "🔃",
     "CHECKMARK_EMOJI": "<a:AllCaughtUp:1289323947082387526>",
     "REBOOT_HEADER": "# <a:Thinking:1322962569300017214> Rebooting . . .",
-    "REBOOT_SUB": "-# Waking {current}/{total} Uplinks",
+    "REBOOT_SUB": "-# Waking Uplinks",
     "STARTUP_HEADER": "# <a:SeraphErynianChip:1444481882988216473> System Online <a:SeraphErynianChip:1444481882988216473>",
     "STARTUP_SUB": "-# Good morning!",
     "STARTUP_SUB_DONE": "-# NyxOS v2.0",
-    "UPLINKS_HEADER": "# Active Uplinks",
+    "UPLINKS_HEADER": "Active Uplinks",
     "COSMETIC_DIVIDER": "⋘───────⋅☾𓆩⭖𓆪☽⋅────────⋙",
     "CUSTOM_CHECKMARK": "<a:SeraphHyperYes:1331530716508459018>",
 }
