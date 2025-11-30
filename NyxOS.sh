@@ -16,6 +16,15 @@ pip install -r requirements.txt --quiet
 
 # 4. Cleanup Previous Instances
 echo "☢️  Nuking old processes..."
+
+# Kill other instances of this script
+my_pid=$$
+other_scripts=$(pgrep -f "NyxOS.sh" | grep -v "$my_pid")
+if [ -n "$other_scripts" ]; then
+    echo "🔪 Killing stuck script instances: $other_scripts"
+    kill -9 $other_scripts 2>/dev/null || true
+fi
+
 pkill -9 -f "python.*NyxOS.py" || true
 sleep 1
 
