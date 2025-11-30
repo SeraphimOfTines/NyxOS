@@ -1065,6 +1065,8 @@ class LMStudioBot(discord.Client):
                 
                 # Restore previous state (speed) if available
                 restored_prefix = None
+                reboot_emoji = ui.FLAVOR_TEXT["REBOOT_EMOJI"]
+                
                 if current_bar_data:
                     prev_state = current_bar_data.get("previous_state")
                     if prev_state and "content" in prev_state:
@@ -1074,13 +1076,13 @@ class LMStudioBot(discord.Client):
                                 restored_prefix = emoji
                                 break
                 
-                if restored_prefix and restored_prefix != "<a:Thinking:1322962569300017214>":
+                if restored_prefix and restored_prefix != reboot_emoji:
                     target_prefix = restored_prefix
                 elif current_bar_data:
-                     # If no previous state, check current content (if it wasn't overwritten by Thinking yet)
+                     # If no previous state, check current content (if it wasn't overwritten by Reboot Emoji yet)
                      c = current_bar_data.get("content", "")
                      for emoji in ui.BAR_PREFIX_EMOJIS:
-                         if c.startswith(emoji) and emoji != "<a:Thinking:1322962569300017214>":
+                         if c.startswith(emoji) and emoji != reboot_emoji:
                              target_prefix = emoji
                              break
                 
@@ -1767,7 +1769,7 @@ async def perform_reboot(interaction=None, message=None):
         console_id = channel_id
 
     # 5. Loading Mode for Bars (Concurrent)
-    loading_emoji = "<a:Thinking:1322962569300017214>"
+    loading_emoji = ui.FLAVOR_TEXT["REBOOT_EMOJI"]
     tasks = []
     
     async def set_thinking(cid, bar):
@@ -2298,48 +2300,48 @@ async def b_command(interaction: discord.Interaction, content: str = None):
 @client.tree.command(name="global", description="Update text on all active bars.")
 async def global_command(interaction: discord.Interaction, text: str):
     if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
          return
     count = await client.global_update_bars(text)
-    await interaction.response.send_message(f"🌐 Updated text for ~{count} bars.", ephemeral=False, delete_after=2.0)
+    await interaction.response.send_message(f"🌐 Updated text for ~{count} bars.", ephemeral=True)
 
 @client.tree.command(name="awake", description="Wake up all bars (restore from idle/sleep).")
 async def awake_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
          return
     
-    await interaction.response.defer(ephemeral=False)
+    await interaction.response.defer(ephemeral=True)
     count = await client.awake_all_bars()
     await interaction.followup.send(f"🌅 Woke up ~{count} bars.")
 
 @client.tree.command(name="speedall0", description="Set all bars to Speed 0 (Not Watching).")
 async def speedall0_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
          return
     
-    await interaction.response.defer(ephemeral=False)
+    await interaction.response.defer(ephemeral=True)
     count = await client.set_speed_all_bars("<a:NotWatching:1301840196966285322>")
     await interaction.followup.send(f"🚀 Updated speed on {count} bars.")
 
 @client.tree.command(name="speedall1", description="Set all bars to Speed 1 (Watching Occasionally).")
 async def speedall1_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
          return
     
-    await interaction.response.defer(ephemeral=False)
+    await interaction.response.defer(ephemeral=True)
     count = await client.set_speed_all_bars("<a:WatchingOccasionally:1301837550159269888>")
     await interaction.followup.send(f"🚀 Updated speed on {count} bars.")
 
 @client.tree.command(name="speedall2", description="Set all bars to Speed 2 (Watching Closely).")
 async def speedall2_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
          return
     
-    await interaction.response.defer(ephemeral=False)
+    await interaction.response.defer(ephemeral=True)
     count = await client.set_speed_all_bars("<a:WatchingClosely:1301838354832425010>")
     await interaction.followup.send(f"🚀 Updated speed on {count} bars.")
 

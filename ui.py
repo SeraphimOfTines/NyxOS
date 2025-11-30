@@ -53,7 +53,7 @@ FLAVOR_TEXT = {
     "BAR_PERSIST_OFF": "🔃",
     "BAR_PERSIST_ON": "🔃",
     "CHECKMARK_EMOJI": "<a:AllCaughtUp:1289323947082387526>",
-    "REBOOT_HEADER": "# <a:Thinking:1322962569300017214> Rebooting . . .",
+    "REBOOT_HEADER": "# <a:RebootingMainframe:1444740155784036512> Rebooting . . .",
     "REBOOT_SUB": "-# Waking Uplinks",
     "STARTUP_HEADER": "# <a:SeraphErynianChip:1444481882988216473> System Online <a:SeraphErynianChip:1444481882988216473>",
     "STARTUP_SUB": "-# Good morning!",
@@ -61,6 +61,7 @@ FLAVOR_TEXT = {
     "UPLINKS_HEADER": "Active Uplinks",
     "COSMETIC_DIVIDER": "⋘───────⋅☾𓆩⭖𓆪☽⋅────────⋙",
     "CUSTOM_CHECKMARK": "<a:SeraphHyperYes:1331530716508459018>",
+    "REBOOT_EMOJI": "<a:RebootingMainframe:1444740155784036512>",
 }
 
 BAR_PREFIX_EMOJIS = [
@@ -69,14 +70,11 @@ BAR_PREFIX_EMOJIS = [
     "<a:NotWatching:1301840196966285322>",
     "<a:Thinking:1322962569300017214>", # /thinking
     "<a:Sleeping:1312772391759249410>", # /sleeping (from shutdown msg)
+    "<a:RebootingMainframe:1444740155784036512>", # New Reboot Emoji
     "<a:Reading:1378593438265770034>",
     "<a:Backlogging:1290067150861500588>", 
     "<a:Typing:1223747307657232405>",
     "<a:Processing:1223643308140793969>",
-    "<a:Pausing:1385258657532481597>",
-    "<a:Angel:000000000000000000>",
-    "<a:DarkAngel:000000000000000000>",
-    "<a:BRB:000000000000000000>"
 ]
 
 ANGEL_CONTENT = "<a:SacredMagicStrong:1316971256830103583><a:SeraphWingLeft:1297050718754312192><a:SacredEyeLuminara:1296698905744113715><a:SeraphWingRight:1297051921651073055><a:SacredMagicStrong:1316971256830103583>\n<a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466><a:SacredWind:1296975869566259396><a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466>"
