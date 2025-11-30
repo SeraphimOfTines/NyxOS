@@ -1361,7 +1361,43 @@ async def reboot_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
 
-    await interaction.response.send_message(ui.FLAVOR_TEXT["REBOOT_MESSAGE"], ephemeral=False) 
+    # 1. Identify Console Channel
+    console_channel = None
+    if config.STARTUP_CHANNEL_ID:
+        try: console_channel = await client.fetch_channel(config.STARTUP_CHANNEL_ID)
+        except: pass
+
+    # 2. Prepare Uplink List
+    active_ids = list(client.active_bars.keys())
+    uplink_count = len(active_ids)
+    uplink_list_text = ""
+    
+    for cid in active_ids:
+        ch = client.get_channel(cid)
+        name = ch.name if ch else f"Unknown-{cid}"
+        uplink_list_text += f"- {name} ({cid})\n"
+    
+    if not uplink_list_text:
+        uplink_list_text = "(No active uplinks)"
+
+    # 3. Construct Console Message
+    reboot_text = ui.FLAVOR_TEXT["REBOOT_MESSAGE"]
+    status_subscript = f"\n-# Waking {uplink_count}/{uplink_count} Uplinks"
+    full_console_msg = f"{reboot_text}{status_subscript}\n{uplink_list_text}"
+
+    # 4. Send Messages
+    if console_channel:
+        try:
+            await console_channel.send(full_console_msg)
+            link = f"https://discord.com/channels/{interaction.guild_id}/{console_channel.id}"
+            await interaction.response.send_message(f"Reboot initiated. [View Console]({link})", ephemeral=True)
+        except Exception as e:
+            logger.warning(f"Failed to send to console: {e}")
+            # Fallback
+            await interaction.response.send_message(ui.FLAVOR_TEXT["REBOOT_MESSAGE"], ephemeral=False)
+    else:
+        # Fallback if no console configured
+        await interaction.response.send_message(f"{ui.FLAVOR_TEXT['REBOOT_MESSAGE']}\n(Console not configured)", ephemeral=False)
     
     # Set all bars to Loading Mode
     loading_emoji = "<a:Thinking:1322962569300017214>"
@@ -1387,7 +1423,10 @@ async def reboot_command(interaction: discord.Interaction):
             await msg.edit(content=full)
         except: pass
 
-    meta = {"channel_id": interaction.channel_id}
+    # Avoid spamming interaction channel with wakeup report if we have a console
+    meta_channel = config.STARTUP_CHANNEL_ID if config.STARTUP_CHANNEL_ID else interaction.channel_id
+    meta = {"channel_id": meta_channel}
+
     try:
         with open(config.RESTART_META_FILE, "w") as f:
             json.dump(meta, f)
