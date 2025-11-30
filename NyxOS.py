@@ -324,7 +324,6 @@ class LMStudioBot(discord.Client):
                         if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in current_content:
                             current_content = current_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
                     else:
-                        # If no content found, skip (don't spawn random bars)
                         return False
 
                 # Construct New Content
@@ -334,23 +333,62 @@ class LMStudioBot(discord.Client):
                         clean_middle = clean_middle[len(emoji):].strip()
                         break
                 
-                new_content = f"{sleeping_emoji} {clean_middle}"
+                new_base_content = f"{sleeping_emoji} {clean_middle}"
+                new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
 
-                # Capture persistence before wipe
+                # Attempt Edit-In-Place First
+                msg_id = bar_data.get("message_id") if bar_data else None
+                msg = None
+                if msg_id:
+                    try: msg = await ch.fetch_message(msg_id)
+                    except: pass
+                
                 persisting = bar_data.get("persisting", False) if bar_data else False
-                if cid in self.active_bars:
-                    persisting = self.active_bars[cid].get("persisting", False)
 
-                # WIPE & REPLACE (Robust)
+                if msg:
+                    # Handle Checkmark
+                    check_id = bar_data.get("checkmark_message_id")
+                    has_merged_check = (check_id == msg_id)
+                    
+                    final_content = new_base_content
+                    if has_merged_check:
+                        chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                        if chk not in final_content:
+                            final_content = f"{final_content} {chk}"
+                            final_content = re.sub(r'>[ \t]+<', '><', final_content)
+
+                    try:
+                        view = ui.StatusBarView(final_content, bar_data["user_id"], cid, persisting)
+                        await msg.edit(content=final_content, view=view)
+                        
+                        self.active_bars[cid] = {
+                            "content": new_base_content,
+                            "user_id": bar_data["user_id"],
+                            "message_id": msg.id,
+                            "checkmark_message_id": msg.id,
+                            "persisting": persisting
+                        }
+                        self.active_views[msg.id] = view
+                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting)
+                        return True
+                    except Exception as e:
+                        logger.warning(f"Sleep edit failed in {cid}, falling back to wipe/send: {e}")
+
+                # FALLBACK: Wipe & Replace
                 await self.wipe_channel_bars(ch)
 
-                # SEND NEW
-                view = ui.StatusBarView(new_content, self.user.id, cid, persisting)
-                new_msg = await ch.send(new_content, view=view)
+                # Checkmark included in new send? usually drop/send includes it.
+                # But here we are constructing base content.
+                # Let's standardise: always include checkmark on new send.
+                chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                send_content = f"{new_base_content} {chk}"
+                send_content = re.sub(r'>[ \t]+<', '><', send_content)
+
+                view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
+                new_msg = await ch.send(send_content, view=view)
                 
-                # Register
                 self.active_bars[cid] = {
-                    "content": new_content,
+                    "content": new_base_content,
                     "user_id": self.user.id,
                     "message_id": new_msg.id,
                     "checkmark_message_id": new_msg.id,
@@ -358,7 +396,7 @@ class LMStudioBot(discord.Client):
                 }
                 self.active_views[new_msg.id] = view
                 
-                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_content, persisting)
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting)
                 return True
 
             except Exception as e:
@@ -369,7 +407,6 @@ class LMStudioBot(discord.Client):
         for cid, bar in targets:
             tasks.append(process_bar(cid, bar))
         
-        # Wait for all tasks to complete and count successes
         results = await asyncio.gather(*tasks)
         return sum(1 for r in results if r)
 
@@ -378,11 +415,10 @@ class LMStudioBot(discord.Client):
         Sets all active bars and remnants in allowed channels to IDLE (Not Watching).
         Returns the number of bars processed.
         """
-        # 1. Consolidate targets: Active Bars + Remnants in Allowed Channels
+        # 1. Consolidate targets
         targets = list(self.active_bars.items())
         allowed = memory_manager.get_allowed_channels()
         
-        # Scan allowed channels for remnants not in active_bars
         for ac_id in allowed:
             if ac_id not in self.active_bars:
                 targets.append((ac_id, None))
@@ -398,19 +434,14 @@ class LMStudioBot(discord.Client):
                 current_content = ""
                 if bar_data:
                     current_content = bar_data["content"]
-                    # Save state if needed (sleep saves previous state, idle might not strictly need to but good practice?)
-                    # For now, we won't save 'previous state' explicitly for idle unless requested, 
-                    # as idle is a form of active status.
                 else:
                     # Remnant recovery
                     found = await self.find_last_bar_content(ch)
                     if found:
                         current_content = found
-                        # Strip checkmark
                         if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in current_content:
                             current_content = current_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
                     else:
-                        # If no content found, skip (don't spawn random bars)
                         return False
 
                 # Construct New Content
@@ -420,23 +451,59 @@ class LMStudioBot(discord.Client):
                         clean_middle = clean_middle[len(emoji):].strip()
                         break
                 
-                new_content = f"{idle_emoji} {clean_middle}"
+                new_base_content = f"{idle_emoji} {clean_middle}"
+                new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
 
-                # Capture persistence before wipe
+                # Attempt Edit-In-Place
+                msg_id = bar_data.get("message_id") if bar_data else None
+                msg = None
+                if msg_id:
+                    try: msg = await ch.fetch_message(msg_id)
+                    except: pass
+                
                 persisting = bar_data.get("persisting", False) if bar_data else False
-                if cid in self.active_bars:
-                    persisting = self.active_bars[cid].get("persisting", False)
 
-                # WIPE & REPLACE (Robust)
+                if msg:
+                    # Handle Checkmark
+                    check_id = bar_data.get("checkmark_message_id")
+                    has_merged_check = (check_id == msg_id)
+                    
+                    final_content = new_base_content
+                    if has_merged_check:
+                        chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                        if chk not in final_content:
+                            final_content = f"{final_content} {chk}"
+                            final_content = re.sub(r'>[ \t]+<', '><', final_content)
+                    
+                    try:
+                        view = ui.StatusBarView(final_content, bar_data["user_id"], cid, persisting)
+                        await msg.edit(content=final_content, view=view)
+                        
+                        self.active_bars[cid] = {
+                            "content": new_base_content,
+                            "user_id": bar_data["user_id"],
+                            "message_id": msg.id,
+                            "checkmark_message_id": msg.id,
+                            "persisting": persisting
+                        }
+                        self.active_views[msg.id] = view
+                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting)
+                        return True
+                    except Exception as e:
+                         logger.warning(f"Idle edit failed in {cid}: {e}")
+
+                # FALLBACK: Wipe & Replace
                 await self.wipe_channel_bars(ch)
 
-                # SEND NEW
-                view = ui.StatusBarView(new_content, self.user.id, cid, persisting)
-                new_msg = await ch.send(new_content, view=view)
+                chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                send_content = f"{new_base_content} {chk}"
+                send_content = re.sub(r'>[ \t]+<', '><', send_content)
+
+                view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
+                new_msg = await ch.send(send_content, view=view)
                 
-                # Register
                 self.active_bars[cid] = {
-                    "content": new_content,
+                    "content": new_base_content,
                     "user_id": self.user.id,
                     "message_id": new_msg.id,
                     "checkmark_message_id": new_msg.id,
@@ -444,7 +511,7 @@ class LMStudioBot(discord.Client):
                 }
                 self.active_views[new_msg.id] = view
                 
-                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_content, persisting)
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting)
                 return True
 
             except Exception as e:
@@ -455,7 +522,6 @@ class LMStudioBot(discord.Client):
         for cid, bar in targets:
             tasks.append(process_bar(cid, bar))
         
-        # Wait for all tasks to complete and count successes
         results = await asyncio.gather(*tasks)
         return sum(1 for r in results if r)
 
@@ -797,23 +863,28 @@ class LMStudioBot(discord.Client):
 
                 if valid_msg:
                     # EDIT IN PLACE
-                    view = ui.StatusBarView(full_content, self.user.id, cid, persisting)
-                    await valid_msg.edit(content=full_content, view=view)
-                    
-                    # Update State
-                    self.active_bars[cid] = {
-                        "content": new_base_content,
-                        "user_id": self.user.id,
-                        "message_id": valid_msg.id,
-                        "checkmark_message_id": valid_msg.id,
-                        "persisting": persisting
-                    }
-                    self.active_views[valid_msg.id] = view
-                    memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
-                    
-                    wake_log.append(f"✅ Bar restored in {ch.mention}")
+                    try:
+                        view = ui.StatusBarView(full_content, self.user.id, cid, persisting)
+                        await valid_msg.edit(content=full_content, view=view)
+                        
+                        # Update State
+                        self.active_bars[cid] = {
+                            "content": new_base_content,
+                            "user_id": self.user.id,
+                            "message_id": valid_msg.id,
+                            "checkmark_message_id": valid_msg.id,
+                            "persisting": persisting
+                        }
+                        self.active_views[valid_msg.id] = view
+                        memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
+                        
+                        wake_log.append(f"✅ Bar restored in {ch.mention}")
+                    except Exception as e:
+                         logger.warning(f"Startup edit failed for {cid}, attempting re-send: {e}")
+                         # If edit fails, invalidate and fall through to POST NEW
+                         valid_msg = None
 
-                else:
+                if not valid_msg:
                     # POST NEW
                     view = ui.StatusBarView(full_content, self.user.id, cid, persisting)
                     msg = await ch.send(full_content, view=view)
@@ -2104,41 +2175,103 @@ async def on_message(message):
                             found_content = found_content[len(emoji):].strip()
                             break
                     
-                    new_content = f"{speed0_emoji} {found_content}"
+                    new_base_content = f"{speed0_emoji} {found_content}"
+                    new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
                     
                     # Capture Persistence
                     persisting = False
                     if cid in client.active_bars:
                         persisting = client.active_bars[cid].get("persisting", False)
 
+                    # Attempt Edit In-Place
+                    msg = None
+                    bar_data = client.active_bars.get(cid)
+                    msg_id = bar_data.get("message_id") if bar_data else None
+                    
+                    if msg_id:
+                         try: msg = await ch.fetch_message(msg_id)
+                         except: pass
+                    
+                    # If not in active_bars, check if we scanned a remnant that is usable
+                    if not msg:
+                        # Re-scan for actual message object if we just have content?
+                        # find_last_bar_content only returns string.
+                        # We can do a quick scan for the message object if we want to be thorough,
+                        # or just fall back to wipe/send.
+                        # Given "if it can edit it... always edit it in place", we should try to find the message.
+                        async for m in ch.history(limit=50):
+                            if m.author.id == client.user.id:
+                                if m.content and (m.content == found_content or ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in m.content):
+                                     # Simple check, might need more robust matching but good enough for remnants
+                                     msg = m
+                                     break
+
+                    if msg:
+                         # EDIT
+                         check_id = bar_data.get("checkmark_message_id") if bar_data else msg.id
+                         has_merged_check = (check_id == msg.id)
+                         
+                         final_content = new_base_content
+                         # Logic: if we are waking, we should probably restore the checkmark if it was there?
+                         # Or does awake just set text? "Put all bars to sleep" -> "Awake".
+                         # Usually standard bars have checkmarks.
+                         chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                         if chk not in final_content: # Should use has_merged_check logic ideally, but "awake" implies full restoration
+                             final_content = f"{final_content} {chk}"
+                             final_content = re.sub(r'>[ \t]+<', '><', final_content)
+
+                         try:
+                             view = ui.StatusBarView(final_content, client.user.id, cid, persisting)
+                             await msg.edit(content=final_content, view=view)
+                             
+                             client.active_bars[cid] = {
+                                "content": new_base_content,
+                                "user_id": client.user.id,
+                                "message_id": msg.id,
+                                "checkmark_message_id": msg.id,
+                                "persisting": persisting
+                             }
+                             client.active_views[msg.id] = view
+                             memory_manager.save_bar(cid, ch.guild.id, msg.id, client.user.id, new_base_content, persisting)
+                             return True
+                         except Exception:
+                             pass # Fallthrough to wipe/send
+
                     # 3. Wipe
                     await client.wipe_channel_bars(ch)
                     
                     # 4. Send
-                    view = ui.StatusBarView(new_content, client.user.id, cid, persisting)
-                    new_msg = await ch.send(new_content, view=view)
+                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                    send_content = f"{new_base_content} {chk}"
+                    send_content = re.sub(r'>[ \t]+<', '><', send_content)
+
+                    view = ui.StatusBarView(send_content, client.user.id, cid, persisting)
+                    new_msg = await ch.send(send_content, view=view)
                     
                     # 5. Register
                     client.active_bars[cid] = {
-                        "content": new_content,
+                        "content": new_base_content,
                         "user_id": client.user.id,
                         "message_id": new_msg.id,
                         "checkmark_message_id": new_msg.id,
                         "persisting": persisting
                     }
                     client.active_views[new_msg.id] = view
-                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, client.user.id, new_content, persisting)
+                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, client.user.id, new_base_content, persisting)
+                    return True
 
                 except Exception as e:
-                    logger.error(f"Wake error in {cid}: {e}")
+                     logger.error(f"Awake error in {cid}: {e}")
+                     return False
 
+            tasks = []
             for cid in allowed_channels:
-                client.loop.create_task(process_wake(cid))
-                count += 1
+                tasks.append(process_wake(cid))
             
-            await message.channel.send(f"🌅 Waking up ~{count} bars (Speed 0).")
+            results = await asyncio.gather(*tasks)
+            count = sum(1 for r in results if r)
+            await message.channel.send(f"🌅 Woke up ~{count} bars.")
             return
-
         # &speedall0/1/2
         if cmd in ["&speedall0", "&speedall1", "&speedall2"]:
             if not helpers.is_authorized(message.author): return
