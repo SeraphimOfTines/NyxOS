@@ -1511,7 +1511,7 @@ async def reboot_command(interaction: discord.Interaction):
             
             if msg_id:
                 link = f"https://discord.com/channels/{guild_id}/{cid}/{msg_id}"
-                uplink_list_text += f"- [{name}]({link})\n"
+                uplink_list_text += f"- [{name}](<{link}>)\n"
             else:
                 uplink_list_text += f"- {name}\n"
 
@@ -1552,7 +1552,7 @@ async def reboot_command(interaction: discord.Interaction):
             body_msg_id = m3.id
             
             link = f"https://discord.com/channels/{interaction.guild_id}/{console_channel.id}"
-            await interaction.followup.send(f"Reboot initiated. [View Console]({link})", ephemeral=True)
+            await interaction.followup.send(f"Reboot initiated. [View Console](<{link}>)", ephemeral=True)
         except Exception as e:
             logger.warning(f"Failed to send to console: {e}")
             # Fallback to interaction channel (Simplified)
