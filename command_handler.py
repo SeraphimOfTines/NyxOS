@@ -27,11 +27,12 @@ async def handle_prefix_command(client, message):
         if not helpers.is_authorized(message.author):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
-        if message.channel.id in config.ALLOWED_CHANNEL_IDS:
+        
+        allowed = memory_manager.get_allowed_channels()
+        if message.channel.id in allowed:
             await message.channel.send("✅ Channel already whitelisted.")
         else:
-            config.ALLOWED_CHANNEL_IDS.append(message.channel.id)
-            config.save_allowed_channels(config.ALLOWED_CHANNEL_IDS)
+            memory_manager.add_allowed_channel(message.channel.id)
             await message.channel.send(f"😄 I'll talk in this channel!")
         return True
 
@@ -40,9 +41,10 @@ async def handle_prefix_command(client, message):
         if not helpers.is_authorized(message.author):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
-        if message.channel.id in config.ALLOWED_CHANNEL_IDS:
-            config.ALLOWED_CHANNEL_IDS.remove(message.channel.id)
-            config.save_allowed_channels(config.ALLOWED_CHANNEL_IDS)
+        
+        allowed = memory_manager.get_allowed_channels()
+        if message.channel.id in allowed:
+            memory_manager.remove_allowed_channel(message.channel.id)
             await message.channel.send(f"🤐 I'll ignore this channel!")
         else:
             await message.channel.send("⚠️ Channel not in whitelist.")
@@ -156,37 +158,26 @@ async def handle_prefix_command(client, message):
         
         await message.channel.send("🧪 Running unit tests...")
         try:
-            import io
-            import time
-            import unittest
-            import tests.test_suite
+            # Run pytest via subprocess
+            proc = await asyncio.create_subprocess_shell(
+                f"{sys.executable} -m pytest tests/",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
             
-            # Capture stdout
-            log_capture = io.StringIO()
-            runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
-            
-            # Load Suite
-            loader = unittest.TestLoader()
-            suite = unittest.TestSuite()
-            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
-            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
-            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
-            suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommandHandler))
-            
-            # Run in a separate thread to avoid event loop conflicts
-            start_time = time.time()
-            result = await asyncio.to_thread(runner.run, suite)
-            duration = time.time() - start_time
-            output = log_capture.getvalue()
+            stdout, stderr = await proc.communicate()
+            output = stdout.decode() + stderr.decode()
             
             # Log
             logger.info(f"Debug Test Output:\n{output}")
             
-            # Send
-            status = "✅ PASSED" if result.wasSuccessful() else "❌ FAILED"
-            msg = f"**Unit Test Results:** {status}\nRan {result.testsRun} tests in {duration:.3f}s."
-            file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
-            await message.channel.send(msg, file=file)
+            # Send result
+            import io
+            if len(output) > 1900:
+                file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
+                await message.channel.send(f"**Test Results:** (Exit Code: {proc.returncode})", file=file)
+            else:
+                await message.channel.send(f"**Test Results:**\n```\n{output}\n```")
         except Exception as e:
             logger.error(f"Debug Test Failed: {e}")
             await message.channel.send(f"❌ Test Execution Failed: {e}")

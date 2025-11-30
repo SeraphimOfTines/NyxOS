@@ -1777,26 +1777,21 @@ async def debugtest_command(interaction: discord.Interaction):
     await interaction.response.defer()
     
     import io
-    import unittest
-    import tests.test_suite
+    import pytest
+    import contextlib
     
-    # Capture stdout
+    # Capture stdout/stderr
     log_capture = io.StringIO()
-    runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
     
-    # Load Suite
-    loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestUI))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServerAdmin))
-    suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommands))
-    
+    def run_tests():
+        # Redirect stdout and stderr to our capture buffer
+        with contextlib.redirect_stdout(log_capture), contextlib.redirect_stderr(log_capture):
+            # Run pytest
+            return pytest.main(["-v", "--color=no", "tests/"])
+            
     # Run in a separate thread to avoid event loop conflicts
     start_time = time.time()
-    result = await asyncio.to_thread(runner.run, suite)
+    exit_code = await asyncio.to_thread(run_tests)
     duration = time.time() - start_time
     output = log_capture.getvalue()
     
@@ -1804,8 +1799,14 @@ async def debugtest_command(interaction: discord.Interaction):
     logger.info(f"Debug Test Output:\n{output}")
     
     # Send to Discord
-    status = "✅ PASSED" if result.wasSuccessful() else "❌ FAILED"
-    msg = f"**Unit Test Results:** {status}\nRan {result.testsRun} tests in {duration:.3f}s."
+    if exit_code == 0:
+        status = "✅ PASSED"
+    elif exit_code == 1:
+        status = "❌ FAILED"
+    else:
+        status = f"⚠️ ERROR (Code: {exit_code})"
+
+    msg = f"**Unit Test Results:** {status}\nDuration: {duration:.3f}s."
     
     file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
     await interaction.followup.send(msg, file=file)
@@ -2773,39 +2774,28 @@ async def on_message(message):
                 return
 
             async with message.channel.typing():
-                import io
-                import unittest
-                import tests.test_suite
+                await message.channel.send("🧪 Running test suite via pytest...")
                 
-                # Capture stdout
-                log_capture = io.StringIO()
-                runner = unittest.TextTestRunner(stream=log_capture, verbosity=2)
+                # Run pytest via subprocess
+                proc = await asyncio.create_subprocess_shell(
+                    f"{sys.executable} -m pytest tests/",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
                 
-                # Load Suite
-                loader = unittest.TestLoader()
-                suite = unittest.TestSuite()
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestHelpers))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestMemoryManager))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServices))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestUI))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestServerAdmin))
-                suite.addTests(loader.loadTestsFromTestCase(tests.test_suite.TestCommands))
+                stdout, stderr = await proc.communicate()
+                output = stdout.decode() + stderr.decode()
                 
-                # Run in a separate thread to avoid event loop conflicts
-                start_time = time.time()
-                result = await asyncio.to_thread(runner.run, suite)
-                duration = time.time() - start_time
-                output = log_capture.getvalue()
-                
-                # Log to console/file
+                # Log
                 logger.info(f"Debug Test Output:\n{output}")
                 
-                # Send to Discord
-                status = "✅ PASSED" if result.wasSuccessful() else "❌ FAILED"
-                msg = f"**Unit Test Results:** {status}\nRan {result.testsRun} tests in {duration:.3f}s."
-                
-                file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
-                await message.channel.send(msg, file=file)
+                # Send result
+                import io
+                if len(output) > 1900:
+                    file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
+                    await message.channel.send(f"**Test Results:** (Exit Code: {proc.returncode})", file=file)
+                else:
+                    await message.channel.send(f"**Test Results:**\n```\n{output}\n```")
             return
 
         # &help

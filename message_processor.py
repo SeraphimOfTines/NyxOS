@@ -144,7 +144,8 @@ async def process_message(client, message):
             return
 
     if should_respond:
-        if message.channel.id not in config.ALLOWED_CHANNEL_IDS: return
+        allowed_channels = memory_manager.get_allowed_channels()
+        if message.channel.id not in allowed_channels: return
 
         if message.channel.id not in client.boot_cleared_channels:
             logger.info(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
