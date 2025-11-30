@@ -1224,28 +1224,6 @@ class LMStudioBot(discord.Client):
         
         if interaction:
             await interaction.followup.send(f"✅ Scan complete. Verified {len(wake_log)} uplinks.", ephemeral=True)
-        # We re-assemble the final string with the specific header user requested.
-        final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n" + "\n".join(wake_log)
-        
-        if len(final_body) > 2000:
-             final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(Log truncated due to length...)"
-
-        for p_msg in progress_msgs:
-            try:
-                await p_msg.edit(content=final_body, embed=None, view=None)
-            except: pass
-        
-        # Reset Header to "System Online"
-        if hasattr(client, "startup_header_msg") and client.startup_header_msg:
-             final_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
-             try:
-                 await client.startup_header_msg.edit(content=final_header)
-             except: pass
-        
-        client.has_synced = True
-        
-        # Check commands
-        await client.check_and_sync_commands()
 
     async def check_and_sync_commands(self):
         """Checks if commands have changed since last boot and syncs if needed."""
