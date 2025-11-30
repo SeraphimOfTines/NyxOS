@@ -760,14 +760,17 @@ class LMStudioBot(discord.Client):
         
         is_reboot = (restart_data is not None and "header_msg_id" in restart_data)
         
-        # Construct Text
-        startup_header_text = f"{config.MSG_STARTUP_HEADER}\n{config.MSG_STARTUP_SUB}"
+        # Construct Texts
+        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
         
-        if is_reboot:
-             count = len(bar_whitelist)
-             reboot_sub = config.MSG_REBOOT_SUB.format(current=count, total=count)
-             startup_header_text = f"{config.MSG_STARTUP_HEADER}\n{reboot_sub}"
-
+        # Msg 1: Status + Divider
+        startup_header_text = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB']}\n{divider}"
+        
+        # Msg 2: Master Bar + Divider
+        master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+        msg2_text = f"{master_content.strip()}\n{divider}"
+        
+        # Msg 3: Body (Progress)
         body_text = f"🔍 Scanning {len(allowed_channels)} channels for bars..."
 
         for t_id in target_channels:
@@ -780,21 +783,19 @@ class LMStudioBot(discord.Client):
                 if is_reboot and restart_data.get("channel_id") == t_id:
                     # REBOOT FLOW
                     h_id = restart_data.get("header_msg_id")
+                    bar_id = restart_data.get("bar_msg_id") # New key
                     b_id = restart_data.get("body_msg_id")
                     
                     # Check Channel State: Is it clean?
-                    # We want exactly these 2 messages at the bottom.
-                    # If not, or if fetching fails, we WIPE and RESEND.
                     is_clean = False
                     try:
-                        # Check last 2 messages
+                        # Check last 3 messages
                         history = [m async for m in t_ch.history(limit=5)]
-                        if len(history) >= 2:
-                            # Check if the last 2 are exactly our H and B (in order B then H from bottom up? No, history is new->old)
-                            # Most recent (index 0) should be Body (Link List)
-                            # Next (index 1) should be Header
-                            if history[0].id == b_id and history[1].id == h_id:
-                                is_clean = True
+                        # We expect: Body (0), Bar (1), Header (2) [Reverse order]
+                        # If bar_id is None (legacy), we treat as dirty.
+                        if bar_id and len(history) >= 3:
+                             if history[0].id == b_id and history[1].id == bar_id and history[2].id == h_id:
+                                 is_clean = True
                     except: pass
 
                     if is_clean:
@@ -802,7 +803,15 @@ class LMStudioBot(discord.Client):
                             # Edit Header
                             h_msg = await t_ch.fetch_message(h_id)
                             await h_msg.edit(content=startup_header_text)
-                            # Body (Links) is preserved, do nothing.
+                            
+                            # Edit Bar (Ensure it's current)
+                            bar_msg = await t_ch.fetch_message(bar_id)
+                            await bar_msg.edit(content=msg2_text)
+                            
+                            # Body (Links) is preserved/updated.
+                            # We add it to progress_msgs to be updated by the loop.
+                            b_msg = await t_ch.fetch_message(b_id)
+                            progress_msgs.append(b_msg)
                         except:
                             # Edit failed? Fallback to wipe.
                             is_clean = False
@@ -812,49 +821,19 @@ class LMStudioBot(discord.Client):
                         try: await t_ch.purge(limit=100)
                         except: pass
                         
-                        # Send Header
                         await t_ch.send(startup_header_text)
+                        await t_ch.send(msg2_text)
                         
-                        # Resend Body (We need to reconstruct the link list!)
-                        # Since we didn't save the body text in metadata, we must regenerate it.
-                        # Fortunately, active_bars is loaded.
-                        
-                        # Regenerate Uplink List
-                        active_ids = list(self.active_bars.keys())
-                        uplink_list_text = f"{config.MSG_ACTIVE_UPLINKS_HEADER}\n"
-                        if not active_ids:
-                            uplink_list_text += "(None)"
-                        else:
-                            for cid in active_ids:
-                                bar_data = self.active_bars[cid]
-                                msg_id = bar_data.get("message_id")
-                                
-                                ch = self.get_channel(cid)
-                                if not ch:
-                                    try: ch = await self.fetch_channel(cid)
-                                    except: pass
-                                
-                                name = ch.name if ch else f"Channel {cid}"
-                                guild_id = ch.guild.id if ch and ch.guild else "@me"
-                                
-                                if msg_id:
-                                    link = f"https://discord.com/channels/{guild_id}/{cid}/{msg_id}"
-                                    uplink_list_text += f"- [{name}]({link})\n"
-                                else:
-                                    uplink_list_text += f"- {name}\n"
-                        
-                        # Send Body as Embed (Per requirement for links? No, user asked to keep message way it is but links underneath)
-                        # Wait, standard text message does NOT support masked links [Tx](Url).
-                        # If we want clickable links like `[Channel](URL)`, we MUST use Embed.
-                        # If the user saw broken links, it's likely because they were plain text.
-                        # Changing to Embed for the Body.
-                        
-                        embed = discord.Embed(description=uplink_list_text, color=discord.Color.blue())
-                        await t_ch.send(embed=embed)
+                        # For body, we start with "Scanning..." text instead of Embed if we wiped.
+                        # Or should we try to restore the embed? 
+                        # The loop below updates it to "Scanning..." anyway.
+                        msg = await t_ch.send(body_text, view=view)
+                        progress_msgs.append(msg)
 
                 else:
                     # FRESH/CRASH FLOW
                     await t_ch.send(startup_header_text)
+                    await t_ch.send(msg2_text)
                     msg = await t_ch.send(body_text, view=view)
                     progress_msgs.append(msg)
 
@@ -871,7 +850,7 @@ class LMStudioBot(discord.Client):
         # Update progress message
         status_str = f"🔍 Scanning {len(bar_whitelist)} channels for bars..."
         for p_msg in progress_msgs:
-            try: await p_msg.edit(content=status_str, view=view)
+            try: await p_msg.edit(content=status_str, embed=None, view=view)
             except: pass
 
         woken_count = 0
@@ -1009,7 +988,7 @@ class LMStudioBot(discord.Client):
 
         for p_msg in progress_msgs:
             try:
-                await p_msg.edit(content=final_status, view=view)
+                await p_msg.edit(content=final_status, embed=None, view=view)
             except: pass
         
         client.has_synced = True
@@ -1467,7 +1446,7 @@ async def reboot_command(interaction: discord.Interaction):
     # 2. Prepare Uplink List
     active_ids = list(client.active_bars.keys())
     uplink_count = len(active_ids)
-    uplink_list_text = f"{config.MSG_ACTIVE_UPLINKS_HEADER}\n"
+    uplink_list_text = f"{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n"
     
     if not active_ids:
         uplink_list_text += "(None)"
@@ -1491,15 +1470,22 @@ async def reboot_command(interaction: discord.Interaction):
                 uplink_list_text += f"- {name}\n"
 
     # 3. Construct Console Messages
-    # Header: Rebooting... -# Waking X/X
-    header_sub = config.MSG_REBOOT_SUB.format(current=uplink_count, total=uplink_count)
-    header_text = f"{config.MSG_REBOOT_HEADER}\n{header_sub}"
+    divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
     
-    # Body: Active Uplinks list (Embed for masked links)
+    # Msg 1: Status + Divider
+    header_sub = ui.FLAVOR_TEXT["REBOOT_SUB"].format(current=uplink_count, total=uplink_count)
+    msg1_text = f"{ui.FLAVOR_TEXT['REBOOT_HEADER']}\n{header_sub}\n{divider}"
+    
+    # Msg 2: Master Bar + Divider
+    master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+    msg2_text = f"{master_content.strip()}\n{divider}"
+
+    # Msg 3: Active Uplinks list (Embed for masked links)
     body_embed = discord.Embed(description=uplink_list_text, color=discord.Color.blue())
 
     # 4. Send Messages
     header_msg_id = None
+    bar_msg_id = None
     body_msg_id = None
     console_id = config.STARTUP_CHANNEL_ID
 
@@ -1509,28 +1495,29 @@ async def reboot_command(interaction: discord.Interaction):
             try: await console_channel.purge(limit=50)
             except: pass
 
-            m1 = await console_channel.send(header_text)
+            m1 = await console_channel.send(msg1_text)
             header_msg_id = m1.id
-            m2 = await console_channel.send(embed=body_embed)
-            body_msg_id = m2.id
+            
+            m2 = await console_channel.send(msg2_text)
+            bar_msg_id = m2.id
+            
+            m3 = await console_channel.send(embed=body_embed)
+            body_msg_id = m3.id
             
             link = f"https://discord.com/channels/{interaction.guild_id}/{console_channel.id}"
             await interaction.followup.send(f"Reboot initiated. [View Console]({link})", ephemeral=True)
         except Exception as e:
             logger.warning(f"Failed to send to console: {e}")
-            # Fallback to interaction channel
+            # Fallback to interaction channel (Simplified)
             try:
-                await interaction.followup.send(content=header_text, embed=body_embed, ephemeral=False)
-            except:
-                await interaction.followup.send(f"{header_text}\n\n{uplink_list_text}", ephemeral=False)
-            
+                await interaction.followup.send(f"{msg1_text}\n{msg2_text}\n\n{uplink_list_text}", ephemeral=False)
+            except: pass
             console_id = interaction.channel_id
     else:
         # Fallback if no console configured
         try:
-            await interaction.followup.send(content=f"{header_text}\n(Console not configured)", embed=body_embed, ephemeral=False)
-        except:
-            await interaction.followup.send(f"{header_text}\n(Console not configured)\n{uplink_list_text}", ephemeral=False)
+            await interaction.followup.send(f"{msg1_text}\n{msg2_text}\n(Console not configured)\n{uplink_list_text}", ephemeral=False)
+        except: pass
         console_id = interaction.channel_id
     
     # Set all bars to Loading Mode
@@ -1561,6 +1548,7 @@ async def reboot_command(interaction: discord.Interaction):
     meta = {
         "channel_id": console_id,
         "header_msg_id": header_msg_id,
+        "bar_msg_id": bar_msg_id,
         "body_msg_id": body_msg_id
     }
 
