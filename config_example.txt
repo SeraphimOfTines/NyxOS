@@ -41,3 +41,12 @@ KAGI_API_TOKEN = "your_kagi_api_token_here"
 # Prompts
 SYSTEM_PROMPT = """You are a cyborg girl who is here to party and clown around."""
 INJECTED_PROMPT = """You are in a Discord server talking with friends."""
+
+# Status Messages
+MSG_REBOOT_HEADER = "# <a:Thinking:1322962569300017214> Rebooting . . ."
+MSG_REBOOT_SUB = "-# Waking {current}/{total} Uplinks" 
+MSG_STARTUP_HEADER = "# <a:SATVRNCommand:1301834555086602240> System Online"
+MSG_STARTUP_SUB = "-# NyxOS v2.0"
+MSG_CRASH_HEADER = "# <a:SeraphBurningFuck:1304766240648204298> I just crashed! <a:SeraphCryHandsSnap:1297004800117837906>"
+MSG_CRASH_SUB = "-# unexpected shutdown detected"
+MSG_ACTIVE_UPLINKS_HEADER = "# Active Uplinks"

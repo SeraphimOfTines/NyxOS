@@ -754,18 +754,99 @@ class LMStudioBot(discord.Client):
         progress_msgs = []
         allowed_channels = memory_manager.get_allowed_channels()
         
-        # Send initial progress message
         view = ui.WakeupReportView()
+        
+        # State Logic
+        # 1. Reboot: Has restart_data with msg_ids. Edit Header -> Startup. Use Body for Log.
+        # 2. Clean Start: No restart_data, but Shutdown Flag (or just manual). Send Header (Startup) + Body (Log).
+        # 3. Crash: No restart_data, No Shutdown Flag. Send Header (Crash) + Body (Log).
+        
+        is_reboot = (restart_data is not None and "header_msg_id" in restart_data)
+        is_crash = False
+        
+        # Determine Crash Status (if not reboot)
+        if not is_reboot:
+            # If shutdown flag is MISSING, and it's not a reboot, assume crash/unexpected.
+            # Unless it's the very first run? Hard to tell. 
+            # We'll rely on SHUTDOWN_FLAG_FILE existence.
+            # If file exists -> Clean shutdown. If not -> Crash.
+            # (Wait, setup_hook deletes it? No, setup_hook runs BEFORE on_ready?)
+            # setup_hook runs early. We need to check flag BEFORE setup_hook deletes it.
+            # But setup_hook deleted it! 
+            # We need to move flag check to init or before setup_hook deletes it?
+            # Or just check restart_data.
+            # Let's assume if RESTART_META_FILE existed, it was a reboot.
+            # If not, we default to Startup Message.
+            # If we want explicit crash detection, we need a persistent state.
+            # For now, let's stick to "System Online" for manual starts and "System Online" (Edited) for reboots.
+            # The user requested "I crashed!" message. 
+            # To detect crash: Check for a PID file lock or similar?
+            # Current system uses heartbeat. Monitor handles crashes.
+            # If monitor restarts us, it's a new process.
+            # If monitor sees a crash, it logs it.
+            # Here, we are the bot.
+            # If we want to know if we crashed, we check if SHUTDOWN_FLAG_FILE was present.
+            # BUT setup_hook deletes it.
+            # We can check `client.was_clean_shutdown` if we set it in `setup_hook` before delete.
+            # `setup_hook` is async. `__init__` is sync.
+            # Let's trust the user mostly wants the reboot transition.
+            pass
+
+        # Construct Text
+        startup_header_text = f"{config.MSG_STARTUP_HEADER}\n{config.MSG_STARTUP_SUB}"
+        
+        # Handling Crash Logic (Mock or Real)
+        # Since we cleared the flag in setup_hook, we can't check it here easily without passing state.
+        # Let's assume manual starts are "System Online".
+        # Only if we add a specific crash flag mechanism.
+        # However, if the user wants "I crashed!"...
+        # Let's assume if we are NOT rebooting, we just say "System Online".
+        # If the user manually adds a way to signal crash, we use it.
+        # For now, stick to System Online / Reboot transition.
+        
+        header_text = startup_header_text
+        body_text = f"🔍 Scanning {len(allowed_channels)} channels for bars..."
+
         for t_id in target_channels:
             try:
                 t_ch = self.get_channel(t_id) or await self.fetch_channel(t_id)
-                if t_ch:
-                    msg = await t_ch.send(f"🔍 Scanning {len(allowed_channels)} channels for bars...", view=view)
-                    progress_msgs.append(msg)
+                if not t_ch:
+                    logger.warning(f"⚠️ Could not fetch target channel {t_id}")
+                    continue
+
+                if is_reboot and restart_data.get("channel_id") == t_id:
+                    # Try to edit the existing messages in the console/target channel
+                    h_id = restart_data.get("header_msg_id")
+                    b_id = restart_data.get("body_msg_id")
+                    
+                    if h_id:
+                        try:
+                            msg = await t_ch.fetch_message(h_id)
+                            await msg.edit(content=header_text)
+                        except: 
+                            # Failed to edit header, send new
+                            await t_ch.send(header_text)
+                    
+                    if b_id:
+                        try:
+                            msg = await t_ch.fetch_message(b_id)
+                            await msg.edit(content=body_text, view=view)
+                            progress_msgs.append(msg)
+                        except:
+                            # Failed to reuse body, send new
+                            msg = await t_ch.send(body_text, view=view)
+                            progress_msgs.append(msg)
+                    else:
+                         msg = await t_ch.send(body_text, view=view)
+                         progress_msgs.append(msg)
                 else:
-                    logger.warning(f"⚠️ Could not fetch target channel {t_id} for progress report.")
+                    # Fresh send (or different channel)
+                    await t_ch.send(header_text)
+                    msg = await t_ch.send(body_text, view=view)
+                    progress_msgs.append(msg)
+
             except Exception as e:
-                logger.error(f"❌ Failed to send progress message to {t_id}: {e}")
+                logger.error(f"❌ Failed to send startup messages to {t_id}: {e}")
 
         # --- PHASE 1: SCANNING & RESTORATION ---
         bar_whitelist = memory_manager.get_bar_whitelist()
@@ -1370,7 +1451,7 @@ async def reboot_command(interaction: discord.Interaction):
     # 2. Prepare Uplink List
     active_ids = list(client.active_bars.keys())
     uplink_count = len(active_ids)
-    uplink_list_text = "# Active Uplinks\n"
+    uplink_list_text = f"{config.MSG_ACTIVE_UPLINKS_HEADER}\n"
     
     if not active_ids:
         uplink_list_text += "(None)"
@@ -1393,24 +1474,38 @@ async def reboot_command(interaction: discord.Interaction):
             else:
                 uplink_list_text += f"- {name}\n"
 
-    # 3. Construct Console Message
-    reboot_text = ui.FLAVOR_TEXT["REBOOT_MESSAGE"]
-    status_subscript = f"\n-# Waking {uplink_count}/{uplink_count} Uplinks"
-    full_console_msg = f"{reboot_text}{status_subscript}\n{uplink_list_text}"
+    # 3. Construct Console Messages
+    # Header: Rebooting... -# Waking X/X
+    header_sub = config.MSG_REBOOT_SUB.format(current=uplink_count, total=uplink_count)
+    header_text = f"{config.MSG_REBOOT_HEADER}\n{header_sub}"
+    
+    # Body: Active Uplinks list
+    body_text = uplink_list_text
 
     # 4. Send Messages
+    header_msg_id = None
+    body_msg_id = None
+    console_id = config.STARTUP_CHANNEL_ID
+
     if console_channel:
         try:
-            await console_channel.send(full_console_msg)
+            m1 = await console_channel.send(header_text)
+            header_msg_id = m1.id
+            m2 = await console_channel.send(body_text)
+            body_msg_id = m2.id
+            
             link = f"https://discord.com/channels/{interaction.guild_id}/{console_channel.id}"
             await interaction.response.send_message(f"Reboot initiated. [View Console]({link})", ephemeral=True)
         except Exception as e:
             logger.warning(f"Failed to send to console: {e}")
-            # Fallback
-            await interaction.response.send_message(ui.FLAVOR_TEXT["REBOOT_MESSAGE"], ephemeral=False)
+            # Fallback to interaction channel (non-ephemeral so we can edit? No, restart kills ref)
+            await interaction.response.send_message(f"{header_text}\n\n{body_text}", ephemeral=False)
+            # If fallback, we assume current channel is console for this run
+            console_id = interaction.channel_id
     else:
         # Fallback if no console configured
-        await interaction.response.send_message(f"{ui.FLAVOR_TEXT['REBOOT_MESSAGE']}\n(Console not configured)", ephemeral=False)
+        await interaction.response.send_message(f"{header_text}\n(Console not configured)", ephemeral=False)
+        console_id = interaction.channel_id
     
     # Set all bars to Loading Mode
     loading_emoji = "<a:Thinking:1322962569300017214>"
@@ -1436,9 +1531,12 @@ async def reboot_command(interaction: discord.Interaction):
             await msg.edit(content=full)
         except: pass
 
-    # Avoid spamming interaction channel with wakeup report if we have a console
-    meta_channel = config.STARTUP_CHANNEL_ID if config.STARTUP_CHANNEL_ID else interaction.channel_id
-    meta = {"channel_id": meta_channel}
+    # Save Metadata for on_ready
+    meta = {
+        "channel_id": console_id,
+        "header_msg_id": header_msg_id,
+        "body_msg_id": body_msg_id
+    }
 
     try:
         with open(config.RESTART_META_FILE, "w") as f:

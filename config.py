@@ -79,6 +79,15 @@ BOT_ROLE_IDS = []
 MODEL_TEMPERATURE = 0.6
 CONTEXT_WINDOW = 20
 
+# Default Status Messages
+MSG_REBOOT_HEADER = "# <a:Thinking:1322962569300017214> Rebooting . . ."
+MSG_REBOOT_SUB = "-# Waking {current}/{total} Uplinks" 
+MSG_STARTUP_HEADER = "# <a:SATVRNCommand:1301834555086602240> System Online"
+MSG_STARTUP_SUB = "-# NyxOS v2.0"
+MSG_CRASH_HEADER = "# <a:SeraphBurningFuck:1304766240648204298> I just crashed! <a:SeraphCryHandsSnap:1297004800117837906>"
+MSG_CRASH_SUB = "-# unexpected shutdown detected"
+MSG_ACTIVE_UPLINKS_HEADER = "# Active Uplinks"
+
 try:
     with open(get_path("config.txt"), "r") as f:
         # Be careful with exec. It executes in the current scope.
