@@ -11,9 +11,18 @@ import config
 
 class TestAdminAuth(unittest.TestCase):
     def setUp(self):
+        # Save original config
+        self.original_admin_ids = config.ADMIN_ROLE_IDS
+        self.original_special_ids = config.SPECIAL_ROLE_IDS
+        
         # Mock Config
         config.ADMIN_ROLE_IDS = [999] # The Admin Role ID
         config.SPECIAL_ROLE_IDS = []
+
+    def tearDown(self):
+        # Restore original config
+        config.ADMIN_ROLE_IDS = self.original_admin_ids
+        config.SPECIAL_ROLE_IDS = self.original_special_ids
 
     def test_is_authorized_member_with_role(self):
         """Test 1: Regular Member with correct Role ID."""

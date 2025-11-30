@@ -40,7 +40,7 @@ class TestWakeupLogic(unittest.IsolatedAsyncioTestCase):
             bar_msg.author.id = 12345
             bar_msg.content = f"{ui.BAR_PREFIX_EMOJIS[0]} Status Bar Content {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
             
-            async def mock_history(limit=100):
+            async def mock_history(limit=50):
                 yield bar_msg
                 
             channel.history = MagicMock(side_effect=mock_history)
@@ -61,7 +61,7 @@ class TestWakeupLogic(unittest.IsolatedAsyncioTestCase):
                 # 3. Verifications
                 
                 # Verify Scan Limit
-                channel.history.assert_called_with(limit=100)
+                channel.history.assert_called_with(limit=50)
                 
                 # Verify Wipe Called
                 mock_wipe.assert_called_with(channel)
