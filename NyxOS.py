@@ -1502,6 +1502,10 @@ async def reboot_command(interaction: discord.Interaction):
 
     if console_channel:
         try:
+            # Wipe console for a clean slate
+            try: await console_channel.purge(limit=50)
+            except: pass
+
             m1 = await console_channel.send(header_text)
             header_msg_id = m1.id
             m2 = await console_channel.send(embed=body_embed)
