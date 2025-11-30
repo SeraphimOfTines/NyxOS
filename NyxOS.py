@@ -218,15 +218,8 @@ class LMStudioBot(discord.Client):
                 pass
         except: pass
 
-    async def drop_status_bar(self, channel_id, move_check=False):
-        if channel_id not in self.active_bars:
-            return
-        
-        # Cooldown Removed - handled by request_bar_drop or manual commands
-        # now = time.time()
-        # if now - self.bar_drop_cooldowns.get(channel_id, 0) < 2.0:
-        #    return
-        # self.bar_drop_cooldowns[channel_id] = now
+    async def drop_status_bar(self, channel_id, move_bar=True, move_check=True):
+        if channel_id not in self.active_bars: return
         
         bar_data = self.active_bars[channel_id]
         channel = self.get_channel(channel_id)
@@ -234,135 +227,113 @@ class LMStudioBot(discord.Client):
             try: channel = await self.fetch_channel(channel_id)
             except: return
 
-        old_msg_id = bar_data.get("message_id")
-        check_msg_id = bar_data.get("checkmark_message_id")
+        old_bar_id = bar_data.get("message_id")
+        old_check_id = bar_data.get("checkmark_message_id")
         
-        # --- Handle Old Message & Checkmark ---
-        if move_check:
-            is_at_bottom = False
-            if old_msg_id:
-                try:
-                    async for msg in channel.history(limit=1):
-                        if msg.id == old_msg_id: is_at_bottom = True; break
-                except: pass
+        # Clean content (Remove checkmark if present in string for the bar)
+        content = bar_data["content"]
+        if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in content:
+             content = content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
+        
+        # Ensure we have a prefix if missing
+        if not any(content.startswith(emoji) for emoji in ui.BAR_PREFIX_EMOJIS):
+             # Try to restore from known
+             pass 
 
-            # OPTIMIZATION: Consolidate checkmark onto existing bar without deleting it.
-            # User request: "have the bar not be deleted, but simply delete the check above it and edit the message"
-            # This turns "Drop All" into "Merge Checkmark" if the bar exists.
-            if is_at_bottom and old_msg_id:
-                try:
-                    old_msg = await channel.fetch_message(old_msg_id)
-                    
-                    # 1. Delete separate checkmark
-                    if check_msg_id and check_msg_id != old_msg_id:
-                        try:
-                            check_msg = await channel.fetch_message(check_msg_id)
-                            await check_msg.delete()
-                        except: pass
-                    
-                    # 2. Construct new content WITH checkmark
-                    base_content = bar_data["content"]
-                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-                    if chk not in base_content:
-                        # FORCE INLINE
-                        final_content = f"{base_content} {chk}"
-                        final_content = re.sub(r'>[ \t]+<', '><', final_content)
-                    else:
-                        final_content = base_content
+        new_bar_msg = None
 
-                    # 3. Edit Message (Update View)
-                    view = ui.StatusBarView(final_content, bar_data["user_id"], channel_id, bar_data["persisting"])
-                    await services.service.limiter.wait_for_slot("edit_message", channel_id)
-                    await old_msg.edit(content=final_content, view=view)
-                    
-                    # 4. Update State
-                    self.active_bars[channel_id]["checkmark_message_id"] = old_msg_id
-                    self._register_bar_message(channel_id, old_msg_id, view)
-                    
-                    # Sync to DB
-                    memory_manager.save_bar(
-                        channel_id, 
-                        channel.guild.id if channel.guild else None,
-                        old_msg_id,
-                        bar_data["user_id"],
-                        base_content,
-                        bar_data["persisting"]
-                    )
-                    return # Optimization complete, do not drop/resend
-                    
-                except Exception as e:
-                    logger.warning(f"Optimized drop failed (fallback to resend): {e}")
-                    # If edit fails (e.g. deleted), fall through to standard delete/resend logic
-            
-            # FALLBACK: Delete old messages completely (if they exist and edit failed)
-            if old_msg_id:
+        # 1. Handle Bar Movement
+        if move_bar:
+            # Delete old bar
+            if old_bar_id:
                 try:
-                    old_msg = await channel.fetch_message(old_msg_id)
+                    old_msg = await channel.fetch_message(old_bar_id)
                     await old_msg.delete()
                 except: pass
             
-            # If checkmark was separate, delete it too
-            if check_msg_id and check_msg_id != old_msg_id:
-                try:
-                    check_msg = await channel.fetch_message(check_msg_id)
-                    await check_msg.delete()
-                except: pass
-            
-            # Construct new content WITH checkmark
-            # Ensure we don't double add if it was somehow stored in content
-            base_content = bar_data["content"]
-            chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-            if chk not in base_content:
-                # FORCE INLINE
-                final_content = f"{base_content} {chk}"
-                final_content = re.sub(r'>[ \t]+<', '><', final_content)
-            else:
-                final_content = base_content
+            # Send new bar
+            view = ui.StatusBarView(content, bar_data["user_id"], channel_id, bar_data["persisting"])
+            try:
+                await services.service.limiter.wait_for_slot("send_message", channel_id)
+                new_bar_msg = await channel.send(content, view=view)
                 
+                # Update State
+                self.active_bars[channel_id]["message_id"] = new_bar_msg.id
+                self._register_bar_message(channel_id, new_bar_msg.id, view)
+            except Exception as e:
+                logger.error(f"Failed to send bar: {e}")
+                return
         else:
-            # STANDARD DROP (SPLIT): Leave checkmark behind if possible
-            if old_msg_id:
+            # If not moving bar, we need the object to know where to put the check (if separate?)
+            # Actually, if check is separate, we just send it. 
+            # But if we want to link them, or if we need the ID for DB.
+            if old_bar_id:
                 try:
-                    old_msg = await channel.fetch_message(old_msg_id)
-                    
-                    if old_msg_id == check_msg_id:
-                        # SPLIT: Old message becomes checkmark archive
-                        await old_msg.edit(content=ui.FLAVOR_TEXT["CHECKMARK_EMOJI"], view=None)
-                    else:
-                        # DROP: Old message was just content, delete it
-                        await old_msg.delete()
+                    new_bar_msg = await channel.fetch_message(old_bar_id)
                 except: pass
+                
+        # 2. Handle Checkmark Movement
+        if move_check:
+            # Delete old check
+            if old_check_id and old_check_id != old_bar_id: 
+                 try:
+                    old_chk = await channel.fetch_message(old_check_id)
+                    await old_chk.delete()
+                 except: pass
             
-            # New content WITHOUT checkmark (unless it was already there?)
-            # We assume bar_data["content"] is clean.
-            final_content = bar_data["content"]
+            # Send new check (Inline if target is bar)
+            target_msg = new_bar_msg
+            if not target_msg and old_bar_id:
+                 # If bar didn't move, target is old bar
+                 try: target_msg = await channel.fetch_message(old_bar_id)
+                 except: pass
+            
+            if target_msg:
+                # Edit target to include checkmark inline
+                chk_content = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                curr_content = target_msg.content
+                
+                if chk_content not in curr_content:
+                    new_content = f"{curr_content} {chk_content}"
+                    new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                    new_content = new_content.replace(f"\n{chk_content}", f" {chk_content}")
+                    
+                    try:
+                        await services.service.limiter.wait_for_slot("edit_message", channel_id)
+                        
+                        # Use existing view or recreate?
+                        view = None
+                        if target_msg.id in self.active_views:
+                            view = self.active_views[target_msg.id]
+                        else:
+                            view = ui.StatusBarView(new_content, bar_data["user_id"], channel_id, bar_data["persisting"])
+                            
+                        await target_msg.edit(content=new_content, view=view)
+                        self.active_bars[channel_id]["checkmark_message_id"] = target_msg.id
+                    except Exception as e:
+                         logger.error(f"Failed to merge check: {e}")
+            else:
+                # Fallback: If no bar exists, we can't merge. 
+                # Logic dictates we should have dropped a bar if move_bar=True.
+                pass
 
-        # --- Send New Message ---
-        view = ui.StatusBarView(final_content, bar_data["user_id"], channel_id, bar_data["persisting"])
-        try:
-            await services.service.limiter.wait_for_slot("send_message", channel_id)
-            new_msg = await channel.send(final_content, view=view)
-            
-            # Update State
-            self.active_bars[channel_id]["message_id"] = new_msg.id
-            self._register_bar_message(channel_id, new_msg.id, view) 
-            
-            if move_check:
-                self.active_bars[channel_id]["checkmark_message_id"] = new_msg.id
-            # Else: checkmark_message_id remains pointing to old message (or wherever it was)
-            
-            # Sync to DB
-            memory_manager.save_bar(
-                channel_id, 
-                channel.guild.id if channel.guild else None,
-                self.active_bars[channel_id]["message_id"],
-                self.active_bars[channel_id]["user_id"],
-                self.active_bars[channel_id]["content"],
-                self.active_bars[channel_id]["persisting"]
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to drop status bar: {e}")
+        # Update DB
+        bar_final_id = self.active_bars[channel_id].get("message_id")
+        check_final_id = self.active_bars[channel_id].get("checkmark_message_id")
+        
+        memory_manager.save_channel_location(channel_id, bar_final_id, check_final_id)
+        
+        # Also update legacy save_bar (for content persistence)
+        final_content = self.active_bars[channel_id]["content"]
+        # We save the content WITHOUT checkmark to DB (clean), but display WITH it.
+        memory_manager.save_bar(
+            channel_id, 
+            channel.guild.id if channel.guild else None,
+            bar_final_id,
+            self.active_bars[channel_id]["user_id"],
+            final_content,
+            self.active_bars[channel_id]["persisting"]
+        )
 
     async def sleep_all_bars(self):
         """
@@ -797,8 +768,10 @@ class LMStudioBot(discord.Client):
                 
                 # 4. Send
                 chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                # Force inline checkmark
                 send_content = f"{new_base_content} {chk}"
                 send_content = re.sub(r'>[ \t]+<', '><', send_content)
+                send_content = send_content.replace(f"\n{chk}", f" {chk}") # Explicit newline fix
 
                 view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
                 await services.service.limiter.wait_for_slot("send_message", cid)
@@ -1076,174 +1049,181 @@ class LMStudioBot(discord.Client):
             except Exception as e:
                 logger.error(f"❌ Failed to send startup messages to {t_id}: {e}")
 
-        # --- PHASE 1: SCANNING & RESTORATION ---
+        # --- PHASE 1: INITIALIZATION ---
         # bar_whitelist is defined at the top of on_ready
-        master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
-        master_content = master_content.strip()
         
-        logger.info(f"Scanning {len(bar_whitelist)} whitelisted bar channels...")
+        # Just load DB into memory (Already done by active_bars init)
+        # We do NOT scan channels here to avoid rate limits on boot.
         
-        # Update progress message
-        status_str = f"{divider}\n🔍 Scanning {len(bar_whitelist)} channels for bars..."
+        # Update Header to "System Online" immediately
+        if hasattr(client, "startup_header_msg") and client.startup_header_msg:
+             final_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
+             try:
+                 await client.startup_header_msg.edit(content=final_header)
+             except: pass
+             
+        # Update Body to "Waiting"
+        wait_text = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(Waiting for `/scan`...)"
         for p_msg in progress_msgs:
-            try: await p_msg.edit(content=status_str, embed=None, view=None)
+            try: await p_msg.edit(content=wait_text, embed=None, view=None)
+            except: pass
+        
+        client.has_synced = True
+        
+        # Check commands
+        await client.check_and_sync_commands()
+
+    async def perform_system_scan(self, interaction=None):
+        """
+        Scans all whitelisted channels to verify/restore bars.
+        Updates the console message log.
+        """
+        # 1. Setup Console Output
+        console_msgs = []
+        if config.STARTUP_CHANNEL_ID:
+            try:
+                ch = self.get_channel(config.STARTUP_CHANNEL_ID) or await self.fetch_channel(config.STARTUP_CHANNEL_ID)
+                # Try to find the body message (last bot msg)
+                async for m in ch.history(limit=5):
+                    if m.author.id == self.user.id and ui.FLAVOR_TEXT['UPLINKS_HEADER'] in m.content:
+                        console_msgs.append(m)
+                        break
+                    if m.author.id == self.user.id and "(Waiting for" in m.content:
+                        console_msgs.append(m)
+                        break
+            except: pass
+        
+        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
+        status_str = f"{divider}\n🔍 Scanning channels..."
+        for m in console_msgs:
+            try: await m.edit(content=status_str)
             except: pass
 
-        woken_count = 0
-        total_bars = len(bar_whitelist)
+        bar_whitelist = memory_manager.get_bar_whitelist()
         wake_log = []
-        custom_check = ui.FLAVOR_TEXT["CUSTOM_CHECKMARK"]
-
+        
         for cid_str in bar_whitelist:
-            await asyncio.sleep(8) # 8 second delay between scans requested by user
+            await asyncio.sleep(1.0) # Rate limit protection
             
             try:
                 cid = int(cid_str)
-                if cid == 99999: continue # Skip invalid channel
+                if cid == 99999: continue
                 
                 ch = self.get_channel(cid) or await self.fetch_channel(cid)
-                
                 if not ch: continue
                 
-                # Determine Target Content
-                idle_prefix = "<a:NotWatching:1301840196966285322>"
-                target_prefix = idle_prefix
+                # 1. Load Location
+                stored_bar_id, stored_check_id = memory_manager.get_channel_location(cid)
                 
-                # Check Active Bar first
-                current_bar_data = self.active_bars.get(cid)
+                bar_msg = None
+                check_msg = None
                 
-                # Restore previous state (speed) if available
-                restored_prefix = None
-                reboot_emoji = ui.FLAVOR_TEXT["REBOOT_EMOJI"]
+                # 2. Verify / Fetch
+                if stored_bar_id:
+                    try: bar_msg = await ch.fetch_message(stored_bar_id)
+                    except: pass
                 
-                if current_bar_data:
-                    prev_state = current_bar_data.get("previous_state")
-                    if prev_state and "content" in prev_state:
-                        c = prev_state["content"]
-                        for emoji in ui.BAR_PREFIX_EMOJIS:
-                            if c.startswith(emoji):
-                                restored_prefix = emoji
-                                break
-                
-                if restored_prefix and restored_prefix != reboot_emoji:
-                    target_prefix = restored_prefix
-                elif current_bar_data:
-                     # If no previous state, check current content (if it wasn't overwritten by Reboot Emoji yet)
-                     c = current_bar_data.get("content", "")
-                     for emoji in ui.BAR_PREFIX_EMOJIS:
-                         if c.startswith(emoji) and emoji != reboot_emoji:
-                             target_prefix = emoji
-                             break
-                
-                valid_msg = None
-                
-                if current_bar_data:
-                     try:
-                         msg = await ch.fetch_message(current_bar_data["message_id"])
-                         valid_msg = msg
-                         pass
-                     except discord.NotFound:
-                         pass
-
-                # If no valid tracked message, look for remnants
-                if not valid_msg:
-                    found_remnant = None
-                    to_delete = []
-                    async for msg in ch.history(limit=50):
-                         if msg.author.id == self.user.id:
-                             is_bar = False
-                             # Check Components or Content
-                             if msg.components:
-                                 for row in msg.components:
-                                     for child in row.children:
-                                         if getattr(child, "custom_id", "").startswith("bar_"):
-                                             is_bar = True; break
-                                     if is_bar: break
-                             
-                             if not is_bar and msg.content:
-                                 for emoji in ui.BAR_PREFIX_EMOJIS:
-                                     if msg.content.strip().startswith(emoji):
-                                         is_bar = True; break
-                            
-                             if is_bar:
-                                 if not found_remnant:
-                                     found_remnant = msg
-                                     pass
-                                 else:
-                                     to_delete.append(msg)
-                    
-                    for m in to_delete:
-                        try: await m.delete()
+                # If bar found, check if checkmark is merged or separate
+                if bar_msg:
+                    if stored_check_id == stored_bar_id:
+                        check_msg = bar_msg # Merged
+                    elif stored_check_id:
+                        try: check_msg = await ch.fetch_message(stored_check_id)
                         except: pass
+
+                # 3. Fallback Scan
+                if not bar_msg:
+                    async for m in ch.history(limit=5):
+                        if m.author.id == self.user.id:
+                            if m.content:
+                                for emoji in ui.BAR_PREFIX_EMOJIS:
+                                    if m.content.strip().startswith(emoji):
+                                        bar_msg = m
+                                        break
+                            if bar_msg: break
                     
-                    valid_msg = found_remnant
+                    if bar_msg:
+                        # Found one, assume merged or lost check
+                        stored_bar_id = bar_msg.id
+                        stored_check_id = bar_msg.id if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in bar_msg.content else None
+                        memory_manager.save_channel_location(cid, bar_msg_id=bar_msg.id, check_msg_id=stored_check_id)
 
-                # Construct New Content
-                new_base_content = f"{target_prefix} {master_content}"
-                chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-                
-                full_content = f"{new_base_content} {chk}"
-                full_content = re.sub(r'>[ \t]+<', '><', full_content)
-
-                persisting = current_bar_data.get("persisting", False) if current_bar_data else False
-
-                if valid_msg:
-                    # EDIT IN PLACE
-                    try:
-                        view = ui.StatusBarView(full_content, self.user.id, cid, persisting)
-                        await valid_msg.edit(content=full_content, view=view)
-                        
-                        self.active_bars[cid] = {
-                            "content": new_base_content,
-                            "user_id": self.user.id,
-                            "message_id": valid_msg.id,
-                            "checkmark_message_id": valid_msg.id,
-                            "persisting": persisting
-                        }
-                        self._register_bar_message(cid, valid_msg.id, view)
-                        memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
-                        
-                        link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{valid_msg.id}"
-                        saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
-                        # Just store the link line, we will assemble the header later
-                        wake_log.append(f"{saturn_emoji} {link.strip()}")
-                    except Exception as e:
-                         logger.warning(f"Startup edit failed for {cid}, attempting re-send: {e}")
-                         valid_msg = None
-
-                if not valid_msg:
-                    # POST NEW
-                    view = ui.StatusBarView(full_content, self.user.id, cid, persisting)
-                    msg = await ch.send(full_content, view=view)
+                # 4. Register / Restore
+                if bar_msg:
+                    # Extract clean content
+                    content = bar_msg.content
+                    if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in content:
+                         content = content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
                     
+                    # Ensure View is Active
+                    existing = self.active_bars.get(cid, {})
+                    persisting = existing.get("persisting", False)
+                    user_id = existing.get("user_id", self.user.id)
+                    
+                    view = ui.StatusBarView(content, user_id, cid, persisting)
+                    self._register_bar_message(cid, bar_msg.id, view)
+                    
+                    # Update Active State
                     self.active_bars[cid] = {
-                        "content": new_base_content,
-                        "user_id": self.user.id,
-                        "message_id": msg.id,
-                        "checkmark_message_id": msg.id,
+                        "content": content,
+                        "user_id": user_id,
+                        "message_id": bar_msg.id,
+                        "checkmark_message_id": check_msg.id if check_msg else None,
                         "persisting": persisting
                     }
-                    self._register_bar_message(cid, msg.id, view)
-                    memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting)
                     
-                    link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{msg.id}"
+                    # Log (Link to Checkmark)
+                    link_id = check_msg.id if check_msg else bar_msg.id
+                    link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{link_id}"
+                    saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
+                    wake_log.append(f"{saturn_emoji} {link.strip()}")
+                
+                else:
+                    # Lost? Create new idle bar
+                    master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+                    idle_prefix = "<a:NotWatching:1301840196966285322>"
+                    new_content = f"{idle_prefix} {master_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+                    new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                    
+                    view = ui.StatusBarView(new_content, self.user.id, cid, False)
+                    new_msg = await ch.send(new_content, view=view)
+                    
+                    self.active_bars[cid] = {
+                        "content": f"{idle_prefix} {master_content}",
+                        "user_id": self.user.id,
+                        "message_id": new_msg.id,
+                        "checkmark_message_id": new_msg.id,
+                        "persisting": False
+                    }
+                    self._register_bar_message(cid, new_msg.id, view)
+                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, self.active_bars[cid]["content"], False)
+                    memory_manager.save_channel_location(cid, new_msg.id, new_msg.id)
+                    
+                    link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{new_msg.id}"
                     saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
                     wake_log.append(f"{saturn_emoji} {link.strip()}")
 
-                woken_count += 1
-                
-                # Log Progress: Show channels appearing one after another
-                # While scanning, we just show the last few lines
+                # Update Console
                 log_str = "\n".join(wake_log[-8:]) 
-                status_str = f"{divider}\n🔄 Waking bars...\n{log_str}"
-                for p_msg in progress_msgs:
-                   try: await p_msg.edit(content=status_str)
+                current_status = f"{divider}\n🔄 Waking bars...\n{log_str}"
+                for m in console_msgs:
+                   try: await m.edit(content=current_status)
                    except: pass
 
             except Exception as e:
-                logger.error(f"Failed to wake bar in {cid_str}: {e}")
+                logger.error(f"Scan failed for {cid_str}: {e}")
 
-        # Final Update: "Active Uplinks" Header + Full List
+        # Final Update
+        final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n" + "\n".join(wake_log)
+        if len(final_body) > 2000:
+             final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(Log truncated...)"
+
+        for m in console_msgs:
+            try: await m.edit(content=final_body)
+            except: pass
+        
+        if interaction:
+            await interaction.followup.send(f"✅ Scan complete. Verified {len(wake_log)} uplinks.", ephemeral=True)
         # We re-assemble the final string with the specific header user requested.
         final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n" + "\n".join(wake_log)
         
@@ -1653,6 +1633,15 @@ client = LMStudioBot()
 # ==========================================
 # SLASH COMMANDS
 # ==========================================
+
+@client.tree.command(name="scan", description="Manually scan channels to verify and restore uplinks.")
+async def scan_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+         return
+    
+    await interaction.response.defer(ephemeral=True)
+    await client.perform_system_scan(interaction)
 
 @client.tree.command(name="addchannel", description="Add the current channel to the bot's whitelist.")
 async def add_channel_command(interaction: discord.Interaction):
@@ -2221,44 +2210,16 @@ async def idle_command(interaction: discord.Interaction):
     count = await client.idle_all_bars()
     await interaction.followup.send(f"😶 Set ~{count} bars to Idle.")
 
-@client.tree.command(name="dropcheck", description="Bring the checkmark down to the current bar.")
+@client.tree.command(name="dropcheck", description="Drop just the checkmark to the current bar location.")
 async def dropcheck_command(interaction: discord.Interaction):
-    channel_id = interaction.channel_id
-    if channel_id not in client.active_bars:
-        await interaction.response.send_message("❌ No active bar.", ephemeral=False, delete_after=2.0)
-        return
-
-    bar_data = client.active_bars[channel_id]
-    curr_msg_id = bar_data.get("message_id")
-    check_msg_id = bar_data.get("checkmark_message_id")
-
-    if curr_msg_id == check_msg_id:
-        await interaction.response.defer(ephemeral=False)
-        await interaction.delete_original_response()
-        return
-
-    await interaction.response.defer(ephemeral=False)
+    if interaction.channel_id not in client.active_bars:
+         await interaction.response.send_message("❌ No active bar.", ephemeral=False, delete_after=2.0)
+         return
     
-    # 1. Delete old checkmark (Archive)
-    if check_msg_id:
-        try:
-            old_check = await interaction.channel.fetch_message(check_msg_id)
-            await old_check.delete()
-        except: pass
-
-                # 2. Update current bar to include checkmark
-    if curr_msg_id:
-        try:
-            curr_msg = await interaction.channel.fetch_message(curr_msg_id)
-            sep = "\n" if "\n" in bar_data["content"] else " "
-            new_content = f"{bar_data['content']}{sep}{ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-            await curr_msg.edit(content=new_content)
-            
-            # Update state
-            client.active_bars[channel_id]["checkmark_message_id"] = curr_msg_id
-            await interaction.delete_original_response()
-        except Exception as e:
-            await interaction.followup.send(f"❌ Failed to update bar: {e}", ephemeral=False)
+    await interaction.response.defer(ephemeral=False)
+    # Only move check, bar stays put
+    await client.drop_status_bar(interaction.channel_id, move_bar=False, move_check=True)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="thinking", description="Set status to Thinking.")
 async def thinking_command(interaction: discord.Interaction):
@@ -2328,7 +2289,7 @@ async def drop_command(interaction: discord.Interaction):
         return
     
     await interaction.response.defer(ephemeral=False)
-    await client.drop_status_bar(interaction.channel_id, move_check=True)
+    await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=True)
     await interaction.delete_original_response()
 
 @client.tree.command(name="help", description="Show the help index.")
@@ -2507,6 +2468,7 @@ async def on_message(message):
             "disableall": (disableall_command, None),
             "reboot": (reboot_command, None),
             "shutdown": (shutdown_command, None),
+            "scan": (scan_command, None),
             "clearmemory": (clearmemory_command, None),
             "reportbug": (reportbug_command, None),
             "goodbot": (good_bot_leaderboard, None),

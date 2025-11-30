@@ -83,6 +83,17 @@ def get_previous_state(channel_id):
 def get_bar_history(channel_id, offset=0):
     return db.get_latest_history(channel_id, offset)
 
+# --- Location Registry ---
+
+def save_channel_location(channel_id, bar_msg_id=None, check_msg_id=None):
+    db.save_channel_location(channel_id, bar_msg_id, check_msg_id)
+
+def get_channel_location(channel_id):
+    return db.get_channel_location(channel_id)
+
+def get_all_locations():
+    return db.get_all_locations()
+
 def log_conversation(channel_name, user_name, user_id, content):
     """Writes to the human-readable daily logs (kept as files)."""
     today = datetime.now().strftime("%Y-%m-%d")

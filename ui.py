@@ -48,7 +48,8 @@ FLAVOR_TEXT = {
     "GLOBAL_CHAT_DISABLED": "🔒 Global Chat Mode **DISABLED**. I will only respond in whitelisted channels.",
     "GOOD_BOT_REACTION": "💙",
     "WAKE_WORD_REACTION": "<a:Thinking:1322962569300017214>",
-    "BAR_DROP_ALL": "✅",
+    "BAR_DROP_ALL": "⏬",
+    "BAR_DROP_CHECK": "✅",
     "BAR_DELETE": "🗑️",
     "BAR_PERSIST_OFF": "🔃",
     "BAR_PERSIST_ON": "🔃",
@@ -180,7 +181,19 @@ class StatusBarView(discord.ui.View):
         
         await interaction.response.defer()
         if hasattr(interaction.client, "drop_status_bar"):
-            await interaction.client.drop_status_bar(self.channel_id, move_check=True)
+            # Drop All: Move Bar + Move Check
+            await interaction.client.drop_status_bar(self.channel_id, move_bar=True, move_check=True)
+        else:
+            await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
+
+    @discord.ui.button(label=FLAVOR_TEXT["BAR_DROP_CHECK"], style=discord.ButtonStyle.secondary, custom_id="bar_drop_check_btn")
+    async def drop_check_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.check_auth(interaction, button): return
+        
+        await interaction.response.defer()
+        if hasattr(interaction.client, "drop_status_bar"):
+            # Drop Check Only: Move Check (Bar stays)
+            await interaction.client.drop_status_bar(self.channel_id, move_bar=False, move_check=True)
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 

@@ -86,11 +86,83 @@ class Database:
                 c.execute("""CREATE TABLE IF NOT EXISTS bar_whitelist (
                     channel_id TEXT PRIMARY KEY
                 )""")
+
+                # Location Registry (Bar and Checkmark positions)
+                c.execute("""CREATE TABLE IF NOT EXISTS location_registry (
+                    channel_id TEXT PRIMARY KEY,
+                    bar_msg_id TEXT,
+                    check_msg_id TEXT,
+                    timestamp TIMESTAMP
+                )""")
                 
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             raise
+
+    # --- Location Registry Methods ---
+
+    def save_channel_location(self, channel_id, bar_msg_id=None, check_msg_id=None):
+        """Upserts the location of the bar and checkmark for a channel."""
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                # We need to handle partial updates. SQLite upsert replacing all values might wipe one if we pass None.
+                # So we do a read-modify-write or use COALESCE if we could (but complexity).
+                # Simplest: Read existing, update dict, write back.
+                
+                c.execute("SELECT bar_msg_id, check_msg_id FROM location_registry WHERE channel_id = ?", (str(channel_id),))
+                row = c.fetchone()
+                
+                current_bar = row[0] if row else None
+                current_check = row[1] if row else None
+                
+                new_bar = str(bar_msg_id) if bar_msg_id else current_bar
+                new_check = str(check_msg_id) if check_msg_id else current_check
+                
+                c.execute("""
+                    INSERT INTO location_registry (channel_id, bar_msg_id, check_msg_id, timestamp)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(channel_id) DO UPDATE SET
+                        bar_msg_id = excluded.bar_msg_id,
+                        check_msg_id = excluded.check_msg_id,
+                        timestamp = excluded.timestamp
+                """, (str(channel_id), new_bar, new_check, datetime.now()))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save channel location: {e}")
+
+    def get_channel_location(self, channel_id):
+        """Returns (bar_msg_id, check_msg_id) or (None, None)."""
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT bar_msg_id, check_msg_id FROM location_registry WHERE channel_id = ?", (str(channel_id),))
+                row = c.fetchone()
+                if row:
+                    return (int(row[0]) if row[0] else None, int(row[1]) if row[1] else None)
+                return (None, None)
+        except Exception as e:
+            logger.error(f"Failed to get channel location: {e}")
+            return (None, None)
+
+    def get_all_locations(self):
+        """Returns dict {channel_id: {'bar': id, 'check': id}}."""
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT channel_id, bar_msg_id, check_msg_id FROM location_registry")
+                rows = c.fetchall()
+                data = {}
+                for row in rows:
+                    data[int(row[0])] = {
+                        'bar': int(row[1]) if row[1] else None,
+                        'check': int(row[2]) if row[2] else None
+                    }
+                return data
+        except Exception as e:
+            logger.error(f"Failed to get all locations: {e}")
+            return {}
 
     # --- Master Bar & Whitelist Methods ---
 
