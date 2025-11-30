@@ -898,10 +898,9 @@ class LMStudioBot(discord.Client):
                 cid = int(cid_str)
                 ch = self.get_channel(cid) or await self.fetch_channel(cid)
                 
-                # Dynamic Header Update: "Restoring #channel..."
-                # Replaces "NyxOS v2.0" in the header message
+                # Dynamic Header Update: "Waking X/Y Uplinks..."
                 if hasattr(client, "startup_header_msg") and client.startup_header_msg:
-                    temp_sub = f"-# Restoring {ch.name if ch else cid}..."
+                    temp_sub = ui.FLAVOR_TEXT["REBOOT_SUB"].format(current=woken_count + 1, total=total_bars)
                     temp_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{temp_sub}\n{divider}"
                     try: await client.startup_header_msg.edit(content=temp_header)
                     except: pass
@@ -990,9 +989,11 @@ class LMStudioBot(discord.Client):
                         self.active_views[valid_msg.id] = view
                         memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
                         
-                        # Link format: [Name](<Link>) - Suppressed embed
+                        # Link format: Raw Link (Requested by user)
                         link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{valid_msg.id}"
-                        wake_log.append(f"{custom_check} | [{ch.name}](<{link}>)")
+                        # Force single line by removing whitespace from emoji
+                        saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
+                        wake_log.append(f"{saturn_emoji} {link.strip()}")
                     except Exception as e:
                          logger.warning(f"Startup edit failed for {cid}, attempting re-send: {e}")
                          # If edit fails, invalidate and fall through to POST NEW
@@ -1014,7 +1015,8 @@ class LMStudioBot(discord.Client):
                     memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting)
                     
                     link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{msg.id}"
-                    wake_log.append(f"{custom_check} | [{ch.name}](<{link}>)")
+                    saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
+                    wake_log.append(f"{saturn_emoji} {link.strip()}")
 
                 woken_count += 1
                 
@@ -1500,43 +1502,22 @@ async def reboot_command(interaction: discord.Interaction):
     # 2. Prepare Uplink List
     active_ids = list(client.active_bars.keys())
     uplink_count = len(active_ids)
-    uplink_list_text = f"{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n"
+    # List generation removed to prevent visual pop-up on reboot
     
-    if not active_ids:
-        uplink_list_text += "(None)"
-    else:
-        for cid in active_ids:
-            bar_data = client.active_bars[cid]
-            msg_id = bar_data.get("message_id")
-            
-            ch = client.get_channel(cid)
-            if not ch:
-                try: ch = await client.fetch_channel(cid)
-                except: pass
-            
-            name = ch.name if ch else f"Channel {cid}"
-            guild_id = ch.guild.id if ch and ch.guild else "@me"
-            
-            if msg_id:
-                link = f"https://discord.com/channels/{guild_id}/{cid}/{msg_id}"
-                uplink_list_text += f"- [{name}](<{link}>)\n"
-            else:
-                uplink_list_text += f"- {name}\n"
-
     # 3. Construct Console Messages
     divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
     
     # Msg 1: Status + Divider
-    header_sub = ui.FLAVOR_TEXT["REBOOT_SUB"].format(current=uplink_count, total=uplink_count)
+    header_sub = ui.FLAVOR_TEXT["REBOOT_SUB"].format(current=0, total=uplink_count)
     msg1_text = f"{ui.FLAVOR_TEXT['REBOOT_HEADER']}\n{header_sub}\n{divider}"
     
     # Msg 2: Master Bar + Divider
     master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
     msg2_text = f"{master_content.strip()}"
 
-    # Msg 3: Active Uplinks list (Text)
+    # Msg 3: Body Placeholder
     divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
-    body_text_msg = f"{divider}\n{uplink_list_text}"
+    body_text_msg = f"{divider}\n⏳ System Cycling..."
 
     # 4. Send Messages
     header_msg_id = None
@@ -1565,13 +1546,13 @@ async def reboot_command(interaction: discord.Interaction):
             logger.warning(f"Failed to send to console: {e}")
             # Fallback to interaction channel (Simplified)
             try:
-                await interaction.followup.send(f"{msg1_text}\n{msg2_text}\n\n{uplink_list_text}", ephemeral=False)
+                await interaction.followup.send(f"{msg1_text}\n{msg2_text}\n{body_text_msg}", ephemeral=False)
             except: pass
             console_id = interaction.channel_id
     else:
         # Fallback if no console configured
         try:
-            await interaction.followup.send(f"{msg1_text}\n{msg2_text}\n(Console not configured)\n{uplink_list_text}", ephemeral=False)
+            await interaction.followup.send(f"{msg1_text}\n{msg2_text}\n(Console not configured)\n{body_text_msg}", ephemeral=False)
         except: pass
         console_id = interaction.channel_id
     
