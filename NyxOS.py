@@ -1064,7 +1064,7 @@ class LMStudioBot(discord.Client):
         wake_log = []
         
         for cid_str in bar_whitelist:
-            await asyncio.sleep(1.5) # Increased base delay for safety
+            await asyncio.sleep(2) # Increased base delay for safety
             
             try:
                 cid = int(cid_str)
@@ -1181,7 +1181,7 @@ class LMStudioBot(discord.Client):
 
                 # Update Console
                 log_str = "\n".join(wake_log[-8:]) 
-                current_status = f"{divider}\n🔄 Waking bars...\n{log_str}"
+                current_status = f"{divider}\n<a:Thinking:1322962569300017214> Initializing Uplinks...\n{log_str}"
                 
                 # Use cached console messages if available
                 targets = getattr(self, "console_progress_msgs", [])
