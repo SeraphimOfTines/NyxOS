@@ -27,3 +27,4 @@ output.*
 .gemini
 MagicMock*
 status_state.json
+logs/nyxos.log

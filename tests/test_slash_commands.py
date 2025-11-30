@@ -66,9 +66,15 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
 
     async def test_reboot_command_authorized(self):
         # Mock Interaction
-        interaction = AsyncMock()
+        interaction = MagicMock()
         interaction.user.id = 123
         interaction.channel_id = 456
+        interaction.response = MagicMock()
+        interaction.response.is_done = MagicMock(return_value=False)
+        interaction.response.defer = AsyncMock()
+        interaction.response.send_message = AsyncMock()
+        interaction.followup = MagicMock()
+        interaction.followup.send = AsyncMock()
         
         # Patch helpers.is_authorized
         with patch('helpers.is_authorized', return_value=True):
