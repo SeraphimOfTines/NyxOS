@@ -566,13 +566,24 @@ class LMStudioBot(discord.Client):
     async def global_update_bars(self, new_text_suffix):
         """
         Updates the content (suffix) of all active bars while preserving their current status emoji.
+        Also updates the Master Bar (DB + Console Channel) to ensure consistency.
         Does NOT move the bar (edits in place).
         """
-        # For &global, we probably only care about ACTIVE bars that we can edit.
-        # If we want to catch remnants, we'd have to 'resurrect' them, which 'moves' them.
-        # The prompt says "does not move the bar". This strongly implies editing existing messages.
-        # So we will target only self.active_bars.
-        
+        # 1. Update Master Bar in Database (Source of Truth)
+        clean_suffix = new_text_suffix.strip()
+        clean_suffix = re.sub(r'>[ \t]+<', '><', clean_suffix)
+        memory_manager.set_master_bar(clean_suffix)
+
+        # 2. Update Console Channel Bar (Startup Bar) if available
+        # This is the "visual" master bar the user sees in the console
+        if hasattr(self, 'startup_bar_msg') and self.startup_bar_msg:
+            try:
+                await self.startup_bar_msg.edit(content=clean_suffix)
+            except (discord.NotFound, discord.HTTPException):
+                logger.warning("Could not update startup_bar_msg (not found or error).")
+                self.startup_bar_msg = None
+
+        # 3. Propagate to All Active Bars (Uplinks)
         targets = list(self.active_bars.items())
         count = 0
 
@@ -594,29 +605,16 @@ class LMStudioBot(discord.Client):
                         prefix = emoji
                         break
                 
-                # If no prefix found (custom?), decide behavior. 
-                # Prompt says "changes everything past the first emoji".
-                # If we can't find a known emoji, maybe we shouldn't touch it or assume no emoji?
-                # Let's assume if no known emoji, we prepend nothing (or maybe it's all suffix).
-                # But safe bet is to require a known prefix or else just replace all?
-                # Let's try to preserve the "first part" if it looks like an emoji (starts with <a:?)
+                # Simple heuristic for unknown emojis
                 if not prefix and current_content.startswith("<a:"):
-                     # Simple heuristic for unknown emojis
                      end_idx = current_content.find(">")
                      if end_idx != -1:
                          prefix = current_content[:end_idx+1]
                 
-                # Construct new content
-                # Clean user input
-                clean_suffix = new_text_suffix.strip()
-                # Remove spaces between emojis in suffix
-                clean_suffix = re.sub(r'>[ \t]+<', '><', clean_suffix)
-                
+                # Construct new content: Prefix + New Suffix
                 if prefix:
                     final_content = f"{prefix} {clean_suffix}"
                 else:
-                    # If no prefix, maybe just use the new text? Or use default speed1?
-                    # Prompt says "past the first emoji". If none, maybe the whole thing changes.
                     final_content = clean_suffix
 
                 # Handle Checkmark (if merged)
@@ -625,10 +623,8 @@ class LMStudioBot(discord.Client):
                 
                 content_to_send = final_content
                 if has_merged_check:
-                    # Re-append checkmark if it was there
                     chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                     if chk not in content_to_send:
-                         # FORCE INLINE
                          content_to_send = f"{content_to_send} {chk}"
                          content_to_send = re.sub(r'>[ \t]+<', '><', content_to_send)
 
@@ -637,11 +633,6 @@ class LMStudioBot(discord.Client):
                     msg = await ch.fetch_message(msg_id)
                     view = ui.StatusBarView(content_to_send, bar_data["user_id"], cid, bar_data.get("persisting", False))
                     await msg.edit(content=content_to_send, view=view)
-                    
-                    # Update State (Base content usually doesn't have checkmark for storage, logic varies)
-                    # Standard logic: store "content" as the base text (without checkmark ideally).
-                    # But drop_status_bar re-adds it.
-                    # Let's store the BASE content (final_content without checkmark appended specifically for display).
                     
                     self.active_bars[cid]["content"] = final_content
                     self.active_views[msg_id] = view
@@ -656,8 +647,6 @@ class LMStudioBot(discord.Client):
                     )
                     return True
                 except discord.NotFound:
-                    # Message deleted. Cannot edit.
-                    # "Does not move" -> Do not respawn.
                     return False
                 except Exception as e:
                     logger.error(f"Global update edit failed in {cid}: {e}")
@@ -971,63 +960,66 @@ class LMStudioBot(discord.Client):
                     logger.warning(f"⚠️ Could not fetch target channel {t_id}")
                     continue
 
-                if is_reboot and restart_data.get("channel_id") == t_id:
-                    # REBOOT FLOW
-                    h_id = restart_data.get("header_msg_id")
-                    bar_id = restart_data.get("bar_msg_id") # New key
-                    b_id = restart_data.get("body_msg_id")
+                # SMART STARTUP / RECOVERY LOGIC
+                # Goal: reuse existing messages if they exist in the correct order, regardless of reboot state.
+                
+                h_msg = None
+                bar_msg = None
+                b_msg = None
+                
+                try:
+                    # Scan history for last 3 bot messages
+                    candidates = []
+                    async for msg in t_ch.history(limit=10):
+                        if msg.author.id == self.user.id:
+                            candidates.append(msg)
                     
-                    # Check Channel State: Is it clean?
-                    is_clean = False
-                    try:
-                        # Check last 3 messages
-                        history = [m async for m in t_ch.history(limit=5)]
-                        # We expect: Body (0), Bar (1), Header (2) [Reverse order]
-                        if bar_id and len(history) >= 3:
-                             if history[0].id == b_id and history[1].id == bar_id and history[2].id == h_id:
-                                 is_clean = True
-                    except: pass
-
-                    if is_clean:
-                        try:
-                            # Edit Header
-                            h_msg = await t_ch.fetch_message(h_id)
-                            await h_msg.edit(content=startup_header_text)
-                            
-                            # Edit Bar (Ensure it's current)
-                            bar_msg = await t_ch.fetch_message(bar_id)
-                            await bar_msg.edit(content=msg2_text)
-                            
-                            # Body (Links) is preserved/updated.
-                            b_msg = await t_ch.fetch_message(b_id)
-                            # Reset to scanning text, remove embeds/views
-                            await b_msg.edit(content=body_text, embed=None, view=None)
-                            progress_msgs.append(b_msg)
-                            
-                            client.startup_header_msg = h_msg
-                            client.startup_bar_msg = bar_msg
-                        except:
-                            # Edit failed? Fallback to wipe.
-                            is_clean = False
-
-                    if not is_clean:
-                        # WIPE AND RESEND
-                        try: await t_ch.purge(limit=100)
-                        except: pass
+                    # Candidates are in reverse chronological order (newest first)
+                    # We expect: Body (newest/bottom), Bar (middle), Header (oldest/top)
+                    if len(candidates) >= 3:
+                        # Check the 3 most recent messages
+                        c_body = candidates[0]
+                        c_bar = candidates[1]
+                        c_header = candidates[2]
                         
-                        h_msg = await t_ch.send(startup_header_text)
+                        # Basic validation: Ensure they are sequential?
+                        # We just assume if we found 3, they are the ones.
+                        # We can check if they are contiguous in history, but "latest 3" is usually safe enough for a dedicated channel.
+                        
+                        b_msg = c_body
+                        bar_msg = c_bar
+                        h_msg = c_header
+                        
+                        logger.info(f"♻️  Found existing startup messages in {t_ch.name}. reusing...")
+                except Exception as e:
+                    logger.warning(f"Error scanning history in {t_id}: {e}")
+                
+                # Attempt to Edit if we found them
+                success = False
+                if h_msg and bar_msg and b_msg:
+                    try:
+                        # Edit Header
+                        await h_msg.edit(content=startup_header_text)
+                        
+                        # Edit Bar
+                        await bar_msg.edit(content=msg2_text)
+                        
+                        # Edit Body (Reset to scanning state)
+                        await b_msg.edit(content=body_text, embed=None, view=None)
+                        
+                        # Store references
                         client.startup_header_msg = h_msg
-                        
-                        bar_msg = await t_ch.send(msg2_text)
                         client.startup_bar_msg = bar_msg
-                        
-                        msg = await t_ch.send(body_text, view=None)
-                        progress_msgs.append(msg)
-
-                else:
-                    # FRESH/CRASH FLOW - ALWAYS WIPE TO PREVENT STACKING
-                    try:
-                        await t_ch.purge(limit=100)
+                        progress_msgs.append(b_msg)
+                        success = True
+                    except Exception as e:
+                        logger.warning(f"Failed to edit existing startup messages: {e}")
+                        success = False
+                
+                if not success:
+                    # Fallback: WIPE AND RESEND
+                    logger.info(f"🧹 Wiping and reposting startup messages in {t_ch.name}...")
+                    try: await t_ch.purge(limit=100)
                     except: pass
 
                     h_msg = await t_ch.send(startup_header_text)
@@ -1673,8 +1665,9 @@ async def perform_reboot(interaction=None, message=None):
     channel_id = interaction.channel_id if interaction else message.channel.id
     guild_id = interaction.guild_id if interaction else message.guild.id
 
+    # Ensure Ephemeral Response
     if interaction and not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=False)
+        await interaction.response.defer(ephemeral=True)
 
     # 2. Identify Console Channel
     console_channel = None
@@ -1700,33 +1693,62 @@ async def perform_reboot(interaction=None, message=None):
 
     if console_channel:
         try:
-            try: await console_channel.purge(limit=50)
+            # SMART REBOOT: Try to edit existing messages first
+            h_msg = None
+            bar_msg = None
+            b_msg = None
+            
+            candidates = []
+            try:
+                async for m in console_channel.history(limit=10):
+                    if m.author.id == client.user.id:
+                        candidates.append(m)
             except: pass
 
-            m1 = await console_channel.send(msg1_text)
-            header_msg_id = m1.id
-            m2 = await console_channel.send(msg2_text)
-            bar_msg_id = m2.id
-            m3 = await console_channel.send(content=body_text_msg)
-            body_msg_id = m3.id
+            if len(candidates) >= 3:
+                b_msg = candidates[0]
+                bar_msg = candidates[1]
+                h_msg = candidates[2]
+                
+                # Edit them
+                await h_msg.edit(content=msg1_text)
+                await bar_msg.edit(content=msg2_text)
+                await b_msg.edit(content=body_text_msg, embed=None, view=None)
+                
+                header_msg_id = h_msg.id
+                bar_msg_id = bar_msg.id
+                body_msg_id = b_msg.id
+            else:
+                # Fallback: Purge and Send
+                try: await console_channel.purge(limit=50)
+                except: pass
+
+                m1 = await console_channel.send(msg1_text)
+                header_msg_id = m1.id
+                m2 = await console_channel.send(msg2_text)
+                bar_msg_id = m2.id
+                m3 = await console_channel.send(content=body_text_msg)
+                body_msg_id = m3.id
             
-            link = f"https://discord.com/channels/{guild_id}/{console_channel.id}"
+            # Send Ephemeral Link to User
+            link = f"https://discord.com/channels/{console_channel.guild.id}/{console_channel.id}"
             
             if interaction:
-                await interaction.followup.send(f"Reboot initiated. [View Console](<{link}>)", ephemeral=False)
+                await interaction.followup.send(f"Reboot initiated. [View Console](<{link}>)", ephemeral=True)
             elif message:
                  try: await message.delete()
                  except: pass
+                 # For prefix commands, we can't do ephemeral, but we can delete quickly
                  try: await message.channel.send(f"Reboot initiated. [View Console](<{link}>)", delete_after=5)
                  except: pass
 
         except Exception as e:
             logger.warning(f"Failed to send to console: {e}")
-            # Fallback
+            # Fallback: Just Reply
             try:
                 fallback_text = f"{msg1_text}\n{msg2_text}\n{body_text_msg}"
                 if interaction:
-                    await interaction.followup.send(fallback_text, ephemeral=False)
+                    await interaction.followup.send(fallback_text, ephemeral=True)
                 elif message:
                     await message.channel.send(fallback_text)
             except: pass
@@ -1736,7 +1758,7 @@ async def perform_reboot(interaction=None, message=None):
         try:
             fallback_text = f"{msg1_text}\n{msg2_text}\n(Console not configured)\n{body_text_msg}"
             if interaction:
-                await interaction.followup.send(fallback_text, ephemeral=False)
+                await interaction.followup.send(fallback_text, ephemeral=True)
             elif message:
                  await message.channel.send(fallback_text)
         except: pass
