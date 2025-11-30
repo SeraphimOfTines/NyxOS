@@ -109,7 +109,7 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         with patch('helpers.is_authorized', return_value=False):
              await NyxOS.reboot_command.callback(interaction)
              
-             interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+             interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
              # Ensure no reboot
              with patch('NyxOS.client', new=AsyncMock()) as mock_client:
                  mock_client.close.assert_not_called()
@@ -121,6 +121,9 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         
         with patch('helpers.is_authorized', return_value=True):
             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
+                # FIX: Make active_bars a dict, not an AsyncMock
+                mock_client.active_bars = {123: {"content": "foo", "message_id": 1}}
+                
                 with patch('sys.exit') as mock_exit:
                      
                      await NyxOS.shutdown_command.callback(interaction)

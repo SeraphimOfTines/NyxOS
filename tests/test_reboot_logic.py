@@ -61,10 +61,9 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
                         # EXECUTE
                         await NyxOS.perform_reboot(interaction=interaction)
                         
-                        # VERIFY
-                        # 1. Defer
-                        interaction.response.defer.assert_called_with(ephemeral=True)
-                        
+                        # VERIFY                      
+                        # 1. Defer                    
+                        interaction.response.defer.assert_called_with(ephemeral=False)                        
                         # 2. Console Messages
                         console_ch.purge.assert_called()
                         self.assertGreaterEqual(console_ch.send.call_count, 3)

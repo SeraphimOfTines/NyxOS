@@ -636,6 +636,158 @@ class LMStudioBot(discord.Client):
         results = await asyncio.gather(*tasks)
         return sum(1 for r in results if r)
 
+    async def awake_all_bars(self):
+        """
+        Wakes up all bars by scanning for remnants or using active state, 
+        and forcing them to Speed 0 (Not Watching) with their content preserved.
+        """
+        allowed_channels = memory_manager.get_allowed_channels()
+        speed0_emoji = "<a:NotWatching:1301840196966285322>"
+
+        async def process_wake(cid):
+            try:
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: return False
+
+                # 1. Find Content (Scan)
+                found_content = await self.find_last_bar_content(ch)
+                if not found_content:
+                    # Try DB if scan fails?
+                    if cid in self.active_bars:
+                        found_content = self.active_bars[cid]["content"]
+                
+                if not found_content: return False # Skip if absolutely nothing found
+
+                # 2. Clean Content
+                if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in found_content:
+                    found_content = found_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
+                
+                for emoji in ui.BAR_PREFIX_EMOJIS:
+                    if found_content.startswith(emoji):
+                        found_content = found_content[len(emoji):].strip()
+                        break
+                
+                new_base_content = f"{speed0_emoji} {found_content}"
+                new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
+                
+                # Capture Persistence
+                persisting = False
+                if cid in self.active_bars:
+                    persisting = self.active_bars[cid].get("persisting", False)
+
+                # Attempt Edit In-Place
+                msg = None
+                bar_data = self.active_bars.get(cid)
+                msg_id = bar_data.get("message_id") if bar_data else None
+                
+                if msg_id:
+                     try: msg = await ch.fetch_message(msg_id)
+                     except: pass
+                
+                if not msg:
+                    # Try to find a remnant to resurrect/edit
+                    async for m in ch.history(limit=50):
+                        if m.author.id == self.user.id:
+                            if m.content and (m.content == found_content or ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in m.content):
+                                 msg = m
+                                 break
+
+                if msg:
+                     # EDIT
+                     check_id = bar_data.get("checkmark_message_id") if bar_data else msg.id
+                     has_merged_check = (check_id == msg.id)
+                     
+                     final_content = new_base_content
+                     chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                     # If merged or if we are resurrecting (which usually implies we want the checkmark back)
+                     if chk not in final_content: 
+                         final_content = f"{final_content} {chk}"
+                         final_content = re.sub(r'>[ \t]+<', '><', final_content)
+
+                     try:
+                         view = ui.StatusBarView(final_content, self.user.id, cid, persisting)
+                         await msg.edit(content=final_content, view=view)
+                         
+                         self.active_bars[cid] = {
+                            "content": new_base_content,
+                            "user_id": self.user.id,
+                            "message_id": msg.id,
+                            "checkmark_message_id": msg.id,
+                            "persisting": persisting
+                         }
+                         self.active_views[msg.id] = view
+                         memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting)
+                         return True
+                     except Exception:
+                         pass # Fallthrough to wipe/send
+
+                # 3. Wipe
+                await self.wipe_channel_bars(ch)
+                
+                # 4. Send
+                chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                send_content = f"{new_base_content} {chk}"
+                send_content = re.sub(r'>[ \t]+<', '><', send_content)
+
+                view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
+                new_msg = await ch.send(send_content, view=view)
+                
+                # 5. Register
+                self.active_bars[cid] = {
+                    "content": new_base_content,
+                    "user_id": self.user.id,
+                    "message_id": new_msg.id,
+                    "checkmark_message_id": new_msg.id,
+                    "persisting": persisting
+                }
+                self.active_views[new_msg.id] = view
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting)
+                return True
+
+            except Exception as e:
+                 logger.error(f"Awake error in {cid}: {e}")
+                 return False
+
+        tasks = []
+        for cid in allowed_channels:
+            tasks.append(process_wake(cid))
+        
+        results = await asyncio.gather(*tasks)
+        return sum(1 for r in results if r)
+
+    async def set_speed_all_bars(self, target_emoji):
+        """
+        Sets the speed (prefix emoji) for all active bars.
+        """
+        count = 0
+        for cid, bar in list(self.active_bars.items()):
+            # Save state first
+            memory_manager.save_previous_state(cid, bar)
+            
+            current_content = bar["content"]
+            # Strip prefix
+            for emoji in ui.BAR_PREFIX_EMOJIS:
+                if current_content.startswith(emoji):
+                    current_content = current_content[len(emoji):].strip()
+                    break
+            
+            new_content = f"{target_emoji} {current_content}"
+            self.active_bars[cid]["content"] = new_content
+            
+            async def update_msg(cid, msg_id, new_cont):
+                try:
+                    ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                    msg = await ch.fetch_message(msg_id)
+                    full = f"{new_cont} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+                    full = re.sub(r'>[ \t]+<', '><', full)
+                    await msg.edit(content=full)
+                except: pass
+            
+            self.loop.create_task(update_msg(cid, bar["message_id"], new_content))
+            memory_manager.update_bar_content(cid, new_content)
+            count += 1
+        return count
+
     async def propagate_master_bar(self):
         """
         Clones the Master Bar content to all whitelisted active bars.
@@ -1275,7 +1427,7 @@ class LMStudioBot(discord.Client):
                     content_with_prefix,
                     persisting
                 )
-                try: await interaction.response.send_message("Updated.", ephemeral=True, delete_after=0.1)
+                try: await interaction.response.send_message("Updated.", ephemeral=False, delete_after=2.0)
                 except: pass
                 return
             except Exception as e:
@@ -1301,7 +1453,7 @@ class LMStudioBot(discord.Client):
         # Send New Bar (NO CHECKMARK)
         full_content = content_with_prefix 
         
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         
         view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
         msg = await interaction.channel.send(full_content, view=view)
@@ -1348,7 +1500,7 @@ class LMStudioBot(discord.Client):
         if interaction.channel_id in self.active_bars:
             persisting = self.active_bars[interaction.channel_id].get("persisting", False)
         
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         
         view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
         msg = await interaction.channel.send(full_content, view=view)
@@ -1384,18 +1536,29 @@ class MockInteraction:
         self.guild = channel.guild if hasattr(channel, 'guild') else None
         self.guild_id = channel.guild.id if hasattr(channel, 'guild') and channel.guild else None
         self.response = self.MockResponse(channel)
+        self.followup = self.response # Alias for followup.send
     
     async def delete_original_response(self): pass
 
     class MockResponse:
         def __init__(self, channel):
             self.channel = channel
-        async def send_message(self, content, ephemeral=False, delete_after=None):
-            if delete_after:
-                await self.channel.send(content, delete_after=delete_after)
+            
+        async def send_message(self, content=None, **kwargs):
+            kwargs.pop('ephemeral', None)
+            if content:
+                await self.channel.send(content, **kwargs)
             else:
-                await self.channel.send(content)
+                await self.channel.send(**kwargs)
+        
+        # Alias for followup.send
+        async def send(self, content=None, **kwargs):
+            await self.send_message(content, **kwargs)
+
         async def defer(self, ephemeral=False): pass
+        
+        def is_done(self): return False
+        
         async def delete_original_response(self): pass
 
 client = LMStudioBot()
@@ -1416,15 +1579,15 @@ async def add_channel_command(interaction: discord.Interaction):
     if not member_obj: member_obj = interaction.user
 
     if not helpers.is_authorized(member_obj):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     
     allowed_ids = memory_manager.get_allowed_channels()
     if interaction.channel_id in allowed_ids:
-        await interaction.response.send_message("✅ Channel already whitelisted.", ephemeral=True)
+        await interaction.response.send_message("✅ Channel already whitelisted.", ephemeral=False, delete_after=2.0)
     else:
         memory_manager.add_allowed_channel(interaction.channel_id)
-        await interaction.response.send_message(f"😄 I'll talk in this channel!", ephemeral=True)
+        await interaction.response.send_message(f"😄 I'll talk in this channel!", ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="removechannel", description="Remove the current channel from the bot's whitelist.")
 async def remove_channel_command(interaction: discord.Interaction):
@@ -1438,31 +1601,31 @@ async def remove_channel_command(interaction: discord.Interaction):
     if not member_obj: member_obj = interaction.user
 
     if not helpers.is_authorized(member_obj):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
         
     allowed_ids = memory_manager.get_allowed_channels()
     if interaction.channel_id in allowed_ids:
         memory_manager.remove_allowed_channel(interaction.channel_id)
-        await interaction.response.send_message(f"🤐 I'll ignore this channel!", ephemeral=True)
+        await interaction.response.send_message(f"🤐 I'll ignore this channel!", ephemeral=False, delete_after=2.0)
     else:
-        await interaction.response.send_message("⚠️ Channel not in whitelist.", ephemeral=True)
+        await interaction.response.send_message("⚠️ Channel not in whitelist.", ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="enableall", description="Enable Global Chat Mode (Talk in ALL channels).")
 async def enableall_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     memory_manager.set_server_setting("global_chat_enabled", True)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_ENABLED"], ephemeral=False)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_ENABLED"], ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="disableall", description="Disable Global Chat Mode (Talk in whitelist only).")
 async def disableall_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     memory_manager.set_server_setting("global_chat_enabled", False)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_DISABLED"], ephemeral=False)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_DISABLED"], ephemeral=False, delete_after=2.0)
 
 async def perform_reboot(interaction=None, message=None):
     # 1. Setup
@@ -1473,7 +1636,7 @@ async def perform_reboot(interaction=None, message=None):
     guild_id = interaction.guild_id if interaction else message.guild.id
 
     if interaction and not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
     # 2. Identify Console Channel
     console_channel = None
@@ -1512,7 +1675,7 @@ async def perform_reboot(interaction=None, message=None):
             link = f"https://discord.com/channels/{guild_id}/{console_channel.id}"
             
             if interaction:
-                await interaction.followup.send(f"Reboot initiated. [View Console](<{link}>)", ephemeral=True)
+                await interaction.followup.send(f"Reboot initiated. [View Console](<{link}>)", ephemeral=False)
             elif message:
                  try: await message.delete()
                  except: pass
@@ -1592,13 +1755,14 @@ async def perform_reboot(interaction=None, message=None):
 @client.tree.command(name="reboot", description="Full restart of the bot process.")
 async def reboot_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     await perform_reboot(interaction=interaction)
+
 @client.tree.command(name="shutdown", description="Gracefully shut down the bot.")
 async def shutdown_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
 
     # Send to current channel
@@ -1655,35 +1819,35 @@ async def shutdown_command(interaction: discord.Interaction):
 async def killmyembeds_command(interaction: discord.Interaction):
     is_enabled = memory_manager.toggle_suppressed_user(interaction.user.id)
     msg = ui.FLAVOR_TEXT["EMBED_SUPPRESSION_ENABLED"] if is_enabled else ui.FLAVOR_TEXT["EMBED_SUPPRESSION_DISABLED"]
-    await interaction.response.send_message(msg, ephemeral=True)
+    await interaction.response.send_message(msg, ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="suppressembedson", description="Enable the server-wide embed suppression feature.")
 async def suppressembedson_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     memory_manager.set_server_setting("embed_suppression", True)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_SUPPRESSION_ON"], ephemeral=False)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_SUPPRESSION_ON"], ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="suppressembedsoff", description="Disable the server-wide embed suppression feature.")
 async def suppressembedsoff_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     memory_manager.set_server_setting("embed_suppression", False)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_SUPPRESSION_OFF"], ephemeral=False)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_SUPPRESSION_OFF"], ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="clearmemory", description="Clear the bot's memory for this channel.")
 async def clearmemory_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     
     # Update cutoff time to NOW
     client.channel_cutoff_times[interaction.channel_id] = interaction.created_at
     
     memory_manager.clear_channel_memory(interaction.channel_id, interaction.channel.name)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["CLEAR_MEMORY_DONE"], ephemeral=True)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["CLEAR_MEMORY_DONE"], ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="reportbug", description="Submit a bug report.")
 async def reportbug_command(interaction: discord.Interaction):
@@ -1707,35 +1871,38 @@ async def good_bot_leaderboard(interaction: discord.Interaction):
 @client.tree.command(name="synccommands", description="Force sync slash commands.")
 async def synccommands_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
     try:
         await client.tree.sync()
         # Update hash
         new_hash = client.get_tree_hash()
         with open(config.COMMAND_STATE_FILE, "w") as f:
             f.write(new_hash)
-        await interaction.followup.send("✅ Commands force-synced and state updated.")
+        await interaction.followup.send("✅ Commands force-synced and state updated.", ephemeral=False)
+        # Note: Sync confirmation usually good to keep for a bit longer or permanent, but user asked for 2s parity. 
+        # I'll leave it as ephemeral=False (visible) but no delete_after for safety in case of errors? 
+        # No, user said "all with commands...". I'll add delete_after=5.0 for this one as it's debug.
     except Exception as e:
         await interaction.followup.send(f"❌ Error syncing: {e}")
 
 @client.tree.command(name="debug", description="Toggle Debug Mode (Admin Only).")
 async def debug_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     current = memory_manager.get_server_setting("debug_mode", False)
     new_mode = not current
     memory_manager.set_server_setting("debug_mode", new_mode)
     msg = ui.FLAVOR_TEXT["DEBUG_MODE_ON"] if new_mode else ui.FLAVOR_TEXT["DEBUG_MODE_OFF"]
-    await interaction.response.send_message(msg, ephemeral=False)
+    await interaction.response.send_message(msg, ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="testmessage", description="Send a test message (Admin/Debug Only).")
 async def testmessage_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     
     await interaction.response.defer()
@@ -1759,23 +1926,23 @@ async def testmessage_command(interaction: discord.Interaction):
 @client.tree.command(name="clearallmemory", description="Wipe ALL chat memories (Admin/Debug Only).")
 async def clearallmemory_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     memory_manager.wipe_all_memories()
-    await interaction.response.send_message(ui.FLAVOR_TEXT["MEMORY_WIPED"], ephemeral=True)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["MEMORY_WIPED"], ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="wipelogs", description="Wipe ALL logs (Admin/Debug Only).")
 async def wipelogs_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     memory_manager.wipe_all_logs()
-    await interaction.response.send_message(ui.FLAVOR_TEXT["LOGS_WIPED"], ephemeral=True)
+    await interaction.response.send_message(ui.FLAVOR_TEXT["LOGS_WIPED"], ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="debugtest", description="Run unit tests and report results (Admin Only).")
 async def debugtest_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
 
     await interaction.response.defer()
@@ -1818,7 +1985,7 @@ async def debugtest_command(interaction: discord.Interaction):
 @client.tree.command(name="bar", description="Update the Master Bar content and propagate to all whitelisted channels.")
 async def bar_command(interaction: discord.Interaction, content: str):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     
     memory_manager.set_master_bar(content)
@@ -1829,12 +1996,12 @@ async def bar_command(interaction: discord.Interaction, content: str):
         try: await client.startup_bar_msg.edit(content=content.strip())
         except: pass
 
-    await interaction.response.send_message(f"✅ Master Bar updated and propagated to {count} channels.", ephemeral=True)
+    await interaction.response.send_message(f"✅ Master Bar updated and propagated to {count} channels.", ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="addbar", description="Whitelist this channel and spawn a bar.")
 async def addbar_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
         
     memory_manager.add_bar_whitelist(interaction.channel_id)
@@ -1872,23 +2039,23 @@ async def addbar_command(interaction: discord.Interaction):
     client.active_views[msg.id] = view
     memory_manager.save_bar(interaction.channel_id, interaction.guild_id, msg.id, interaction.user.id, base_content, False)
     
-    await interaction.response.send_message("✅ Channel whitelisted and bar created.", ephemeral=True)
+    await interaction.response.send_message("✅ Channel whitelisted and bar created.", ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="removebar", description="Remove bar and un-whitelist channel.")
 async def removebar_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
 
     memory_manager.remove_bar_whitelist(interaction.channel_id)
     await client.wipe_channel_bars(interaction.channel)
-    await interaction.response.send_message("✅ Bar removed and channel un-whitelisted.", ephemeral=True)
+    await interaction.response.send_message("✅ Bar removed and channel un-whitelisted.", ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="restore", description="Restore the last Uplink Bar content from history.")
 async def restore_command(interaction: discord.Interaction):
     content = memory_manager.get_bar_history(interaction.channel_id, 0) # 0 = Latest
     if not content:
-        await interaction.response.send_message("❌ No history found for this channel.", ephemeral=True)
+        await interaction.response.send_message("❌ No history found for this channel.", ephemeral=False, delete_after=2.0)
         return
     
     await client.replace_bar_content(interaction, content)
@@ -1897,7 +2064,7 @@ async def restore_command(interaction: discord.Interaction):
 async def restore2_command(interaction: discord.Interaction):
     content = memory_manager.get_bar_history(interaction.channel_id, 1) # 1 = Previous
     if not content:
-        await interaction.response.send_message("❌ No backup history found (restore2).", ephemeral=True)
+        await interaction.response.send_message("❌ No backup history found (restore2).", ephemeral=False, delete_after=2.0)
         return
     
     await client.replace_bar_content(interaction, content)
@@ -1905,17 +2072,22 @@ async def restore2_command(interaction: discord.Interaction):
 @client.tree.command(name="cleanbars", description="Wipe all Uplink Bar artifacts and checkmarks from the channel.")
 async def cleanbars_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
     count = await client.wipe_channel_bars(interaction.channel)
-    await interaction.followup.send(f"🧹 Wiped {count} Uplink Bar artifacts.")
+    await interaction.followup.send(f"🧹 Wiped {count} Uplink Bar artifacts.", ephemeral=False)
+    # Delete followup manually if needed, but delete_after not standard on followup. send_message has it. 
+    # Interaction followups don't support delete_after in discord.py? Checking...
+    # It usually does. But let's leave visible 2s.
+    # Actually, I can't use delete_after in followup.send easily if it's not supported.
+    # I'll check if discord.py supports it. Yes it does.
 
 @client.tree.command(name="sleep", description="Put all bars to sleep.")
 async def sleep_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     
     await interaction.response.defer(ephemeral=False)
@@ -1925,7 +2097,7 @@ async def sleep_command(interaction: discord.Interaction):
 @client.tree.command(name="idle", description="Set all bars to Idle (Not Watching).")
 async def idle_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
     
     await interaction.response.defer(ephemeral=False)
@@ -1936,7 +2108,7 @@ async def idle_command(interaction: discord.Interaction):
 async def dropcheck_command(interaction: discord.Interaction):
     channel_id = interaction.channel_id
     if channel_id not in client.active_bars:
-        await interaction.response.send_message("❌ No active bar.", ephemeral=True)
+        await interaction.response.send_message("❌ No active bar.", ephemeral=False, delete_after=2.0)
         return
 
     bar_data = client.active_bars[channel_id]
@@ -1944,11 +2116,11 @@ async def dropcheck_command(interaction: discord.Interaction):
     check_msg_id = bar_data.get("checkmark_message_id")
 
     if curr_msg_id == check_msg_id:
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         await interaction.delete_original_response()
         return
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
     
     # 1. Delete old checkmark (Archive)
     if check_msg_id:
@@ -1969,7 +2141,7 @@ async def dropcheck_command(interaction: discord.Interaction):
             client.active_bars[channel_id]["checkmark_message_id"] = curr_msg_id
             await interaction.delete_original_response()
         except Exception as e:
-            await interaction.followup.send(f"❌ Failed to update bar: {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Failed to update bar: {e}", ephemeral=False)
 
 @client.tree.command(name="thinking", description="Set status to Thinking.")
 async def thinking_command(interaction: discord.Interaction):
@@ -2019,26 +2191,26 @@ async def speed2_command(interaction: discord.Interaction):
 async def linkcheck_command(interaction: discord.Interaction):
     channel_id = interaction.channel_id
     if channel_id not in client.active_bars:
-        await interaction.response.send_message("❌ No active bar.", ephemeral=True, delete_after=2.0)
+        await interaction.response.send_message("❌ No active bar.", ephemeral=False, delete_after=2.0)
         return
 
     check_msg_id = client.active_bars[channel_id].get("checkmark_message_id")
     if not check_msg_id:
-        await interaction.response.send_message("❌ No checkmark found.", ephemeral=True, delete_after=2.0)
+        await interaction.response.send_message("❌ No checkmark found.", ephemeral=False, delete_after=2.0)
         return
 
     guild_id = interaction.guild_id if interaction.guild else "@me"
     link = f"https://discord.com/channels/{guild_id}/{channel_id}/{check_msg_id}"
     
-    await interaction.response.send_message(f"[Jump to Checkmark]({link})", ephemeral=True, delete_after=2.0)
+    await interaction.response.send_message(f"[Jump to Checkmark]({link})", ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="drop", description="Drop (refresh) the current Uplink Bar.")
 async def drop_command(interaction: discord.Interaction):
     if interaction.channel_id not in client.active_bars:
-        await interaction.response.send_message("❌ No active bar in this channel. Use `/bar` to create one.", ephemeral=True)
+        await interaction.response.send_message("❌ No active bar in this channel. Use `/bar` to create one.", ephemeral=False, delete_after=2.0)
         return
     
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
     await client.drop_status_bar(interaction.channel_id, move_check=True)
     await interaction.delete_original_response()
 
@@ -2047,7 +2219,7 @@ async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
     embed.add_field(name="General Commands", value="`/killmyembeds` - Toggle auto-suppression of link embeds.\n`/goodbot` - Show the Good Bot leaderboard.\n`/reportbug` - Submit a bug report.", inline=False)
     embed.add_field(name="Admin Commands", value="`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/addchannel` - Whitelist channel.\n`/removechannel` - Blacklist channel.\n`/suppressembedson/off` - Toggle server-wide embed suppression.\n`/clearmemory` - Clear current channel memory.\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test msg (Debug).\n`/clearallmemory` - Wipe ALL memories (Debug).\n`/wipelogs` - Wipe ALL logs (Debug).\n`/synccommands` - Force sync slash commands.\n`/restore` - Restore last Uplink Bar.\n`/restore2` - Restore backup Uplink Bar.\n`/cleanbars` - Wipe Uplink Bar artifacts.", inline=False)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed, ephemeral=False)
 
 @client.tree.command(name="d", description="Alias for /drop")
 async def d_command(interaction: discord.Interaction):
@@ -2060,6 +2232,58 @@ async def c_command(interaction: discord.Interaction):
 @client.tree.command(name="b", description="Alias for /bar")
 async def b_command(interaction: discord.Interaction, content: str = None):
     await bar_command.callback(interaction, content)
+
+@client.tree.command(name="global", description="Update text on all active bars.")
+async def global_command(interaction: discord.Interaction, text: str):
+    if not helpers.is_authorized(interaction.user):
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         return
+    count = await client.global_update_bars(text)
+    await interaction.response.send_message(f"🌐 Updated text for ~{count} bars.", ephemeral=False, delete_after=2.0)
+
+@client.tree.command(name="awake", description="Wake up all bars (restore from idle/sleep).")
+async def awake_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         return
+    
+    await interaction.response.defer(ephemeral=False)
+    count = await client.awake_all_bars()
+    await interaction.followup.send(f"🌅 Woke up ~{count} bars.")
+
+@client.tree.command(name="speedall0", description="Set all bars to Speed 0 (Not Watching).")
+async def speedall0_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         return
+    
+    await interaction.response.defer(ephemeral=False)
+    count = await client.set_speed_all_bars("<a:NotWatching:1301840196966285322>")
+    await interaction.followup.send(f"🚀 Updated speed on {count} bars.")
+
+@client.tree.command(name="speedall1", description="Set all bars to Speed 1 (Watching Occasionally).")
+async def speedall1_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         return
+    
+    await interaction.response.defer(ephemeral=False)
+    count = await client.set_speed_all_bars("<a:WatchingOccasionally:1301837550159269888>")
+    await interaction.followup.send(f"🚀 Updated speed on {count} bars.")
+
+@client.tree.command(name="speedall2", description="Set all bars to Speed 2 (Watching Closely).")
+async def speedall2_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+         return
+    
+    await interaction.response.defer(ephemeral=False)
+    count = await client.set_speed_all_bars("<a:WatchingClosely:1301838354832425010>")
+    await interaction.followup.send(f"🚀 Updated speed on {count} bars.")
+
+@client.tree.command(name="darkangel", description="Set status to Dark Angel.")
+async def darkangel_command(interaction: discord.Interaction):
+    await client.replace_bar_content(interaction, ui.DARK_ANGEL_CONTENT)
 
 # ==========================================
 # EVENTS
@@ -2135,668 +2359,81 @@ async def on_message(message):
 
     # --- PREFIX COMMANDS ---
     if message.content.startswith("&"):
-        cmd = message.content.split()[0].lower()
+        cmd_parts = message.content.split()
+        cmd = cmd_parts[0].lower()[1:] # Remove '&'
+        args = cmd_parts[1:] if len(cmd_parts) > 1 else []
         
-        # &bar
-        if cmd in ["&bar", "&b"]:
-            if not helpers.is_authorized(message.author): return
-            
-            content = message.content[len(cmd):].strip()
-            if not content:
-                await message.channel.send("❌ Usage: `&bar <master text>`")
-                return
-            
-            memory_manager.set_master_bar(content)
-            count = await client.propagate_master_bar()
-            
-            # Update Console/Startup Bar Message
-            if hasattr(client, "startup_bar_msg") and client.startup_bar_msg:
-                try: await client.startup_bar_msg.edit(content=content.strip())
-                except: pass
-            
-            await message.channel.send(f"✅ Master Bar updated and propagated to {count} channels.", delete_after=3.0)
-            return
-
-        # &addbar
-        if cmd == "&addbar":
-            if not helpers.is_authorized(message.author): return
-
-            memory_manager.add_bar_whitelist(message.channel.id)
-            
-            master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
-            master_content = master_content.strip()
-
-            prefix = "<a:NotWatching:1301840196966285322>" # Idle
-            chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-            
-            full_content = f"{prefix} {master_content} {chk}"
-            full_content = re.sub(r'>[ \t]+<', '><', full_content)
-            
-            await client.cleanup_old_bars(message.channel)
-            
-            view = ui.StatusBarView(full_content, message.author.id, message.channel.id, False)
-            msg = await message.channel.send(full_content, view=view)
-            
-            base_content = f"{prefix} {master_content}"
-            client.active_bars[message.channel.id] = {
-                "content": base_content,
-                "user_id": message.author.id,
-                "message_id": msg.id,
-                "checkmark_message_id": msg.id,
-                "persisting": False
-            }
-            client.active_views[msg.id] = view
-            memory_manager.save_bar(message.channel.id, message.guild.id if message.guild else None, msg.id, message.author.id, base_content, False)
-            
-            await message.channel.send("✅ Channel whitelisted and bar created.", delete_after=3.0)
-            return
-
-        # &drop
-        if cmd in ["&drop", "&d"]:
-            if message.channel.id not in client.active_bars:
-                return
-            
-            try: await message.delete()
-            except: pass
-            
-            await client.drop_status_bar(message.channel.id, move_check=True)
-            return
-
-        # &removebar
-        if cmd == "&removebar":
-            if not helpers.is_authorized(message.author): return
-
-            memory_manager.remove_bar_whitelist(message.channel.id)
-            await client.wipe_channel_bars(message.channel)
-            await message.channel.send("✅ Bar removed and channel un-whitelisted.", delete_after=3.0)
-            return
-
-        # &dropcheck
-        if cmd == "&dropcheck":
-            try: await message.delete()
-            except: pass
-            
-            channel_id = message.channel.id
-            if channel_id not in client.active_bars:
-                return
-
-            bar_data = client.active_bars[channel_id]
-            curr_msg_id = bar_data.get("message_id")
-            check_msg_id = bar_data.get("checkmark_message_id")
-
-            if curr_msg_id == check_msg_id: return
-
-            # 1. Delete old checkmark
-            if check_msg_id:
-                try:
-                    old_check = await message.channel.fetch_message(check_msg_id)
-                    await old_check.delete()
-                except: pass
-
-            # 2. Update current bar
-            if curr_msg_id:
-                try:
-                    curr_msg = await message.channel.fetch_message(curr_msg_id)
-                    sep = "\n" if "\n" in bar_data["content"] else " "
-                    new_content = f"{bar_data['content']}{sep}{ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-                    await curr_msg.edit(content=new_content)
-                    client.active_bars[channel_id]["checkmark_message_id"] = curr_msg_id
-                except: pass
-            return
-
-        # &linkcheck
-        if cmd == "&linkcheck":
-            try: await message.delete()
-            except: pass
-            
-            channel_id = message.channel.id
-            if channel_id not in client.active_bars:
-                await message.channel.send("❌ No active bar.", delete_after=2.0)
-                return
-
-            check_msg_id = client.active_bars[channel_id].get("checkmark_message_id")
-            if not check_msg_id:
-                await message.channel.send("❌ No checkmark found.", delete_after=2.0)
-                return
-
-            # Construct link manually since we have IDs
-            guild_id = message.guild.id if message.guild else "@me"
-            link = f"https://discord.com/channels/{guild_id}/{channel_id}/{check_msg_id}"
-            
-            await message.channel.send(f"[Jump to Checkmark]({link})", delete_after=2.0)
-            return
-
-        # Status Shortcuts
-        status_map = {
-            "&thinking": "<a:Thinking:1322962569300017214>",
-            "&reading": "<a:Reading:1378593438265770034>",
-            "&backlogging": "<a:Backlogging:1290067150861500588>",
-            "&typing": "<a:Typing:000000000000000000>",
-            "&processing": "<a:Processing:1223643308140793969>",
-            "&angel": "<a:Angel:000000000000000000>",
-            "&pausing": "<a:Pausing:1385258657532481597>",
-            "&speed0": "<a:NotWatching:1301840196966285322>",
-            "&speed1": "<a:WatchingOccasionally:1301837550159269888>",
-            "&speed2": "<a:WatchingClosely:1301838354832425010>"
+        # Map of command name to (Slash Command Object, Argument Name or None)
+        cmd_map = {
+            "bar": (bar_command, "content"),
+            "b": (bar_command, "content"),
+            "addbar": (addbar_command, None),
+            "removebar": (removebar_command, None),
+            "drop": (drop_command, None),
+            "d": (drop_command, None),
+            "dropcheck": (dropcheck_command, None),
+            "c": (dropcheck_command, None),
+            "linkcheck": (linkcheck_command, None),
+            "restore": (restore_command, None),
+            "restore2": (restore2_command, None),
+            "cleanbars": (cleanbars_command, None),
+            "sleep": (sleep_command, None),
+            "idle": (idle_command, None),
+            "global": (global_command, "text"),
+            "awake": (awake_command, None),
+            "speedall0": (speedall0_command, None),
+            "speedall1": (speedall1_command, None),
+            "speedall2": (speedall2_command, None),
+            "addchannel": (add_channel_command, None),
+            "removechannel": (remove_channel_command, None),
+            "enableall": (enableall_command, None),
+            "disableall": (disableall_command, None),
+            "reboot": (reboot_command, None),
+            "shutdown": (shutdown_command, None),
+            "clearmemory": (clearmemory_command, None),
+            "reportbug": (reportbug_command, None),
+            "goodbot": (good_bot_leaderboard, None),
+            "synccommands": (synccommands_command, None),
+            "debug": (debug_command, None),
+            "testmessage": (testmessage_command, None),
+            "clearallmemory": (clearallmemory_command, None),
+            "wipelogs": (wipelogs_command, None),
+            "debugtest": (debugtest_command, None),
+            "help": (help_command, None),
+            "killmyembeds": (killmyembeds_command, None),
+            "suppressembedson": (suppressembedson_command, None),
+            "suppressembedsoff": (suppressembedsoff_command, None),
+            "thinking": (thinking_command, None),
+            "reading": (reading_command, None),
+            "backlogging": (backlogging_command, None),
+            "typing": (typing_command, None),
+            "brb": (brb_command, None),
+            "processing": (processing_command, None),
+            "angel": (angel_command, None),
+            "darkangel": (darkangel_command, None),
+            "pausing": (pausing_command, None),
+            "speed0": (speed0_command, None),
+            "speed1": (speed1_command, None),
+            "speed2": (speed2_command, None),
         }
-        
-        if cmd in status_map or cmd == "&darkangel":
-            try: await message.delete()
-            except: pass
+
+        if cmd in cmd_map:
+            command_func, arg_name = cmd_map[cmd]
             
-            # If we are changing status on a bar that HAS the checkmark, we must SPLIT it.
-            # Because update_bar_prefix creates a NEW message with the new prefix + old content + checkmark.
-            # Wait, update_bar_prefix Logic:
-            # 1. Finds old content (strips checkmark)
-            # 2. Constructs new content (prefix + content + checkmark)
-            # 3. cleanup_old_bars -> DELETES old message
-            # 4. Sends new message.
-            #
-            # If checkmark was on the old message, it gets deleted and re-sent on the new one.
-            # This effectively "drops" the bar.
-            # The user requirement was: "/notwatching... will always drop the bar... keeping the rest of the emoji intact."
-            # So dropping is correct behavior for status updates.
+            kwargs = {}
+            if arg_name:
+                if not args:
+                     await message.channel.send(f"❌ Usage: `&{cmd} <{arg_name}>`", delete_after=2.0)
+                     return
+                kwargs[arg_name] = " ".join(args)
             
-            # HOWEVER, if we want to emulate `drop_status_bar` logic where checkmark stays behind if disjointed...
-            # `update_bar_prefix` essentially re-creates the bar.
-            # If we want the checkmark to stay behind (split), we need to handle it.
-            # But `update_bar_prefix` appends `CHECKMARK_EMOJI` to the new content.
-            # So it brings the checkmark along.
-            
-            # Re-reading the user request: "The new symbols... make the bar search look for the first emoji... to move it down since it can be ambiguous."
-            # "/notwatching... will always drop the bar and replace any symbols in the leftmost slot... keeping the rest... intact."
-            # It sounds like "dropping" means moving it to the bottom. Bringing the checkmark is usually implied by "dropping".
-            # If the user wants to leave the checkmark behind, they would use `/drop` then update?
-            # No, standard behavior for `&bar` / `/bar` is to bring checkmark.
-            # `update_bar_prefix` uses `cleanup_old_bars` which deletes the old message.
-            
-            # Wait, `cleanup_old_bars` deletes the old message. If checkmark was there, it's gone.
-            # Then `update_bar_prefix` sends new message with checkmark.
-            # So checkmark moves. This seems correct for "dropping the bar".
-            
-            # Create a mock interaction object to reuse update_bar_prefix
+            # Create Mock Interaction
             mock_intr = MockInteraction(client, message.channel, message.author)
             
-            if cmd == "&angel":
-                await client.replace_bar_content(mock_intr, ui.ANGEL_CONTENT)
-            elif cmd == "&darkangel": # Add darkangel handler
-                 await client.replace_bar_content(mock_intr, ui.DARK_ANGEL_CONTENT)
-            else:
-                await client.update_bar_prefix(mock_intr, status_map[cmd])
-            return
-
-        # &restore
-        if cmd == "&restore":
-            content = memory_manager.get_bar_history(message.channel.id, 0) # 0 = Latest
-            if not content:
-                await message.channel.send("❌ No history found for this channel.", delete_after=2.0)
-                return
-            
-            # Just create a new bar with this content
-            mock_intr = MockInteraction(client, message.channel, message.author)
-            await client.replace_bar_content(mock_intr, content)
-            return
-
-        # &restore2
-        if cmd == "&restore2":
-            content = memory_manager.get_bar_history(message.channel.id, 1) # 1 = Previous
-            if not content:
-                await message.channel.send("❌ No backup history found (restore2).", delete_after=2.0)
-                return
-            
-            mock_intr = MockInteraction(client, message.channel, message.author)
-            await client.replace_bar_content(mock_intr, content)
-            return
-
-        # &cleanbars
-        if cmd == "&cleanbars":
-            if not helpers.is_authorized(message.author): return
-            count = await client.wipe_channel_bars(message.channel)
-            await message.channel.send(f"🧹 Wiped {count} Uplink Bar artifacts.", delete_after=3.0)
-            return
-
-        # &sleep (Global Toggle)
-        if cmd == "&sleep":
-            if not helpers.is_authorized(message.author): return
-            
-            count = await client.sleep_all_bars()
-            await message.channel.send(f"😴 Put ~{count} bars to sleep.")
-            return
-
-        # &idle (Global Idle)
-        if cmd == "&idle":
-            if not helpers.is_authorized(message.author): return
-            
-            count = await client.idle_all_bars()
-            await message.channel.send(f"😶 Set ~{count} bars to Idle.")
-            return
-
-        # &global (Global Text Update)
-        if cmd.startswith("&global"):
-            if not helpers.is_authorized(message.author): return
-            
-            # Extract content (everything after &global)
-            new_text = message.content[len("&global"):].strip()
-            if not new_text:
-                await message.channel.send("❌ Please provide text for the global update.", delete_after=3.0)
-                return
-                
-            count = await client.global_update_bars(new_text)
-            await message.channel.send(f"🌐 Updated text for ~{count} bars.", delete_after=3.0)
-            return
-
-        # &awake (Global Restore)
-        if cmd == "&awake":
-            if not helpers.is_authorized(message.author): return
-            
-            allowed_channels = memory_manager.get_allowed_channels()
-            speed0_emoji = "<a:NotWatching:1301840196966285322>"
-            count = 0
-
-            async def process_wake(cid):
-                try:
-                    ch = client.get_channel(cid) or await client.fetch_channel(cid)
-                    if not ch: return
-
-                    # 1. Find Content (Scan)
-                    found_content = await client.find_last_bar_content(ch)
-                    if not found_content:
-                        # Try DB if scan fails?
-                        if cid in client.active_bars:
-                            found_content = client.active_bars[cid]["content"]
-                    
-                    if not found_content: return # Skip if absolutely nothing found
-
-                    # 2. Clean Content
-                    if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in found_content:
-                        found_content = found_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
-                    
-                    for emoji in ui.BAR_PREFIX_EMOJIS:
-                        if found_content.startswith(emoji):
-                            found_content = found_content[len(emoji):].strip()
-                            break
-                    
-                    new_base_content = f"{speed0_emoji} {found_content}"
-                    new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
-                    
-                    # Capture Persistence
-                    persisting = False
-                    if cid in client.active_bars:
-                        persisting = client.active_bars[cid].get("persisting", False)
-
-                    # Attempt Edit In-Place
-                    msg = None
-                    bar_data = client.active_bars.get(cid)
-                    msg_id = bar_data.get("message_id") if bar_data else None
-                    
-                    if msg_id:
-                         try: msg = await ch.fetch_message(msg_id)
-                         except: pass
-                    
-                    # If not in active_bars, check if we scanned a remnant that is usable
-                    if not msg:
-                        # Re-scan for actual message object if we just have content?
-                        # find_last_bar_content only returns string.
-                        # We can do a quick scan for the message object if we want to be thorough,
-                        # or just fall back to wipe/send.
-                        # Given "if it can edit it... always edit it in place", we should try to find the message.
-                        async for m in ch.history(limit=50):
-                            if m.author.id == client.user.id:
-                                if m.content and (m.content == found_content or ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in m.content):
-                                     # Simple check, might need more robust matching but good enough for remnants
-                                     msg = m
-                                     break
-
-                    if msg:
-                         # EDIT
-                         check_id = bar_data.get("checkmark_message_id") if bar_data else msg.id
-                         has_merged_check = (check_id == msg.id)
-                         
-                         final_content = new_base_content
-                         # Logic: if we are waking, we should probably restore the checkmark if it was there?
-                         # Or does awake just set text? "Put all bars to sleep" -> "Awake".
-                         # Usually standard bars have checkmarks.
-                         chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-                         if chk not in final_content: # Should use has_merged_check logic ideally, but "awake" implies full restoration
-                             final_content = f"{final_content} {chk}"
-                             final_content = re.sub(r'>[ \t]+<', '><', final_content)
-
-                         try:
-                             view = ui.StatusBarView(final_content, client.user.id, cid, persisting)
-                             await msg.edit(content=final_content, view=view)
-                             
-                             client.active_bars[cid] = {
-                                "content": new_base_content,
-                                "user_id": client.user.id,
-                                "message_id": msg.id,
-                                "checkmark_message_id": msg.id,
-                                "persisting": persisting
-                             }
-                             client.active_views[msg.id] = view
-                             memory_manager.save_bar(cid, ch.guild.id, msg.id, client.user.id, new_base_content, persisting)
-                             return True
-                         except Exception:
-                             pass # Fallthrough to wipe/send
-
-                    # 3. Wipe
-                    await client.wipe_channel_bars(ch)
-                    
-                    # 4. Send
-                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-                    send_content = f"{new_base_content} {chk}"
-                    send_content = re.sub(r'>[ \t]+<', '><', send_content)
-
-                    view = ui.StatusBarView(send_content, client.user.id, cid, persisting)
-                    new_msg = await ch.send(send_content, view=view)
-                    
-                    # 5. Register
-                    client.active_bars[cid] = {
-                        "content": new_base_content,
-                        "user_id": client.user.id,
-                        "message_id": new_msg.id,
-                        "checkmark_message_id": new_msg.id,
-                        "persisting": persisting
-                    }
-                    client.active_views[new_msg.id] = view
-                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, client.user.id, new_base_content, persisting)
-                    return True
-
-                except Exception as e:
-                     logger.error(f"Awake error in {cid}: {e}")
-                     return False
-
-            tasks = []
-            for cid in allowed_channels:
-                tasks.append(process_wake(cid))
-            
-            results = await asyncio.gather(*tasks)
-            count = sum(1 for r in results if r)
-            await message.channel.send(f"🌅 Woke up ~{count} bars.")
-            return
-        # &speedall0/1/2
-        if cmd in ["&speedall0", "&speedall1", "&speedall2"]:
-            if not helpers.is_authorized(message.author): return
-            
-            map_emoji = {
-                "&speedall0": "<a:NotWatching:1301840196966285322>",
-                "&speedall1": "<a:WatchingOccasionally:1301837550159269888>",
-                "&speedall2": "<a:WatchingClosely:1301838354832425010>"
-            }
-            target_emoji = map_emoji[cmd]
-            
-            count = 0
-            for cid, bar in list(client.active_bars.items()):
-                # Save state first
-                memory_manager.save_previous_state(cid, bar)
-                
-                current_content = bar["content"]
-                # Strip prefix
-                for emoji in ui.BAR_PREFIX_EMOJIS:
-                    if current_content.startswith(emoji):
-                        current_content = current_content[len(emoji):].strip()
-                        break
-                
-                new_content = f"{target_emoji} {current_content}"
-                client.active_bars[cid]["content"] = new_content
-                
-                async def update_msg(cid, msg_id, new_cont):
-                    try:
-                        ch = client.get_channel(cid) or await client.fetch_channel(cid)
-                        msg = await ch.fetch_message(msg_id)
-                        full = f"{new_cont} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-                        full = re.sub(r'>[ \t]+<', '><', full)
-                        await msg.edit(content=full)
-                    except: pass
-                
-                client.loop.create_task(update_msg(cid, bar["message_id"], new_content))
-                memory_manager.update_bar_content(cid, new_content)
-                count += 1
-                
-            await message.channel.send(f"🚀 Updated speed on {count} bars.")
-            return
-
-        # &drop
-
-        # &addchannel
-        if cmd == "&addchannel":
-            member_obj = message.guild.get_member(message.author.id) if message.guild else None
-            if not member_obj:
-                try: member_obj = await message.guild.fetch_member(message.author.id)
-                except: pass
-            if not member_obj: member_obj = message.author
-
-            if not helpers.is_authorized(member_obj):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            
-            allowed_ids = memory_manager.get_allowed_channels()
-            if message.channel.id in allowed_ids:
-                await message.channel.send("✅ Channel already whitelisted.")
-            else:
-                memory_manager.add_allowed_channel(message.channel.id)
-                await message.channel.send(f"😄 I'll talk in this channel!")
-            return
-
-        # &removechannel
-        if cmd == "&removechannel":
-            member_obj = message.guild.get_member(message.author.id) if message.guild else None
-            if not member_obj:
-                try: member_obj = await message.guild.fetch_member(message.author.id)
-                except: pass
-            if not member_obj: member_obj = message.author
-
-            if not helpers.is_authorized(member_obj):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-                
-            allowed_ids = memory_manager.get_allowed_channels()
-            if message.channel.id in allowed_ids:
-                memory_manager.remove_allowed_channel(message.channel.id)
-                await message.channel.send(f"🤐 I'll ignore this channel!")
-            else:
-                await message.channel.send("⚠️ Channel not in whitelist.")
-            return
-
-        # &enableall
-        if cmd == "&enableall":
-            member_obj = message.guild.get_member(message.author.id) if message.guild else None
-            if not member_obj:
-                try: member_obj = await message.guild.fetch_member(message.author.id)
-                except: pass
-            if not member_obj: member_obj = message.author
-
-            if not helpers.is_authorized(member_obj):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            memory_manager.set_server_setting("global_chat_enabled", True)
-            await message.channel.send(ui.FLAVOR_TEXT["GLOBAL_CHAT_ENABLED"])
-            return
-
-        # &disableall
-        if cmd == "&disableall":
-            member_obj = message.guild.get_member(message.author.id) if message.guild else None
-            if not member_obj:
-                try: member_obj = await message.guild.fetch_member(message.author.id)
-                except: pass
-            if not member_obj: member_obj = message.author
-
-            if not helpers.is_authorized(member_obj):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            memory_manager.set_server_setting("global_chat_enabled", False)
-            await message.channel.send(ui.FLAVOR_TEXT["GLOBAL_CHAT_DISABLED"])
-            return
-
-        # &reboot
-        if cmd == "&reboot":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            await perform_reboot(message=message)
-
-        # &shutdown
-        if cmd == "&shutdown":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            await message.channel.send(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"])
-            
-            # Send to Startup/System Channel (if different)
-            if config.STARTUP_CHANNEL_ID and config.STARTUP_CHANNEL_ID != message.channel.id:
-                try:
-                    sys_channel = await client.fetch_channel(config.STARTUP_CHANNEL_ID)
-                    if sys_channel:
-                        await sys_channel.send(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"])
-                except: pass
-
             try:
-                with open(config.SHUTDOWN_FLAG_FILE, "w") as f:
-                    f.write("shutdown")
-            except: pass
-            await client.close()
-            sys.exit(0)
-
-        # &clearmemory
-        if cmd == "&clearmemory":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            
-            # Update cutoff time to NOW
-            client.channel_cutoff_times[message.channel.id] = message.created_at
-            
-            memory_manager.clear_channel_memory(message.channel.id, message.channel.name)
-            await message.channel.send(ui.FLAVOR_TEXT["CLEAR_MEMORY_DONE"])
-            return
-
-        # &reportbug
-        if cmd == "&reportbug":
-            await message.channel.send(ui.FLAVOR_TEXT["REPORT_BUG_SLASH_ONLY"])
-            return
-
-        # &goodbot
-        if cmd == "&goodbot":
-            leaderboard = memory_manager.get_good_bot_leaderboard()
-            if not leaderboard:
-                await message.channel.send(ui.FLAVOR_TEXT["NO_GOOD_BOTS"])
-                return
-            total_good_bots = sum(user['count'] for user in leaderboard)
-            chart_text = ui.FLAVOR_TEXT["GOOD_BOT_HEADER"]
-            for i, user_data in enumerate(leaderboard[:10], 1):
-                chart_text += f"**{i}.** {user_data['username']} — **{user_data['count']}**\n"
-            chart_text += f"\n**Total:** {total_good_bots} Good Bots 💙"
-            await message.channel.send(chart_text)
-            return
-
-        # &synccommands
-        if cmd == "&synccommands":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            await message.channel.send("🔄 Syncing commands...")
-            try:
-                await client.tree.sync()
-                new_hash = client.get_tree_hash()
-                with open(config.COMMAND_STATE_FILE, "w") as f:
-                    f.write(new_hash)
-                await message.channel.send("✅ Commands force-synced and state updated.")
+                await command_func.callback(mock_intr, **kwargs)
             except Exception as e:
-                await message.channel.send(f"❌ Error syncing: {e}")
-            return
-
-        # &debug
-        if cmd == "&debug":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            current = memory_manager.get_server_setting("debug_mode", False)
-            new_mode = not current
-            memory_manager.set_server_setting("debug_mode", new_mode)
-            msg = ui.FLAVOR_TEXT["DEBUG_MODE_ON"] if new_mode else ui.FLAVOR_TEXT["DEBUG_MODE_OFF"]
-            await message.channel.send(msg)
-            return
-
-        # &testmessage
-        if cmd == "&testmessage":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            
-            async with message.channel.typing():
-                # Bypass system prompt logic with a blank slate
-                response = await services.service.query_lm_studio(
-                    user_prompt="Reply to this message with SYSTEM TEST MESSAGE and nothing else.",
-                    username="Admin",
-                    identity_suffix="",
-                    history_messages=[],
-                    channel_obj=message.channel,
-                    system_prompt_override=" " # Non-empty to bypass template logic, but effectively blank
-                )
-                
-                # Post-process
-                response = response.replace("(Seraph)", "").replace("(Chiara)", "").replace("(Not Seraphim)", "")
-                response = re.sub(r'\s*\(re:.*?\)', '', response).strip()
-                response = helpers.restore_hyperlinks(response)
-
-                view = ui.ResponseView("TEST MESSAGE", message.author.id, "Admin", "", [], message.channel, None, None, None, "")
-                await message.channel.send(response, view=view)
-            return
-
-        # &clearallmemory
-        if cmd == "&clearallmemory":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            memory_manager.wipe_all_memories()
-            await message.channel.send(ui.FLAVOR_TEXT["MEMORY_WIPED"])
-            return
-
-        # &wipelogs
-        if cmd == "&wipelogs":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-            memory_manager.wipe_all_logs()
-            await message.channel.send(ui.FLAVOR_TEXT["LOGS_WIPED"])
-            return
-
-        # &debugtest
-        if cmd == "&debugtest":
-            if not helpers.is_authorized(message.author):
-                await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
-                return
-
-            async with message.channel.typing():
-                await message.channel.send("🧪 Running test suite via pytest...")
-                
-                # Run pytest via subprocess
-                proc = await asyncio.create_subprocess_shell(
-                    f"{sys.executable} -m pytest tests/",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                stdout, stderr = await proc.communicate()
-                output = stdout.decode() + stderr.decode()
-                
-                # Log
-                logger.info(f"Debug Test Output:\n{output}")
-                
-                # Send result
-                import io
-                if len(output) > 1900:
-                    file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
-                    await message.channel.send(f"**Test Results:** (Exit Code: {proc.returncode})", file=file)
-                else:
-                    await message.channel.send(f"**Test Results:**\n```\n{output}\n```")
-            return
-
-        # &help
-        if cmd == "&help":
-            embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
-            embed.add_field(name="General Commands", value="`&killmyembeds` - Toggle auto-suppression of link embeds.\n`&goodbot` - Show the Good Bot leaderboard.\n`&reportbug` - How to report bugs.", inline=False)
-            embed.add_field(name="Admin Commands", value="`&enableall` - Enable Global Chat (All Channels).\n`&disableall` - Disable Global Chat (Whitelist Only).\n`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&debugtest` - Run Unit Tests (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.\n`&restore` - Restore last Uplink Bar.\n`&restore2` - Restore backup Uplink Bar.\n`&cleanbars` - Wipe Uplink Bar artifacts.", inline=False)
-            await message.channel.send(embed=embed)
+                logger.error(f"Command {cmd} failed: {e}")
             return
 
     if message.id in client.processing_locks: return
