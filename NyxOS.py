@@ -10,6 +10,7 @@ import re
 import time
 import signal
 import hashlib
+import subprocess
 
 # Local Modules
 import config
@@ -45,6 +46,34 @@ if not logger.handlers:
 
 # Set root logger level to suppress debug noise from libraries if needed
 logging.getLogger().setLevel(logging.INFO)
+
+def kill_duplicate_processes():
+    """Kills other instances of the bot script to prevent duplicates."""
+    try:
+        current_pid = os.getpid()
+        # Find all PIDs matching "python.*NyxOS.py"
+        result = subprocess.run(['pgrep', '-f', 'python.*NyxOS.py'], stdout=subprocess.PIPE, text=True)
+        
+        killed_any = False
+        if result.returncode == 0:
+            pids = result.stdout.strip().split('\n')
+            for pid_str in pids:
+                if not pid_str.strip(): continue
+                try:
+                    pid = int(pid_str)
+                    if pid != current_pid:
+                        logger.info(f"🔪 Killing duplicate instance (PID: {pid})")
+                        os.kill(pid, signal.SIGTERM)
+                        killed_any = True
+                except (ValueError, ProcessLookupError):
+                    pass
+        
+        if killed_any:
+            logger.info("⏳ Waiting 2s for processes to terminate...")
+            time.sleep(2)
+
+    except Exception as e:
+        logger.warning(f"⚠️ Error during process cleanup: {e}")
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -2841,6 +2870,7 @@ async def on_message(message):
             client.processing_locks.remove(message.id)
 
 if __name__ == "__main__":
+    kill_duplicate_processes()
     if not config.BOT_TOKEN:
         logger.error("❌ BOT_TOKEN not found.")
     else:
