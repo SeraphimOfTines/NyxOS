@@ -862,6 +862,7 @@ class LMStudioBot(discord.Client):
                 logger.error(f"❌ Failed to send startup messages to {t_id}: {e}")
 
         # --- PHASE 1: SCANNING & RESTORATION ---
+        # bar_whitelist is defined at the top of on_ready
         master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
         master_content = master_content.strip()
         
