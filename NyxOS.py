@@ -953,89 +953,58 @@ class LMStudioBot(discord.Client):
             target_channels.add(restart_data.get("channel_id"))
         
         progress_msgs = []
-        view = ui.WakeupReportView()
-        
-        is_reboot = (restart_data is not None and "header_msg_id" in restart_data)
         
         # Construct Texts
         divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
-        
-        # Msg 1: Status + Divider
-        # Use REBOOT header initially so it says "Rebooting..." during scan
         startup_header_text = f"{ui.FLAVOR_TEXT['REBOOT_HEADER']}\n{ui.FLAVOR_TEXT['REBOOT_SUB'].format(current=0, total=len(allowed_channels))}\n{divider}"
-        
-        # Msg 2: Master Bar + Divider
         master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
         msg2_text = f"{master_content.strip()}"
-        
-        # Msg 3: Body (Progress)
-        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
         body_text = f"{divider}\n🔍 Scanning {len(allowed_channels)} channels for bars..."
 
         for t_id in target_channels:
             try:
                 t_ch = self.get_channel(t_id) or await self.fetch_channel(t_id)
-                if not t_ch:
-                    logger.warning(f"⚠️ Could not fetch target channel {t_id}")
-                    continue
+                if not t_ch: continue
 
-                # SMART STARTUP / RECOVERY LOGIC
-                # Goal: reuse existing messages if they exist in the correct order, regardless of reboot state.
+                # RECOVERY LOGIC (ID-BASED ONLY)
+                # We strictly avoid scanning history on boot to prevent rate limits.
                 
                 h_msg = None
                 bar_msg = None
                 b_msg = None
                 
-                try:
-                    # Scan history for last 3 bot messages
-                    candidates = []
-                    async for msg in t_ch.history(limit=10):
-                        if msg.author.id == self.user.id:
-                            candidates.append(msg)
-                    
-                    # Candidates are in reverse chronological order (newest first)
-                    # We expect: Body (newest/bottom), Bar (middle), Header (oldest/top)
-                    if len(candidates) >= 3:
-                        # Check the 3 most recent messages
-                        c_body = candidates[0]
-                        c_bar = candidates[1]
-                        c_header = candidates[2]
+                if restart_data and restart_data.get("channel_id") == t_id:
+                    # Try to reuse known IDs from reboot
+                    try:
+                        h_id = restart_data.get("header_msg_id")
+                        bar_id = restart_data.get("bar_msg_id")
+                        b_id = restart_data.get("body_msg_id")
                         
-                        b_msg = c_body
-                        bar_msg = c_bar
-                        h_msg = c_header
-                        
-                        logger.info(f"♻️  Found existing startup messages in {t_ch.name}. reusing...")
-                except Exception as e:
-                    logger.warning(f"Error scanning history in {t_id}: {e}")
-                
+                        if h_id: h_msg = await t_ch.fetch_message(h_id)
+                        if bar_id: bar_msg = await t_ch.fetch_message(bar_id)
+                        if b_id: b_msg = await t_ch.fetch_message(b_id)
+                    except: 
+                        h_msg = bar_msg = b_msg = None
+
                 # Attempt to Edit if we found them
                 success = False
                 if h_msg and bar_msg and b_msg:
                     try:
-                        # Edit Header (Set to Rebooting...)
                         await h_msg.edit(content=startup_header_text)
-                        
-                        # Edit Bar
                         await bar_msg.edit(content=msg2_text)
-                        
-                        # Edit Body (Reset to scanning state)
                         await b_msg.edit(content=body_text, embed=None, view=None)
                         
-                        # Store references
                         client.startup_header_msg = h_msg
                         client.startup_bar_msg = bar_msg
                         progress_msgs.append(b_msg)
                         success = True
-                    except Exception as e:
-                        logger.warning(f"Failed to edit existing startup messages: {e}")
-                        success = False
+                    except: success = False
                 
                 if not success:
-                    # Fallback: WIPE AND RESEND
-                    logger.info(f"🧹 Wiping and reposting startup messages in {t_ch.name}...")
-                    try: await t_ch.purge(limit=100)
-                    except: pass
+                    # Fallback: Post NEW messages (Avoid Purge on boot to save calls)
+                    # logger.info(f"🧹 Wiping and reposting startup messages in {t_ch.name}...")
+                    # try: await t_ch.purge(limit=100) # Too expensive on rate limits
+                    # except: pass
 
                     h_msg = await t_ch.send(startup_header_text)
                     client.startup_header_msg = h_msg
@@ -1048,6 +1017,9 @@ class LMStudioBot(discord.Client):
 
             except Exception as e:
                 logger.error(f"❌ Failed to send startup messages to {t_id}: {e}")
+        
+        # Save for scanner
+        client.console_progress_msgs = progress_msgs
 
         # --- PHASE 1: INITIALIZATION ---
         # bar_whitelist is defined at the top of on_ready
@@ -1079,19 +1051,8 @@ class LMStudioBot(discord.Client):
         Updates the console message log.
         """
         # 1. Setup Console Output
-        console_msgs = []
-        if config.STARTUP_CHANNEL_ID:
-            try:
-                ch = self.get_channel(config.STARTUP_CHANNEL_ID) or await self.fetch_channel(config.STARTUP_CHANNEL_ID)
-                # Try to find the body message (last bot msg)
-                async for m in ch.history(limit=5):
-                    if m.author.id == self.user.id and ui.FLAVOR_TEXT['UPLINKS_HEADER'] in m.content:
-                        console_msgs.append(m)
-                        break
-                    if m.author.id == self.user.id and "(Waiting for" in m.content:
-                        console_msgs.append(m)
-                        break
-            except: pass
+        # We use cached messages from on_ready to avoid scanning history
+        console_msgs = getattr(self, "console_progress_msgs", [])
         
         divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
         status_str = f"{divider}\n🔍 Scanning channels..."
@@ -1218,7 +1179,18 @@ class LMStudioBot(discord.Client):
                 # Update Console
                 log_str = "\n".join(wake_log[-8:]) 
                 current_status = f"{divider}\n🔄 Waking bars...\n{log_str}"
-                for m in console_msgs:
+                
+                # Use cached console messages if available
+                targets = getattr(self, "console_progress_msgs", [])
+                # If empty (maybe manually run scan later?), try to find them CAREFULLY
+                if not targets and config.STARTUP_CHANNEL_ID:
+                     # We avoid scanning if possible. If manual scan, maybe just send a new report?
+                     # Or just skip updating if we can't find them easily.
+                     # Let's try to fetch just the last message if we really need to.
+                     # But for now, let's rely on the cache from on_ready.
+                     pass
+
+                for m in targets:
                    try: await m.edit(content=current_status)
                    except: pass
 
@@ -1230,7 +1202,8 @@ class LMStudioBot(discord.Client):
         if len(final_body) > 2000:
              final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(Log truncated...)"
 
-        for m in console_msgs:
+        targets = getattr(self, "console_progress_msgs", [])
+        for m in targets:
             try: await m.edit(content=final_body)
             except: pass
         
