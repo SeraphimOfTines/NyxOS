@@ -1103,7 +1103,7 @@ class LMStudioBot(discord.Client):
         wake_log = []
         
         for cid_str in bar_whitelist:
-            await asyncio.sleep(1.0) # Rate limit protection
+            await asyncio.sleep(1.5) # Increased base delay for safety
             
             try:
                 cid = int(cid_str)
@@ -1118,21 +1118,28 @@ class LMStudioBot(discord.Client):
                 bar_msg = None
                 check_msg = None
                 
-                # 2. Verify / Fetch
+                # 2. Verify / Fetch (DB First)
                 if stored_bar_id:
-                    try: bar_msg = await ch.fetch_message(stored_bar_id)
-                    except: pass
+                    try: 
+                        bar_msg = await ch.fetch_message(stored_bar_id)
+                    except (discord.NotFound, discord.HTTPException): 
+                        bar_msg = None # Explicitly cleared if fetch fails
                 
                 # If bar found, check if checkmark is merged or separate
                 if bar_msg:
                     if stored_check_id == stored_bar_id:
                         check_msg = bar_msg # Merged
                     elif stored_check_id:
-                        try: check_msg = await ch.fetch_message(stored_check_id)
-                        except: pass
+                        try: 
+                            check_msg = await ch.fetch_message(stored_check_id)
+                        except (discord.NotFound, discord.HTTPException):
+                            check_msg = None
 
-                # 3. Fallback Scan
+                # 3. Fallback Scan (Only if DB lookup failed)
                 if not bar_msg:
+                    # Extra delay before expensive scan
+                    await asyncio.sleep(2.0) 
+                    
                     async for m in ch.history(limit=5):
                         if m.author.id == self.user.id:
                             if m.content:
@@ -1180,10 +1187,15 @@ class LMStudioBot(discord.Client):
                 
                 else:
                     # Lost? Create new idle bar
+                    # Extra delay before send
+                    await asyncio.sleep(1.0)
+                    
                     master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
                     idle_prefix = "<a:NotWatching:1301840196966285322>"
+                    # Force inline checkmark
                     new_content = f"{idle_prefix} {master_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
                     new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                    new_content = new_content.replace(f"\n{ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}", f" {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}")
                     
                     view = ui.StatusBarView(new_content, self.user.id, cid, False)
                     new_msg = await ch.send(new_content, view=view)
