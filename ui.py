@@ -233,6 +233,7 @@ class StatusBarView(discord.ui.View):
                 del interaction.client.active_bars[self.channel_id]
                 memory_manager.delete_bar(self.channel_id)
         
+        await services.service.limiter.wait_for_slot("delete_message", interaction.channel_id)
         await interaction.message.delete()
 
 
@@ -358,10 +359,12 @@ class ResponseView(discord.ui.View):
                 button.label = f"Wait {i}s"
                 # First update commits the new text, subsequent updates just tick the timer
                 if i == 5:
+                    await services.service.limiter.wait_for_slot("edit_message", interaction.channel_id)
                     await interaction.edit_original_response(content=new_response_text, view=self)
                     if hasattr(interaction.client, "suppress_embeds_later"):
                         interaction.client.loop.create_task(interaction.client.suppress_embeds_later(interaction.message, delay=5))
                 else:
+                    await services.service.limiter.wait_for_slot("edit_message", interaction.channel_id)
                     await interaction.edit_original_response(view=self)
                 await asyncio.sleep(1)
             
@@ -378,7 +381,9 @@ class ResponseView(discord.ui.View):
     async def delete_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content=FLAVOR_TEXT["DELETE_MESSAGE"], view=None)
         await asyncio.sleep(3)
-        try: await interaction.message.delete()
+        try: 
+            await services.service.limiter.wait_for_slot("delete_message", interaction.channel_id)
+            await interaction.message.delete()
         except: pass
 
     @discord.ui.button(label=FLAVOR_TEXT["GOOD_BOT_BUTTON"], style=discord.ButtonStyle.success, custom_id="good_bot_btn", row=0)

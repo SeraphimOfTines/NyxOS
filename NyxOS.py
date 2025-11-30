@@ -236,6 +236,7 @@ class LMStudioBot(discord.Client):
 
                     # 3. Edit Message (Update View)
                     view = ui.StatusBarView(final_content, bar_data["user_id"], channel_id, bar_data["persisting"])
+                    await services.service.limiter.wait_for_slot("edit_message", channel_id)
                     await old_msg.edit(content=final_content, view=view)
                     
                     # 4. Update State
@@ -303,6 +304,7 @@ class LMStudioBot(discord.Client):
         # --- Send New Message ---
         view = ui.StatusBarView(final_content, bar_data["user_id"], channel_id, bar_data["persisting"])
         try:
+            await services.service.limiter.wait_for_slot("send_message", channel_id)
             new_msg = await channel.send(final_content, view=view)
             
             # Update State
@@ -397,6 +399,7 @@ class LMStudioBot(discord.Client):
 
                     try:
                         view = ui.StatusBarView(final_content, bar_data["user_id"], cid, persisting)
+                        await services.service.limiter.wait_for_slot("edit_message", cid)
                         await msg.edit(content=final_content, view=view)
                         
                         self.active_bars[cid] = {
@@ -423,6 +426,7 @@ class LMStudioBot(discord.Client):
                 send_content = re.sub(r'>[ \t]+<', '><', send_content)
 
                 view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
+                await services.service.limiter.wait_for_slot("send_message", cid)
                 new_msg = await ch.send(send_content, view=view)
                 
                 self.active_bars[cid] = {
@@ -515,6 +519,7 @@ class LMStudioBot(discord.Client):
                     
                     try:
                         view = ui.StatusBarView(final_content, bar_data["user_id"], cid, persisting)
+                        await services.service.limiter.wait_for_slot("edit_message", cid)
                         await msg.edit(content=final_content, view=view)
                         
                         self.active_bars[cid] = {
@@ -528,18 +533,19 @@ class LMStudioBot(discord.Client):
                         memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting)
                         return True
                     except Exception as e:
-                         logger.warning(f"Idle edit failed in {cid}: {e}")
+                        logger.warning(f"Idle edit failed in {cid}, falling back to wipe/send: {e}")
 
                 # FALLBACK: Wipe & Replace
                 await self.wipe_channel_bars(ch)
-
+                
                 chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                 send_content = f"{new_base_content} {chk}"
                 send_content = re.sub(r'>[ \t]+<', '><', send_content)
 
                 view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
+                await services.service.limiter.wait_for_slot("send_message", cid)
                 new_msg = await ch.send(send_content, view=view)
-                
+
                 self.active_bars[cid] = {
                     "content": new_base_content,
                     "user_id": self.user.id,
@@ -632,6 +638,7 @@ class LMStudioBot(discord.Client):
                 try:
                     msg = await ch.fetch_message(msg_id)
                     view = ui.StatusBarView(content_to_send, bar_data["user_id"], cid, bar_data.get("persisting", False))
+                    await services.service.limiter.wait_for_slot("edit_message", cid)
                     await msg.edit(content=content_to_send, view=view)
                     
                     self.active_bars[cid]["content"] = final_content
@@ -733,6 +740,7 @@ class LMStudioBot(discord.Client):
 
                      try:
                          view = ui.StatusBarView(final_content, self.user.id, cid, persisting)
+                         await services.service.limiter.wait_for_slot("edit_message", cid)
                          await msg.edit(content=final_content, view=view)
                          
                          self.active_bars[cid] = {
@@ -757,6 +765,7 @@ class LMStudioBot(discord.Client):
                 send_content = re.sub(r'>[ \t]+<', '><', send_content)
 
                 view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
+                await services.service.limiter.wait_for_slot("send_message", cid)
                 new_msg = await ch.send(send_content, view=view)
                 
                 # 5. Register
@@ -1364,6 +1373,7 @@ class LMStudioBot(discord.Client):
 
                     if is_target:
                         try: 
+                            await services.service.limiter.wait_for_slot("delete_message", channel.id)
                             await msg.delete()
                             count += 1
                         except: pass
@@ -1448,6 +1458,7 @@ class LMStudioBot(discord.Client):
             full_content = re.sub(r'>[ \t]+<', '><', full_content)
 
             try:
+                await services.service.limiter.wait_for_slot("edit_message", interaction.channel_id)
                 await active_msg.edit(content=full_content)
                 
                 self.active_bars[interaction.channel_id]["content"] = content_with_prefix
@@ -1490,6 +1501,7 @@ class LMStudioBot(discord.Client):
         await interaction.response.defer(ephemeral=False)
         
         view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
+        await services.service.limiter.wait_for_slot("send_message", interaction.channel_id)
         msg = await interaction.channel.send(full_content, view=view)
         
         # Update State
@@ -1537,6 +1549,7 @@ class LMStudioBot(discord.Client):
         await interaction.response.defer(ephemeral=False)
         
         view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
+        await services.service.limiter.wait_for_slot("send_message", interaction.channel_id)
         msg = await interaction.channel.send(full_content, view=view)
         
         self.active_bars[interaction.channel_id] = {
@@ -2555,11 +2568,11 @@ async def on_message(message):
                 logger.debug(f"Reply Check Error: {e}")
 
         # INSTANT REACTION
-        if should_respond:
-            try:
-                await message.add_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"])
-                reaction_added = True
-            except: pass
+        # if should_respond:
+        #     try:
+        #         await message.add_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"])
+        #         reaction_added = True
+        #     except: pass
 
         # --- PROXY/WEBHOOK CHECKS ---
         if message.webhook_id is None:
@@ -2825,9 +2838,19 @@ async def on_message(message):
                         return
 
                     # Query LLM
+                    # ... existing logic ...
+                    
+                    logger.info(f"Generating response for {message.author.name}...")
                     response_text = await services.service.query_lm_studio(
-                        clean_prompt, clean_name, identity_suffix, history_messages, 
-                        message.channel, image_data_uri, member_description, search_context, current_reply_context
+                        clean_prompt, 
+                        real_name, 
+                        identity_suffix, 
+                        history_messages, 
+                        message.channel,
+                        image_data_uri,
+                        member_description,
+                        search_context=search_context,
+                        system_prompt_override=system_prompt_override
                     )
                     
                     # Check Abort Signal AFTER Generation
@@ -2858,6 +2881,7 @@ async def on_message(message):
                                     child.label = "Good Bot!"
                             try:
                                 old_msg = await message.channel.fetch_message(prev_msg_id)
+                                await services.service.limiter.wait_for_slot("edit_message", message.channel.id)
                                 await old_msg.edit(view=prev_view)
                             except: pass
 
@@ -2865,8 +2889,10 @@ async def on_message(message):
                         if len(response_text) > 2000:
                             from io import BytesIO
                             file = discord.File(BytesIO(response_text.encode()), filename="response.txt")
+                            await services.service.limiter.wait_for_slot("send_message", message.channel.id)
                             sent_message = await message.reply("(Response too long, see file)", file=file, view=view, mention_author=False)
                         else:
+                            await services.service.limiter.wait_for_slot("send_message", message.channel.id)
                             sent_message = await message.reply(response_text, view=view, mention_author=False)
                         
                         if sent_message:

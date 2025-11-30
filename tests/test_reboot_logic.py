@@ -63,7 +63,7 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
                         
                         # VERIFY                      
                         # 1. Defer                    
-                        interaction.response.defer.assert_called_with(ephemeral=False)                        
+                        interaction.response.defer.assert_called_with(ephemeral=True)                        
                         # 2. Console Messages
                         console_ch.purge.assert_called()
                         self.assertGreaterEqual(console_ch.send.call_count, 3)

@@ -7,6 +7,7 @@ import config
 import helpers
 import memory_manager
 import logging
+import rate_limiter
 
 logger = logging.getLogger("Services")
 
@@ -17,6 +18,7 @@ class APIService:
         self.pk_user_cache = {}   
         self.pk_proxy_tags = {}   
         self.my_system_members = set() 
+        self.limiter = rate_limiter.limiter 
 
     async def start(self):
         self.http_session = aiohttp.ClientSession()
@@ -412,7 +414,8 @@ class APIService:
             "stream": False
         }
         
-        # print(f"\n--- DEBUG PAYLOAD --- Roles: {'. '.join([m.get('role', 'unknown') for m in cleaned_messages])}")
+        print(f"\n--- DEBUG PAYLOAD --- Roles: {'. '.join([m.get('role', 'unknown') for m in cleaned_messages])}")
+        logger.info(f"Sending request to LM Studio: {config.LM_STUDIO_URL}")
 
         async with self.http_session.post(config.LM_STUDIO_URL, json=payload, headers=headers) as resp:
             if resp.status == 200:

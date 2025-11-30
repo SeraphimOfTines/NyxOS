@@ -26,7 +26,7 @@ if [ -n "$other_scripts" ]; then
 fi
 
 pkill -9 -f "python.*NyxOS.py" || true
-sleep 1
+sleep 5
 
 # 5. Launch Bot
 echo "🚀 Starting NyxOS..."
