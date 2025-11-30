@@ -15,9 +15,9 @@ echo "📥 Checking dependencies..."
 pip install -r requirements.txt --quiet
 
 # 4. Cleanup Previous Instances
-echo "🧹 Cleaning up old processes..."
-pkill -f "python.*NyxOS.py" || true
-sleep 2
+echo "☢️  Nuking old processes..."
+pkill -9 -f "python.*NyxOS.py" || true
+sleep 1
 
 # 5. Launch Bot
 echo "🚀 Starting NyxOS..."

@@ -48,32 +48,41 @@ if not logger.handlers:
 logging.getLogger().setLevel(logging.INFO)
 
 def kill_duplicate_processes():
-    """Kills other instances of the bot script to prevent duplicates."""
-    try:
-        current_pid = os.getpid()
-        # Find all PIDs matching "python.*NyxOS.py"
-        result = subprocess.run(['pgrep', '-f', 'python.*NyxOS.py'], stdout=subprocess.PIPE, text=True)
-        
-        killed_any = False
-        if result.returncode == 0:
+    """Nuclear option: Kills other instances with SIGKILL and ensures they are dead."""
+    my_pid = os.getpid()
+    logger.info(f"💀 Nuclear cleanup initiated. My PID: {my_pid}")
+    
+    # Retry loop to ensure death
+    for i in range(3):
+        try:
+            # Find all PIDs matching "python.*NyxOS.py"
+            result = subprocess.run(['pgrep', '-f', 'python.*NyxOS.py'], stdout=subprocess.PIPE, text=True)
+            
+            if result.returncode != 0:
+                break # No processes found
+            
             pids = result.stdout.strip().split('\n')
+            killed_something = False
+            
             for pid_str in pids:
                 if not pid_str.strip(): continue
                 try:
                     pid = int(pid_str)
-                    if pid != current_pid:
-                        logger.info(f"🔪 Killing duplicate instance (PID: {pid})")
-                        os.kill(pid, signal.SIGTERM)
-                        killed_any = True
+                    if pid != my_pid:
+                        logger.warning(f"💥 SIGKILLing PID: {pid}")
+                        os.kill(pid, signal.SIGKILL) # NUCLEAR
+                        killed_something = True
                 except (ValueError, ProcessLookupError):
                     pass
-        
-        if killed_any:
-            logger.info("⏳ Waiting 2s for processes to terminate...")
-            time.sleep(2)
-
-    except Exception as e:
-        logger.warning(f"⚠️ Error during process cleanup: {e}")
+            
+            if not killed_something:
+                break # Only self remaining (or none)
+            
+            time.sleep(1) # Wait for OS to clean up
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error during process cleanup: {e}")
+            break
 
 intents = discord.Intents.default()
 intents.messages = True
