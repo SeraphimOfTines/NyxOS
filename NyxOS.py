@@ -793,18 +793,22 @@ class LMStudioBot(discord.Client):
             pass
 
         # Construct Text
+        # For Reboot: Header = "System Online" + "Waking X/X" (from reboot sub)
+        # For Fresh: Header = "System Online" + "NyxOS v2.0"
+        
         startup_header_text = f"{config.MSG_STARTUP_HEADER}\n{config.MSG_STARTUP_SUB}"
         
-        # Handling Crash Logic (Mock or Real)
-        # Since we cleared the flag in setup_hook, we can't check it here easily without passing state.
-        # Let's assume manual starts are "System Online".
-        # Only if we add a specific crash flag mechanism.
-        # However, if the user wants "I crashed!"...
-        # Let's assume if we are NOT rebooting, we just say "System Online".
-        # If the user manually adds a way to signal crash, we use it.
-        # For now, stick to System Online / Reboot transition.
-        
-        header_text = startup_header_text
+        # If rebooting, we want to preserve the "Waking X/X" context in the header, 
+        # and KEEP the Body (Link List) intact without overwriting it with logs.
+        if is_reboot:
+             # Re-calculate total bars to ensure accuracy
+             count = len(bar_whitelist)
+             # Use REBOOT_SUB format but for startup phase? 
+             # User said "keep the 'waking 2/2 uplinks'".
+             # We assume they want the final state to show "Waking 2/2" (or "Waking 5/5" etc).
+             reboot_sub = config.MSG_REBOOT_SUB.format(current=count, total=count)
+             startup_header_text = f"{config.MSG_STARTUP_HEADER}\n{reboot_sub}"
+
         body_text = f"🔍 Scanning {len(allowed_channels)} channels for bars..."
 
         for t_id in target_channels:
@@ -815,33 +819,31 @@ class LMStudioBot(discord.Client):
                     continue
 
                 if is_reboot and restart_data.get("channel_id") == t_id:
-                    # Try to edit the existing messages in the console/target channel
+                    # REBOOT FLOW:
+                    # 1. Edit Header -> System Online + Waking Count
+                    # 2. Leave Body (Links) alone.
+                    # 3. Do NOT add to progress_msgs (Silence the scanning log)
+                    
                     h_id = restart_data.get("header_msg_id")
-                    b_id = restart_data.get("body_msg_id")
+                    # b_id = restart_data.get("body_msg_id") # Ignored to preserve links
                     
                     if h_id:
                         try:
                             msg = await t_ch.fetch_message(h_id)
-                            await msg.edit(content=header_text)
+                            await msg.edit(content=startup_header_text)
                         except: 
                             # Failed to edit header, send new
-                            await t_ch.send(header_text)
-                    
-                    if b_id:
-                        try:
-                            msg = await t_ch.fetch_message(b_id)
-                            await msg.edit(content=body_text, view=view)
-                            progress_msgs.append(msg)
-                        except:
-                            # Failed to reuse body, send new
-                            msg = await t_ch.send(body_text, view=view)
-                            progress_msgs.append(msg)
+                            await t_ch.send(startup_header_text)
                     else:
-                         msg = await t_ch.send(body_text, view=view)
-                         progress_msgs.append(msg)
+                        await t_ch.send(startup_header_text)
+                    
+                    # We intentionally do NOT append to progress_msgs here
+                    # to prevent the Wakeup Log from overwriting the Link List.
+                    
                 else:
-                    # Fresh send (or different channel)
-                    await t_ch.send(header_text)
+                    # FRESH/CRASH FLOW:
+                    # Standard Header + Log
+                    await t_ch.send(startup_header_text)
                     msg = await t_ch.send(body_text, view=view)
                     progress_msgs.append(msg)
 
