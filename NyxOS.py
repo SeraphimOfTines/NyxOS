@@ -985,7 +985,7 @@ class LMStudioBot(discord.Client):
                         self.active_views[valid_msg.id] = view
                         memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
                         
-                        wake_log.append(f"{custom_check} Bar restored in {ch.mention}")
+                        wake_log.append(f"{custom_check} | {ch.mention} ONLINE")
                     except Exception as e:
                          logger.warning(f"Startup edit failed for {cid}, attempting re-send: {e}")
                          # If edit fails, invalidate and fall through to POST NEW
