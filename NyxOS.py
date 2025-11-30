@@ -1455,6 +1455,9 @@ async def reboot_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
 
+    # Defer immediately to avoid timeout (Unknown Interaction)
+    await interaction.response.defer(ephemeral=True)
+
     # 1. Identify Console Channel
     console_channel = None
     if config.STARTUP_CHANNEL_ID:
@@ -1512,22 +1515,22 @@ async def reboot_command(interaction: discord.Interaction):
             body_msg_id = m2.id
             
             link = f"https://discord.com/channels/{interaction.guild_id}/{console_channel.id}"
-            await interaction.response.send_message(f"Reboot initiated. [View Console]({link})", ephemeral=True)
+            await interaction.followup.send(f"Reboot initiated. [View Console]({link})", ephemeral=True)
         except Exception as e:
             logger.warning(f"Failed to send to console: {e}")
             # Fallback to interaction channel
             try:
-                await interaction.response.send_message(content=header_text, embed=body_embed, ephemeral=False)
+                await interaction.followup.send(content=header_text, embed=body_embed, ephemeral=False)
             except:
-                await interaction.response.send_message(f"{header_text}\n\n{uplink_list_text}", ephemeral=False)
+                await interaction.followup.send(f"{header_text}\n\n{uplink_list_text}", ephemeral=False)
             
             console_id = interaction.channel_id
     else:
         # Fallback if no console configured
         try:
-            await interaction.response.send_message(content=f"{header_text}\n(Console not configured)", embed=body_embed, ephemeral=False)
+            await interaction.followup.send(content=f"{header_text}\n(Console not configured)", embed=body_embed, ephemeral=False)
         except:
-            await interaction.response.send_message(f"{header_text}\n(Console not configured)\n{uplink_list_text}", ephemeral=False)
+            await interaction.followup.send(f"{header_text}\n(Console not configured)\n{uplink_list_text}", ephemeral=False)
         console_id = interaction.channel_id
     
     # Set all bars to Loading Mode
