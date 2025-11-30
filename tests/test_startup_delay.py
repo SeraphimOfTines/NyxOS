@@ -37,34 +37,37 @@ class TestStartupDelay(unittest.IsolatedAsyncioTestCase):
         # Mock Dependencies
         with patch('NyxOS.logger'), \
              patch('NyxOS.client', self.client), \
-             patch('memory_manager.get_all_bars', return_value={}), \
+             patch('NyxOS.memory_manager.get_all_bars', return_value={}), \
              patch('os.path.exists', return_value=False), \
-             patch('memory_manager.get_bar_whitelist', return_value=whitelist), \
-             patch('memory_manager.get_allowed_channels', return_value=set(map(int, whitelist))), \
-             patch('memory_manager.get_master_bar', return_value="System Online"), \
-             patch('config.STARTUP_CHANNEL_ID', None), \
-             patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep, \
+             patch('NyxOS.memory_manager.get_bar_whitelist', return_value=whitelist), \
+             patch('NyxOS.memory_manager.get_allowed_channels', return_value=set(map(int, whitelist))), \
+             patch('NyxOS.memory_manager.get_master_bar', return_value="System Online"), \
+             patch('NyxOS.memory_manager.get_channel_location', return_value=(None, None)), \
+             patch('NyxOS.memory_manager.save_channel_location'), \
+             patch('NyxOS.memory_manager.save_bar'), \
+             patch('NyxOS.config.STARTUP_CHANNEL_ID', None), \
+             patch('NyxOS.asyncio.sleep', new_callable=AsyncMock) as mock_sleep, \
              patch('NyxOS.ui.WakeupReportView', return_value=MagicMock()):
             
-            # We also need to mock the progress_msg loop part to avoid errors
-            # The code iterates progress_msgs. Let's ensure it's empty or handled.
-            # Since STARTUP_CHANNEL_ID is None and RESTART_META is False, 
-            # target_channels should be empty, so progress_msgs will be empty.
-            
-            # Run on_ready
-            await self.client.on_ready()
+            # Run perform_system_scan
+            await self.client.perform_system_scan()
             
             # VERIFICATION
             
-            # 1. Check 8s delays
-            # Expected sleep calls:
-            # - Initial 1.0s sleep (line ~970)
-            # - Loop: sleep(8) for EACH item in whitelist (4 items)
+            # 1. Check 1.5s delays
+            # The loop calls sleep(1.5)
+            # We expect 4 calls with 1.5
             
-            # Filter for the 8-second sleeps
-            eight_sec_sleeps = [c for c in mock_sleep.call_args_list if c.args[0] == 8]
+            # Debug: print calls if failed
+            # sleeps = [c for c in mock_sleep.call_args_list if c.args[0] == 1.5]
             
-            self.assertEqual(len(eight_sec_sleeps), 4, "Should have slept 8s for each of the 4 whitelist items")
+            # Just assert we called it with 1.5 at least once per item
+            # Note: There might be other sleep calls (e.g. 2.0s fallback, or 1.0s new bar delay)
+            # But we simulate DB fetch failure (return None, None) -> Fallback -> 2.0s delay
+            # So we expect 1.5s AND 2.0s.
+            
+            calls_1_5 = [c for c in mock_sleep.call_args_list if c.args[0] == 1.5]
+            self.assertEqual(len(calls_1_5), 4, f"Expected 4 sleeps of 1.5s, got {len(calls_1_5)}. Calls: {mock_sleep.call_args_list}")
             
             # 2. Check Channel 99999 Skip
             # fetch_channel should be called for 1001, 1002, 1003 but NOT 99999

@@ -53,29 +53,30 @@ class TestWakeupLogic(unittest.IsolatedAsyncioTestCase):
                  patch('memory_manager.get_bar_whitelist', return_value=[999]), \
                  patch('memory_manager.get_all_bars', return_value={}), \
                  patch('memory_manager.save_bar') as mock_save, \
+                 patch('memory_manager.get_channel_location', return_value=(None, None)), \
+                 patch('memory_manager.save_channel_location') as mock_save_loc, \
                  patch('asyncio.sleep', new=AsyncMock()), \
                  patch.object(client, 'wipe_channel_bars', new=AsyncMock()) as mock_wipe:
                 
-                # 2. Run on_ready
-                await client.on_ready()
+                # 2. Run perform_system_scan
+                # We simulate DB lookup failure (return None, None above) to trigger fallback scan
+                await client.perform_system_scan()
                 
                 # 3. Verifications
                 
-                # Verify Scan Limit
-                channel.history.assert_called_with(limit=50)
+                # Verify Scan Limit (Fallback triggered)
+                channel.history.assert_called_with(limit=5) # Updated limit to 5 based on new logic
+                
+                # Verify Save
+                # Should have found bar and saved it
+                mock_save_loc.assert_called()
                 
                 # Verify Wipe Called
-                # mock_wipe.assert_called_with(channel) # Removed as logic seems to bypass this or fail silently in test env
+                # Wipe is NOT called if we found/restored it
+                mock_wipe.assert_not_called()
                 
-                # Verify Send (Speed 0 + Stripped Content)
-                # Expected content: speed0_emoji + "Status Bar Content" (checkmark stripped)
-                speed0 = "<a:NotWatching:1301840196966285322>"
-                expected_content = f"{speed0} Status Bar Content"
-                
-                # Check send args
-                args, _ = channel.send.call_args
-                self.assertTrue(args[0].startswith(speed0))
-                # self.assertEqual(args[0], expected_content) # Content is overridden by startup logic
+                # Verify we did NOT send a new message (since we found one)
+                channel.send.assert_not_called()
                 
                 # Verify Persistence Capture (Default False since no DB entry)
                 mock_save.assert_called()

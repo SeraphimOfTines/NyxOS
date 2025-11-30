@@ -244,11 +244,18 @@ class LMStudioBot(discord.Client):
 
         # 1. Handle Bar Movement
         if move_bar:
-            # Delete old bar
+            # Delete old bar (OR Split if checkmark stays)
             if old_bar_id:
                 try:
                     old_msg = await channel.fetch_message(old_bar_id)
-                    await old_msg.delete()
+                    
+                    if old_bar_id == old_check_id and not move_check:
+                        # SPLIT: Bar moves, Check stays. 
+                        # Edit old message to be just Checkmark.
+                        await old_msg.edit(content=ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], view=None)
+                    else:
+                        # DELETE: Bar moves, Check moves (or is separate).
+                        await old_msg.delete()
                 except: pass
             
             # Send new bar
@@ -1064,7 +1071,7 @@ class LMStudioBot(discord.Client):
         wake_log = []
         
         for cid_str in bar_whitelist:
-            await asyncio.sleep(2) # Increased base delay for safety
+            await asyncio.sleep(1.5) # Rate limit protection
             
             try:
                 cid = int(cid_str)
@@ -1142,6 +1149,8 @@ class LMStudioBot(discord.Client):
                         "checkmark_message_id": check_msg.id if check_msg else None,
                         "persisting": persisting
                     }
+                    
+                    memory_manager.save_bar(cid, ch.guild.id, bar_msg.id, user_id, content, persisting)
                     
                     # Log (Link to Checkmark)
                     link_id = check_msg.id if check_msg else bar_msg.id
