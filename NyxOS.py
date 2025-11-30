@@ -744,6 +744,10 @@ class LMStudioBot(discord.Client):
         logger.info("⏳ Waiting 1s before waking bars...")
         await asyncio.sleep(1.0)
         
+        # Load Whitelist EARLY to avoid UnboundLocalError
+        bar_whitelist = memory_manager.get_bar_whitelist()
+        allowed_channels = memory_manager.get_allowed_channels()
+        
         # --- STARTUP PROGRESS MESSAGE ---
         target_channels = set()
         if config.STARTUP_CHANNEL_ID:
@@ -752,60 +756,15 @@ class LMStudioBot(discord.Client):
             target_channels.add(restart_data.get("channel_id"))
         
         progress_msgs = []
-        allowed_channels = memory_manager.get_allowed_channels()
-        
         view = ui.WakeupReportView()
         
-        # State Logic
-        # 1. Reboot: Has restart_data with msg_ids. Edit Header -> Startup. Use Body for Log.
-        # 2. Clean Start: No restart_data, but Shutdown Flag (or just manual). Send Header (Startup) + Body (Log).
-        # 3. Crash: No restart_data, No Shutdown Flag. Send Header (Crash) + Body (Log).
-        
         is_reboot = (restart_data is not None and "header_msg_id" in restart_data)
-        is_crash = False
         
-        # Determine Crash Status (if not reboot)
-        if not is_reboot:
-            # If shutdown flag is MISSING, and it's not a reboot, assume crash/unexpected.
-            # Unless it's the very first run? Hard to tell. 
-            # We'll rely on SHUTDOWN_FLAG_FILE existence.
-            # If file exists -> Clean shutdown. If not -> Crash.
-            # (Wait, setup_hook deletes it? No, setup_hook runs BEFORE on_ready?)
-            # setup_hook runs early. We need to check flag BEFORE setup_hook deletes it.
-            # But setup_hook deleted it! 
-            # We need to move flag check to init or before setup_hook deletes it?
-            # Or just check restart_data.
-            # Let's assume if RESTART_META_FILE existed, it was a reboot.
-            # If not, we default to Startup Message.
-            # If we want explicit crash detection, we need a persistent state.
-            # For now, let's stick to "System Online" for manual starts and "System Online" (Edited) for reboots.
-            # The user requested "I crashed!" message. 
-            # To detect crash: Check for a PID file lock or similar?
-            # Current system uses heartbeat. Monitor handles crashes.
-            # If monitor restarts us, it's a new process.
-            # If monitor sees a crash, it logs it.
-            # Here, we are the bot.
-            # If we want to know if we crashed, we check if SHUTDOWN_FLAG_FILE was present.
-            # BUT setup_hook deletes it.
-            # We can check `client.was_clean_shutdown` if we set it in `setup_hook` before delete.
-            # `setup_hook` is async. `__init__` is sync.
-            # Let's trust the user mostly wants the reboot transition.
-            pass
-
         # Construct Text
-        # For Reboot: Header = "System Online" + "Waking X/X" (from reboot sub)
-        # For Fresh: Header = "System Online" + "NyxOS v2.0"
-        
         startup_header_text = f"{config.MSG_STARTUP_HEADER}\n{config.MSG_STARTUP_SUB}"
         
-        # If rebooting, we want to preserve the "Waking X/X" context in the header, 
-        # and KEEP the Body (Link List) intact without overwriting it with logs.
         if is_reboot:
-             # Re-calculate total bars to ensure accuracy
              count = len(bar_whitelist)
-             # Use REBOOT_SUB format but for startup phase? 
-             # User said "keep the 'waking 2/2 uplinks'".
-             # We assume they want the final state to show "Waking 2/2" (or "Waking 5/5" etc).
              reboot_sub = config.MSG_REBOOT_SUB.format(current=count, total=count)
              startup_header_text = f"{config.MSG_STARTUP_HEADER}\n{reboot_sub}"
 
@@ -819,30 +778,82 @@ class LMStudioBot(discord.Client):
                     continue
 
                 if is_reboot and restart_data.get("channel_id") == t_id:
-                    # REBOOT FLOW:
-                    # 1. Edit Header -> System Online + Waking Count
-                    # 2. Leave Body (Links) alone.
-                    # 3. Do NOT add to progress_msgs (Silence the scanning log)
-                    
+                    # REBOOT FLOW
                     h_id = restart_data.get("header_msg_id")
-                    # b_id = restart_data.get("body_msg_id") # Ignored to preserve links
+                    b_id = restart_data.get("body_msg_id")
                     
-                    if h_id:
+                    # Check Channel State: Is it clean?
+                    # We want exactly these 2 messages at the bottom.
+                    # If not, or if fetching fails, we WIPE and RESEND.
+                    is_clean = False
+                    try:
+                        # Check last 2 messages
+                        history = [m async for m in t_ch.history(limit=5)]
+                        if len(history) >= 2:
+                            # Check if the last 2 are exactly our H and B (in order B then H from bottom up? No, history is new->old)
+                            # Most recent (index 0) should be Body (Link List)
+                            # Next (index 1) should be Header
+                            if history[0].id == b_id and history[1].id == h_id:
+                                is_clean = True
+                    except: pass
+
+                    if is_clean:
                         try:
-                            msg = await t_ch.fetch_message(h_id)
-                            await msg.edit(content=startup_header_text)
-                        except: 
-                            # Failed to edit header, send new
-                            await t_ch.send(startup_header_text)
-                    else:
+                            # Edit Header
+                            h_msg = await t_ch.fetch_message(h_id)
+                            await h_msg.edit(content=startup_header_text)
+                            # Body (Links) is preserved, do nothing.
+                        except:
+                            # Edit failed? Fallback to wipe.
+                            is_clean = False
+
+                    if not is_clean:
+                        # WIPE AND RESEND
+                        try: await t_ch.purge(limit=100)
+                        except: pass
+                        
+                        # Send Header
                         await t_ch.send(startup_header_text)
-                    
-                    # We intentionally do NOT append to progress_msgs here
-                    # to prevent the Wakeup Log from overwriting the Link List.
-                    
+                        
+                        # Resend Body (We need to reconstruct the link list!)
+                        # Since we didn't save the body text in metadata, we must regenerate it.
+                        # Fortunately, active_bars is loaded.
+                        
+                        # Regenerate Uplink List
+                        active_ids = list(self.active_bars.keys())
+                        uplink_list_text = f"{config.MSG_ACTIVE_UPLINKS_HEADER}\n"
+                        if not active_ids:
+                            uplink_list_text += "(None)"
+                        else:
+                            for cid in active_ids:
+                                bar_data = self.active_bars[cid]
+                                msg_id = bar_data.get("message_id")
+                                
+                                ch = self.get_channel(cid)
+                                if not ch:
+                                    try: ch = await self.fetch_channel(cid)
+                                    except: pass
+                                
+                                name = ch.name if ch else f"Channel {cid}"
+                                guild_id = ch.guild.id if ch and ch.guild else "@me"
+                                
+                                if msg_id:
+                                    link = f"https://discord.com/channels/{guild_id}/{cid}/{msg_id}"
+                                    uplink_list_text += f"- [{name}]({link})\n"
+                                else:
+                                    uplink_list_text += f"- {name}\n"
+                        
+                        # Send Body as Embed (Per requirement for links? No, user asked to keep message way it is but links underneath)
+                        # Wait, standard text message does NOT support masked links [Tx](Url).
+                        # If we want clickable links like `[Channel](URL)`, we MUST use Embed.
+                        # If the user saw broken links, it's likely because they were plain text.
+                        # Changing to Embed for the Body.
+                        
+                        embed = discord.Embed(description=uplink_list_text, color=discord.Color.blue())
+                        await t_ch.send(embed=embed)
+
                 else:
-                    # FRESH/CRASH FLOW:
-                    # Standard Header + Log
+                    # FRESH/CRASH FLOW
                     await t_ch.send(startup_header_text)
                     msg = await t_ch.send(body_text, view=view)
                     progress_msgs.append(msg)
@@ -851,7 +862,6 @@ class LMStudioBot(discord.Client):
                 logger.error(f"❌ Failed to send startup messages to {t_id}: {e}")
 
         # --- PHASE 1: SCANNING & RESTORATION ---
-        bar_whitelist = memory_manager.get_bar_whitelist()
         master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
         master_content = master_content.strip()
         
@@ -1481,8 +1491,8 @@ async def reboot_command(interaction: discord.Interaction):
     header_sub = config.MSG_REBOOT_SUB.format(current=uplink_count, total=uplink_count)
     header_text = f"{config.MSG_REBOOT_HEADER}\n{header_sub}"
     
-    # Body: Active Uplinks list
-    body_text = uplink_list_text
+    # Body: Active Uplinks list (Embed for masked links)
+    body_embed = discord.Embed(description=uplink_list_text, color=discord.Color.blue())
 
     # 4. Send Messages
     header_msg_id = None
@@ -1493,20 +1503,26 @@ async def reboot_command(interaction: discord.Interaction):
         try:
             m1 = await console_channel.send(header_text)
             header_msg_id = m1.id
-            m2 = await console_channel.send(body_text)
+            m2 = await console_channel.send(embed=body_embed)
             body_msg_id = m2.id
             
             link = f"https://discord.com/channels/{interaction.guild_id}/{console_channel.id}"
             await interaction.response.send_message(f"Reboot initiated. [View Console]({link})", ephemeral=True)
         except Exception as e:
             logger.warning(f"Failed to send to console: {e}")
-            # Fallback to interaction channel (non-ephemeral so we can edit? No, restart kills ref)
-            await interaction.response.send_message(f"{header_text}\n\n{body_text}", ephemeral=False)
-            # If fallback, we assume current channel is console for this run
+            # Fallback to interaction channel
+            try:
+                await interaction.response.send_message(content=header_text, embed=body_embed, ephemeral=False)
+            except:
+                await interaction.response.send_message(f"{header_text}\n\n{uplink_list_text}", ephemeral=False)
+            
             console_id = interaction.channel_id
     else:
         # Fallback if no console configured
-        await interaction.response.send_message(f"{header_text}\n(Console not configured)", ephemeral=False)
+        try:
+            await interaction.response.send_message(content=f"{header_text}\n(Console not configured)", embed=body_embed, ephemeral=False)
+        except:
+            await interaction.response.send_message(f"{header_text}\n(Console not configured)\n{uplink_list_text}", ephemeral=False)
         console_id = interaction.channel_id
     
     # Set all bars to Loading Mode
