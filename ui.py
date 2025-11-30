@@ -58,7 +58,8 @@ FLAVOR_TEXT = {
     "STARTUP_HEADER": "# <a:SeraphErynianChip:1444481882988216473> System Online <a:SeraphErynianChip:1444481882988216473>",
     "STARTUP_SUB": "-# NyxOS v2.0",
     "UPLINKS_HEADER": "# Active Uplinks",
-    "COSMETIC_DIVIDER": "━━━━━━━━━━━━━━━━━━━━━━",
+    "COSMETIC_DIVIDER": "⋘───────⋅☾𓆩⭖𓆪☽⋅────────⋙",
+    "CUSTOM_CHECKMARK": "<a:SeraphHyperYes:1331530716508459018>",
 }
 
 BAR_PREFIX_EMOJIS = [

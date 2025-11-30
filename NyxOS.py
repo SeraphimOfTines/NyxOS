@@ -768,10 +768,11 @@ class LMStudioBot(discord.Client):
         
         # Msg 2: Master Bar + Divider
         master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
-        msg2_text = f"{master_content.strip()}\n{divider}"
+        msg2_text = f"{master_content.strip()}"
         
         # Msg 3: Body (Progress)
-        body_text = f"🔍 Scanning {len(allowed_channels)} channels for bars..."
+        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
+        body_text = f"{divider}\n🔍 Scanning {len(allowed_channels)} channels for bars..."
 
         for t_id in target_channels:
             try:
@@ -792,7 +793,6 @@ class LMStudioBot(discord.Client):
                         # Check last 3 messages
                         history = [m async for m in t_ch.history(limit=5)]
                         # We expect: Body (0), Bar (1), Header (2) [Reverse order]
-                        # If bar_id is None (legacy), we treat as dirty.
                         if bar_id and len(history) >= 3:
                              if history[0].id == b_id and history[1].id == bar_id and history[2].id == h_id:
                                  is_clean = True
@@ -809,9 +809,12 @@ class LMStudioBot(discord.Client):
                             await bar_msg.edit(content=msg2_text)
                             
                             # Body (Links) is preserved/updated.
-                            # We add it to progress_msgs to be updated by the loop.
                             b_msg = await t_ch.fetch_message(b_id)
+                            # Reset to scanning text, remove embeds/views
+                            await b_msg.edit(content=body_text, embed=None, view=None)
                             progress_msgs.append(b_msg)
+                            
+                            client.startup_header_msg = h_msg
                         except:
                             # Edit failed? Fallback to wipe.
                             is_clean = False
@@ -821,21 +824,48 @@ class LMStudioBot(discord.Client):
                         try: await t_ch.purge(limit=100)
                         except: pass
                         
-                        await t_ch.send(startup_header_text)
+                        h_msg = await t_ch.send(startup_header_text)
+                        client.startup_header_msg = h_msg
+                        
                         await t_ch.send(msg2_text)
                         
-                        # For body, we start with "Scanning..." text instead of Embed if we wiped.
-                        # Or should we try to restore the embed? 
-                        # The loop below updates it to "Scanning..." anyway.
-                        msg = await t_ch.send(body_text, view=view)
+                        msg = await t_ch.send(body_text, view=None)
                         progress_msgs.append(msg)
 
                 else:
                     # FRESH/CRASH FLOW
-                    await t_ch.send(startup_header_text)
-                    await t_ch.send(msg2_text)
-                    msg = await t_ch.send(body_text, view=view)
-                    progress_msgs.append(msg)
+                    recovered = False
+                    try:
+                        # Scan for existing bot messages to edit
+                        history = [m async for m in t_ch.history(limit=10)]
+                        bot_msgs = [m for m in history if m.author.id == self.user.id]
+                        
+                        # We look for the 3 most recent bot messages (Body, Bar, Header)
+                        if len(bot_msgs) >= 3:
+                            b_msg = bot_msgs[0]
+                            bar_msg = bot_msgs[1]
+                            h_msg = bot_msgs[2]
+                            
+                            await h_msg.edit(content=startup_header_text)
+                            await bar_msg.edit(content=msg2_text)
+                            await b_msg.edit(content=body_text, view=None, embed=None)
+                            
+                            progress_msgs.append(b_msg)
+                            client.startup_header_msg = h_msg
+                            recovered = True
+                    except: pass
+
+                    if not recovered:
+                        # WIPE AND RESEND
+                        try: await t_ch.purge(limit=100)
+                        except: pass
+
+                        h_msg = await t_ch.send(startup_header_text)
+                        client.startup_header_msg = h_msg
+                        
+                        await t_ch.send(msg2_text)
+                        msg = await t_ch.send(body_text, view=None)
+                        progress_msgs.append(msg)
 
             except Exception as e:
                 logger.error(f"❌ Failed to send startup messages to {t_id}: {e}")
@@ -848,19 +878,29 @@ class LMStudioBot(discord.Client):
         logger.info(f"Scanning {len(bar_whitelist)} whitelisted bar channels...")
         
         # Update progress message
-        status_str = f"🔍 Scanning {len(bar_whitelist)} channels for bars..."
+        status_str = f"{divider}\n🔍 Scanning {len(bar_whitelist)} channels for bars..."
         for p_msg in progress_msgs:
-            try: await p_msg.edit(content=status_str, embed=None, view=view)
+            try: await p_msg.edit(content=status_str, embed=None, view=None)
             except: pass
 
         woken_count = 0
         total_bars = len(bar_whitelist)
         wake_log = []
+        custom_check = ui.FLAVOR_TEXT["CUSTOM_CHECKMARK"]
 
         for cid_str in bar_whitelist:
             try:
                 cid = int(cid_str)
                 ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                
+                # Dynamic Header Update: "Restoring #channel..."
+                # Replaces "NyxOS v2.0" in the header message
+                if hasattr(client, "startup_header_msg") and client.startup_header_msg:
+                    temp_sub = f"-# Restoring {ch.name if ch else cid}..."
+                    temp_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{temp_sub}\n{divider}"
+                    try: await client.startup_header_msg.edit(content=temp_header)
+                    except: pass
+
                 if not ch: continue
                 
                 # Determine Target Content
@@ -945,7 +985,7 @@ class LMStudioBot(discord.Client):
                         self.active_views[valid_msg.id] = view
                         memory_manager.save_bar(cid, ch.guild.id, valid_msg.id, self.user.id, new_base_content, persisting)
                         
-                        wake_log.append(f"✅ Bar restored in {ch.mention}")
+                        wake_log.append(f"{custom_check} Bar restored in {ch.mention}")
                     except Exception as e:
                          logger.warning(f"Startup edit failed for {cid}, attempting re-send: {e}")
                          # If edit fails, invalidate and fall through to POST NEW
@@ -966,13 +1006,13 @@ class LMStudioBot(discord.Client):
                     self.active_views[msg.id] = view
                     memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting)
                     
-                    wake_log.append(f"✅ New bar created in {ch.mention}")
+                    wake_log.append(f"{custom_check} New bar created in {ch.mention}")
 
                 woken_count += 1
                 
                 # Log Progress
                 log_str = "\n".join(wake_log[-5:])
-                status_str = f"🔄 Waking bars ({woken_count}/{total_bars})...\n{log_str}"
+                status_str = f"{divider}\n🔄 Waking bars...\n{log_str}"
                 for p_msg in progress_msgs:
                     try: await p_msg.edit(content=status_str)
                     except: pass
@@ -981,15 +1021,21 @@ class LMStudioBot(discord.Client):
                 logger.error(f"Failed to wake bar in {cid_str}: {e}")
 
         
-        # Final Update (No auto-delete)
-        final_status = f"✅ **Wakeup Complete!** ({woken_count}/{total_bars})\n" + "\n".join(wake_log)
+        # Final Update (No auto-delete, no count in final string)
+        final_status = f"{divider}\n" + "\n".join(wake_log)
         if len(final_status) > 2000:
-             final_status = f"✅ **Wakeup Complete!** ({woken_count}/{total_bars})\n(Log truncated due to length)"
+             final_status = f"{divider}\n(Log truncated due to length)"
 
         for p_msg in progress_msgs:
             try:
-                await p_msg.edit(content=final_status, embed=None, view=view)
+                await p_msg.edit(content=final_status, embed=None, view=None)
             except: pass
+        
+        # Reset Header to Standard
+        if hasattr(client, "startup_header_msg") and client.startup_header_msg:
+             try:
+                 await client.startup_header_msg.edit(content=startup_header_text)
+             except: pass
         
         client.has_synced = True
         
@@ -1478,10 +1524,11 @@ async def reboot_command(interaction: discord.Interaction):
     
     # Msg 2: Master Bar + Divider
     master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
-    msg2_text = f"{master_content.strip()}\n{divider}"
+    msg2_text = f"{master_content.strip()}"
 
-    # Msg 3: Active Uplinks list (Embed for masked links)
-    body_embed = discord.Embed(description=uplink_list_text, color=discord.Color.blue())
+    # Msg 3: Active Uplinks list (Text)
+    divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
+    body_text_msg = f"{divider}\n{uplink_list_text}"
 
     # 4. Send Messages
     header_msg_id = None
@@ -1501,7 +1548,7 @@ async def reboot_command(interaction: discord.Interaction):
             m2 = await console_channel.send(msg2_text)
             bar_msg_id = m2.id
             
-            m3 = await console_channel.send(embed=body_embed)
+            m3 = await console_channel.send(content=body_text_msg)
             body_msg_id = m3.id
             
             link = f"https://discord.com/channels/{interaction.guild_id}/{console_channel.id}"
