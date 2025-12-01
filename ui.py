@@ -282,6 +282,18 @@ class WakeupReportView(discord.ui.View):
 class ConsoleControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        self.update_button_styles()
+
+    def update_button_styles(self):
+        mode = memory_manager.get_server_setting("system_mode", "normal")
+        
+        # Idle Button
+        idle_btn = [x for x in self.children if getattr(x, "custom_id", "") == "console_idle_btn"][0]
+        idle_btn.style = discord.ButtonStyle.success if mode == "idle" else discord.ButtonStyle.secondary
+        
+        # Sleep Button
+        sleep_btn = [x for x in self.children if getattr(x, "custom_id", "") == "console_sleep_btn"][0]
+        sleep_btn.style = discord.ButtonStyle.success if mode == "sleep" else discord.ButtonStyle.secondary
 
     @discord.ui.button(emoji="💤", style=discord.ButtonStyle.secondary, custom_id="console_idle_btn", row=0)
     async def idle_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -302,6 +314,18 @@ class ConsoleControlView(discord.ui.View):
         if hasattr(interaction.client, "sleep_all_bars"):
              await interaction.response.defer()
              await interaction.client.sleep_all_bars()
+        else:
+             await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
+
+    @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.primary, custom_id="console_sync_btn", row=0)
+    async def sync_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not helpers.is_authorized(interaction.user):
+             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+             return
+        if hasattr(interaction.client, "sync_bars"):
+             await interaction.response.defer()
+             count = await interaction.client.sync_bars()
+             await interaction.followup.send(f"✅ Synced! Removed {count} invalid bars.", ephemeral=True)
         else:
              await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 

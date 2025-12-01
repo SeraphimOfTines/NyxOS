@@ -1730,6 +1730,52 @@ class LMStudioBot(discord.Client):
         
         await interaction.delete_original_response()
 
+    async def sync_bars(self):
+        """
+        Checks all whitelisted bars for existence. Removes invalid entries from DB/Memory.
+        Returns the number of removed/invalid bars.
+        """
+        bar_whitelist = memory_manager.get_bar_whitelist()
+        removed_count = 0
+        
+        # Copy list to avoid modification during iteration issues
+        for cid_str in list(bar_whitelist):
+            cid = int(cid_str)
+            
+            # 1. Check if known in DB active_bars
+            if cid not in self.active_bars:
+                # In whitelist but no active bar data -> Remove
+                memory_manager.remove_bar_whitelist(cid)
+                removed_count += 1
+                continue
+                
+            # 2. Check Server Existence
+            bar_data = self.active_bars[cid]
+            msg_id = bar_data.get("message_id")
+            
+            if not msg_id:
+                 # Corrupt data -> Remove
+                 del self.active_bars[cid]
+                 memory_manager.delete_bar(cid)
+                 memory_manager.remove_bar_whitelist(cid)
+                 removed_count += 1
+                 continue
+                 
+            try:
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                await ch.fetch_message(msg_id)
+                # If succeeds, it exists. Do nothing.
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                # Missing -> Remove
+                if cid in self.active_bars: del self.active_bars[cid]
+                memory_manager.delete_bar(cid)
+                memory_manager.remove_bar_whitelist(cid)
+                removed_count += 1
+
+        # Update Console
+        await self.update_console_status()
+        return removed_count
+
     async def perform_shutdown_sequence(self, interaction, restart=True):
         # 1. Setup
         memory_manager.set_server_setting("global_chat_enabled", False)
@@ -1879,46 +1925,7 @@ async def syncbars_command(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     
-    bar_whitelist = memory_manager.get_bar_whitelist()
-    removed_count = 0
-    
-    # Copy list to avoid modification during iteration issues (though strings are safe)
-    for cid_str in list(bar_whitelist):
-        cid = int(cid_str)
-        
-        # 1. Check if known in DB active_bars
-        if cid not in client.active_bars:
-            # In whitelist but no active bar data -> Remove
-            memory_manager.remove_bar_whitelist(cid)
-            removed_count += 1
-            continue
-            
-        # 2. Check Server Existence
-        # We check if we can fetch the message.
-        bar_data = client.active_bars[cid]
-        msg_id = bar_data.get("message_id")
-        
-        if not msg_id:
-             # Corrupt data -> Remove
-             del client.active_bars[cid]
-             memory_manager.delete_bar(cid)
-             memory_manager.remove_bar_whitelist(cid)
-             removed_count += 1
-             continue
-             
-        try:
-            ch = client.get_channel(cid) or await client.fetch_channel(cid)
-            await ch.fetch_message(msg_id)
-            # If succeeds, it exists. Do nothing.
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-            # Missing -> Remove
-            if cid in client.active_bars: del client.active_bars[cid]
-            memory_manager.delete_bar(cid)
-            memory_manager.remove_bar_whitelist(cid)
-            removed_count += 1
-            
-    # Update Console
-    await client.update_console_status()
+    removed_count = await client.sync_bars()
     
     await interaction.followup.send(f"🧹 Cleanup complete. Removed {removed_count} invalid bars.", ephemeral=True)
 
