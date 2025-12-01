@@ -420,11 +420,113 @@ class LMStudioBot(discord.Client):
         # Touch Event
         asyncio.create_task(self.handle_bar_touch(channel_id))
 
+    async def restore_all_bars(self):
+        """
+        Restores all bars to their previous state (Normal Mode).
+        Returns the number of bars restored.
+        """
+        logger.info("🔄 Restoring all bars to previous state...")
+        count = 0
+        
+        # 1. Reset System Mode
+        memory_manager.set_server_setting("system_mode", "normal")
+        
+        # 2. Iterate Active Bars
+        # Use copy of items since we might modify active_bars indirectly (though mostly in-place updates)
+        for cid, bar_data in list(self.active_bars.items()):
+            try:
+                # Retrieve Previous State
+                prev_state = memory_manager.get_previous_state(cid)
+                if not prev_state:
+                    # If no history, reconstruct a "Normal" state
+                    current_content = bar_data.get("content", "")
+                    clean_content = current_content
+                    for emoji in ui.BAR_PREFIX_EMOJIS:
+                        if clean_content.startswith(emoji):
+                            clean_content = clean_content[len(emoji):].strip()
+                            break
+                    
+                    default_prefix = ui.BAR_PREFIX_EMOJIS[0]
+                    prev_state = {
+                        "content": f"{default_prefix} {clean_content}",
+                        "current_prefix": default_prefix,
+                        "has_notification": False,
+                        "persisting": bar_data.get("persisting", False),
+                        "user_id": bar_data.get("user_id", self.user.id)
+                    }
+                
+                # Prepare Content
+                final_content = prev_state.get("content", "")
+                prefix = prev_state.get("current_prefix")
+                
+                # Get Message
+                msg_id = bar_data.get("message_id")
+                if not msg_id: continue
+                
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: continue
+                
+                try:
+                    msg = await ch.fetch_message(msg_id)
+                except (discord.NotFound, discord.Forbidden):
+                    continue
+                
+                # Handle Checkmark
+                check_id = bar_data.get("checkmark_message_id")
+                has_merged_check = (check_id == msg_id)
+                
+                content_to_send = final_content
+                if has_merged_check:
+                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                    if chk not in content_to_send:
+                        content_to_send = f"{content_to_send} {chk}"
+                        content_to_send = re.sub(r'>[ \t]+<', '><', content_to_send)
+                
+                # Apply Edit
+                view = ui.StatusBarView(content_to_send, prev_state["user_id"], cid, prev_state.get("persisting", False))
+                await services.service.limiter.wait_for_slot("edit_message", cid)
+                await msg.edit(content=content_to_send, view=view)
+                
+                # Update Memory
+                self.active_bars[cid]["content"] = final_content
+                self.active_bars[cid]["current_prefix"] = prefix
+                self.active_bars[cid]["has_notification"] = prev_state.get("has_notification", False)
+                self._register_bar_message(cid, msg_id, view)
+                
+                # Update DB
+                memory_manager.save_bar(
+                    cid, 
+                    ch.guild.id, 
+                    msg_id, 
+                    prev_state["user_id"], 
+                    final_content, 
+                    prev_state.get("persisting", False),
+                    current_prefix=prefix,
+                    has_notification=prev_state.get("has_notification", False),
+                    checkmark_message_id=check_id
+                )
+                count += 1
+                
+            except Exception as e:
+                logger.warning(f"Failed to restore bar {cid}: {e}")
+        
+        # Sync Console
+        await self.update_console_status()
+        
+        return count
+
     async def sleep_all_bars(self):
         """
-        Puts all active bars and remnants in allowed channels to sleep.
-        Returns the number of bars processed.
+        Puts all active bars to sleep (Toggle).
+        If already sleeping, restores previous state.
         """
+        # 0. Check Toggle
+        current_mode = memory_manager.get_server_setting("system_mode", "normal")
+        if current_mode == "sleep":
+             return await self.restore_all_bars()
+        
+        memory_manager.set_server_setting("system_mode", "sleep")
+
         # 1. Consolidate targets: Active Bars + Remnants in Allowed Channels
         targets = list(self.active_bars.items())
         allowed = memory_manager.get_allowed_channels()
@@ -445,8 +547,9 @@ class LMStudioBot(discord.Client):
                 current_content = ""
                 if bar_data:
                     current_content = bar_data["content"]
-                    # Save state if going to sleep
-                    memory_manager.save_previous_state(cid, bar_data)
+                    # Save state ONLY if coming from Normal mode
+                    if current_mode == "normal":
+                        memory_manager.save_previous_state(cid, bar_data)
                 else:
                     # Remnant recovery
                     found = await self.find_last_bar_content(ch)
@@ -554,9 +657,16 @@ class LMStudioBot(discord.Client):
 
     async def idle_all_bars(self):
         """
-        Sets all active bars and remnants in allowed channels to IDLE (Not Watching).
-        Returns the number of bars processed.
+        Sets all active bars and remnants in allowed channels to IDLE (Not Watching) (Toggle).
+        If already idle, restores previous state.
         """
+        # 0. Check Toggle
+        current_mode = memory_manager.get_server_setting("system_mode", "normal")
+        if current_mode == "idle":
+             return await self.restore_all_bars()
+        
+        memory_manager.set_server_setting("system_mode", "idle")
+
         # 1. Consolidate targets
         targets = list(self.active_bars.items())
         allowed = memory_manager.get_allowed_channels()
@@ -576,6 +686,9 @@ class LMStudioBot(discord.Client):
                 current_content = ""
                 if bar_data:
                     current_content = bar_data["content"]
+                    # Save state if going to idle AND coming from normal
+                    if current_mode == "normal":
+                        memory_manager.save_previous_state(cid, bar_data)
                 else:
                     # Remnant recovery
                     found = await self.find_last_bar_content(ch)
@@ -2838,10 +2951,10 @@ async def on_message(message):
                     else:
                         logger.info(f"DEBUG: Member NOT Found for ID: {sender_id}")
 
-                    # Auth Check: Allow if Admin/Special Role OR if it's the Owner's System
+                    # Auth Check: Allow if Admin/Special Role OR if it's the Owner's System OR Global Chat is Enabled
                     is_own_system = (system_id == config.MY_SYSTEM_ID)
                     
-                    if not is_own_system and not helpers.is_authorized(member_obj or sender_id):
+                    if not global_chat and not is_own_system and not helpers.is_authorized(member_obj or sender_id):
                         logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}). Admin Roles: {config.ADMIN_ROLE_IDS}")
                         return
                     elif is_own_system:

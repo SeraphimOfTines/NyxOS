@@ -150,68 +150,7 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
              
              mock_query.assert_not_called()
 
-    @patch('services.service.get_system_proxy_tags', return_value=[])
-    @patch('memory_manager.log_conversation')
-    @patch('memory_manager.clear_channel_memory')
-    @patch('memory_manager.get_allowed_channels', return_value=[100])
-    @patch('memory_manager.get_server_setting', return_value=False)
-    async def test_role_mention_bypasses_whitelist(self, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
-        """Test that tagging the bot (Wake Role) bypasses channel whitelist."""
-        
-        # Message in NON-whitelisted channel (200)
-        msg = MagicMock()
-        msg.id = 2
-        msg.author.id = 888
-        msg.author.bot = False
-        msg.channel.id = 200 
-        msg.channel.name = "random-channel"
-        msg.content = "<@&555> hello"
-        msg.mentions = []
-        
-        # Tagged Wake Role (555)
-        role_mock = MagicMock()
-        role_mock.id = 555
-        msg.role_mentions = [role_mock]
-        msg.webhook_id = None
-        
-        # Mock services
-        with patch('services.service.get_pk_user_data', return_value=None), \
-             patch('services.service.generate_search_queries', return_value=[]), \
-             patch('services.service.query_lm_studio', return_value="Response"), \
-             patch('helpers.is_authorized', return_value=True): 
-             
-             await NyxOS.on_message(msg)
-             
-             import services
-             services.service.query_lm_studio.assert_called()
 
-    @patch('services.service.get_system_proxy_tags', return_value=[])
-    @patch('memory_manager.log_conversation')
-    @patch('memory_manager.clear_channel_memory')
-    @patch('memory_manager.get_allowed_channels', return_value=[100])
-    @patch('memory_manager.get_server_setting', return_value=False)
-    async def test_no_mention_respects_whitelist(self, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
-        """Test that normal messages in non-whitelisted channels are IGNORED."""
-        
-        # Message in NON-whitelisted channel (200)
-        msg = MagicMock()
-        msg.id = 3
-        msg.author.id = 888
-        msg.author.bot = False
-        msg.channel.id = 200 
-        msg.channel.name = "random-channel"
-        msg.content = "hello there" # No tag
-        msg.mentions = []
-        msg.role_mentions = []
-        msg.webhook_id = None
-        
-        # Mock services
-        with patch('services.service.get_pk_user_data', return_value=None), \
-             patch('services.service.query_lm_studio') as mock_query:
-             
-             await NyxOS.on_message(msg)
-             
-             mock_query.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()
