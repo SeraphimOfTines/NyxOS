@@ -303,6 +303,28 @@ class ConsoleControlView(discord.ui.View):
         else:
             await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 
+    @discord.ui.button(emoji="💤", style=discord.ButtonStyle.primary, custom_id="console_idle_btn")
+    async def idle_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not helpers.is_authorized(interaction.user):
+             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+             return
+        if hasattr(interaction.client, "idle_all_bars"):
+             await interaction.response.defer()
+             await interaction.client.idle_all_bars()
+        else:
+             await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
+
+    @discord.ui.button(emoji="🛏️", style=discord.ButtonStyle.secondary, custom_id="console_sleep_btn")
+    async def sleep_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not helpers.is_authorized(interaction.user):
+             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+             return
+        if hasattr(interaction.client, "sleep_all_bars"):
+             await interaction.response.defer()
+             await interaction.client.sleep_all_bars()
+        else:
+             await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
+
 
 # ==========================================
 # VIEW

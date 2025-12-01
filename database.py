@@ -62,11 +62,18 @@ class Database:
                     user_id TEXT,
                     content TEXT,
                     original_prefix TEXT,
+                    current_prefix TEXT,
                     is_sleeping INTEGER DEFAULT 0,
                     persisting INTEGER DEFAULT 0,
                     previous_state TEXT,
                     timestamp TIMESTAMP
                 )""")
+                
+                # Migration: Add current_prefix if missing
+                try:
+                    c.execute("ALTER TABLE active_bars ADD COLUMN current_prefix TEXT")
+                except sqlite3.OperationalError:
+                    pass # Column already exists
                 
                 # Bar History (For Restore)
                 c.execute("""CREATE TABLE IF NOT EXISTS bar_history (
@@ -220,21 +227,22 @@ class Database:
 
     # --- Active Bars Methods ---
 
-    def save_bar(self, channel_id, guild_id, message_id, user_id, content, persisting):
+    def save_bar(self, channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None):
         try:
             with self._get_conn() as conn:
                 c = conn.cursor()
                 # 1. Upsert Active Bar
                 c.execute("""
-                    INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, current_prefix, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(channel_id) DO UPDATE SET
                         message_id = excluded.message_id,
                         user_id = excluded.user_id,
                         content = excluded.content,
                         persisting = excluded.persisting,
+                        current_prefix = excluded.current_prefix,
                         timestamp = excluded.timestamp
-                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, datetime.now()))
+                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, current_prefix, datetime.now()))
                 
                 # 2. Check History
                 # Get the most recent history entry for this channel
@@ -279,10 +287,11 @@ class Database:
                         "user_id": int(row[3]),
                         "content": row[4],
                         "original_prefix": row[5],
-                        "is_sleeping": bool(row[6]),
-                        "persisting": bool(row[7]),
-                        "previous_state": json.loads(row[8]) if row[8] else None,
-                        "timestamp": row[9]
+                        "current_prefix": row[6],
+                        "is_sleeping": bool(row[7]),
+                        "persisting": bool(row[8]),
+                        "previous_state": json.loads(row[9]) if row[9] else None,
+                        "timestamp": row[10]
                     }
                 return None
         except Exception as e:
@@ -313,10 +322,11 @@ class Database:
                         "user_id": int(row[3]),
                         "content": row[4],
                         "original_prefix": row[5],
-                        "is_sleeping": bool(row[6]),
-                        "persisting": bool(row[7]),
-                        "previous_state": json.loads(row[8]) if row[8] else None,
-                        "timestamp": row[9]
+                        "current_prefix": row[6],
+                        "is_sleeping": bool(row[7]),
+                        "persisting": bool(row[8]),
+                        "previous_state": json.loads(row[9]) if row[9] else None,
+                        "timestamp": row[10]
                     }
                 return bars
         except Exception as e:

@@ -454,10 +454,11 @@ class LMStudioBot(discord.Client):
                             "user_id": bar_data["user_id"],
                             "message_id": msg.id,
                             "checkmark_message_id": msg.id,
-                            "persisting": persisting
+                            "persisting": persisting,
+                            "current_prefix": sleeping_emoji
                         }
                         self._register_bar_message(cid, msg.id, view)
-                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting)
+                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting, current_prefix=sleeping_emoji)
                         return True
                     except Exception as e:
                         logger.warning(f"Sleep edit failed in {cid}, falling back to wipe/send: {e}")
@@ -481,11 +482,12 @@ class LMStudioBot(discord.Client):
                     "user_id": self.user.id,
                     "message_id": new_msg.id,
                     "checkmark_message_id": new_msg.id,
-                    "persisting": persisting
+                    "persisting": persisting,
+                    "current_prefix": sleeping_emoji
                 }
                 self._register_bar_message(cid, new_msg.id, view)
                 
-                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting)
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting, current_prefix=sleeping_emoji)
                 return True
 
             except Exception as e:
@@ -497,6 +499,10 @@ class LMStudioBot(discord.Client):
             tasks.append(process_bar(cid, bar))
         
         results = await asyncio.gather(*tasks)
+        
+        # Sync Console
+        await self.update_console_status()
+        
         return sum(1 for r in results if r)
 
     async def idle_all_bars(self):
@@ -574,10 +580,11 @@ class LMStudioBot(discord.Client):
                             "user_id": bar_data["user_id"],
                             "message_id": msg.id,
                             "checkmark_message_id": msg.id,
-                            "persisting": persisting
+                            "persisting": persisting,
+                            "current_prefix": idle_emoji
                         }
                         self._register_bar_message(cid, msg.id, view)
-                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting)
+                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting, current_prefix=idle_emoji)
                         return True
                     except Exception as e:
                         logger.warning(f"Idle edit failed in {cid}, falling back to wipe/send: {e}")
@@ -598,11 +605,12 @@ class LMStudioBot(discord.Client):
                     "user_id": self.user.id,
                     "message_id": new_msg.id,
                     "checkmark_message_id": new_msg.id,
-                    "persisting": persisting
+                    "persisting": persisting,
+                    "current_prefix": idle_emoji
                 }
                 self._register_bar_message(cid, new_msg.id, view)
                 
-                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting)
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting, current_prefix=idle_emoji)
                 return True
 
             except Exception as e:
@@ -614,6 +622,10 @@ class LMStudioBot(discord.Client):
             tasks.append(process_bar(cid, bar))
         
         results = await asyncio.gather(*tasks)
+        
+        # Sync Console
+        await self.update_console_status()
+
         return sum(1 for r in results if r)
 
     async def global_update_bars(self, new_text_suffix):
@@ -858,6 +870,7 @@ class LMStudioBot(discord.Client):
             
             new_content = f"{target_emoji} {current_content}"
             self.active_bars[cid]["content"] = new_content
+            self.active_bars[cid]["current_prefix"] = target_emoji
             
             async def update_msg(cid, msg_id, new_cont):
                 try:
@@ -869,8 +882,22 @@ class LMStudioBot(discord.Client):
                 except: pass
             
             self.loop.create_task(update_msg(cid, bar["message_id"], new_content))
-            memory_manager.update_bar_content(cid, new_content)
+            
+            # Update DB with new prefix
+            memory_manager.save_bar(
+                cid, 
+                bar.get("guild_id"),
+                bar["message_id"],
+                bar["user_id"],
+                new_content,
+                bar.get("persisting", False),
+                current_prefix=target_emoji
+            )
             count += 1
+        
+        # Sync Console
+        await self.update_console_status()
+        
         return count
 
     async def propagate_master_bar(self):
@@ -1318,7 +1345,7 @@ class LMStudioBot(discord.Client):
         
         # Build List
         log_lines = []
-        saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
+        default_emoji = ui.BAR_PREFIX_EMOJIS[2] # Speed 0 (Not Watching)
         
         for cid_str in whitelist:
             try:
@@ -1327,6 +1354,10 @@ class LMStudioBot(discord.Client):
                 # We rely on active_bars (DB loaded) for the "link" info
                 bar_data = self.active_bars.get(cid)
                 
+                status_emoji = default_emoji
+                if bar_data and bar_data.get('current_prefix'):
+                     status_emoji = bar_data.get('current_prefix')
+
                 if bar_data:
                     guild_id = bar_data.get('guild_id')
                     if not guild_id:
@@ -1337,11 +1368,11 @@ class LMStudioBot(discord.Client):
                     
                     if guild_id and target_id:
                         link = f"https://discord.com/channels/{guild_id}/{cid}/{target_id}"
-                        log_lines.append(f"{saturn_emoji} {link}")
+                        log_lines.append(f"{status_emoji} {link}")
                     else:
-                        log_lines.append(f"{saturn_emoji} <#{cid}> (Out of sync.)")
+                        log_lines.append(f"{status_emoji} <#{cid}> (Out of sync.)")
                 else:
-                    log_lines.append(f"{saturn_emoji} <#{cid}> (Out of sync.)")
+                    log_lines.append(f"{status_emoji} <#{cid}> (Out of sync.)")
             except:
                 pass
                 
@@ -1562,7 +1593,8 @@ class LMStudioBot(discord.Client):
                     break
         
         if not content:
-            await interaction.response.send_message("❌ No active bar found to update.", ephemeral=True, delete_after=2.0)
+            try: await interaction.response.send_message("❌ No active bar found to update.", ephemeral=True, delete_after=2.0)
+            except: pass
             return
 
         content_with_prefix = f"{new_prefix_emoji} {content}"
@@ -1593,6 +1625,7 @@ class LMStudioBot(discord.Client):
                 
                 self.active_bars[interaction.channel_id]["content"] = content_with_prefix
                 self.active_bars[interaction.channel_id]["checkmark_message_id"] = active_msg.id 
+                self.active_bars[interaction.channel_id]["current_prefix"] = new_prefix_emoji
                 
                 memory_manager.save_bar(
                     interaction.channel_id, 
@@ -1600,10 +1633,14 @@ class LMStudioBot(discord.Client):
                     active_msg.id,
                     interaction.user.id,
                     content_with_prefix,
-                    persisting
+                    persisting,
+                    current_prefix=new_prefix_emoji
                 )
                 try: await interaction.response.send_message("Updated.", ephemeral=False, delete_after=2.0)
                 except: pass
+                
+                # Sync Console
+                await self.update_console_status()
                 return
             except Exception as e:
                 logger.warning(f"In-place edit failed, falling back to drop: {e}")
@@ -1628,7 +1665,8 @@ class LMStudioBot(discord.Client):
         # Send New Bar (NO CHECKMARK)
         full_content = content_with_prefix 
         
-        await interaction.response.defer(ephemeral=False)
+        try: await interaction.response.defer(ephemeral=False)
+        except: pass
         
         view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
         await services.service.limiter.wait_for_slot("send_message", interaction.channel_id)
@@ -1645,7 +1683,8 @@ class LMStudioBot(discord.Client):
             "user_id": interaction.user.id,
             "message_id": msg.id,
             "checkmark_message_id": new_check_id,
-            "persisting": persisting
+            "persisting": persisting,
+            "current_prefix": new_prefix_emoji
         }
         self._register_bar_message(interaction.channel_id, msg.id, view)
         
@@ -1655,8 +1694,14 @@ class LMStudioBot(discord.Client):
             msg.id,
             interaction.user.id,
             content_with_prefix,
-            persisting
+            persisting,
+            current_prefix=new_prefix_emoji
         )
+        
+        # Sync Console
+        await self.update_console_status()
+        try: await interaction.delete_original_response()
+        except: pass
         
         await interaction.delete_original_response()
 
