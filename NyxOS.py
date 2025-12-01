@@ -2416,7 +2416,7 @@ async def processing_command(interaction: discord.Interaction):
 
 @client.tree.command(name="angel", description="Set status to Angel.")
 async def angel_command(interaction: discord.Interaction):
-    await client.update_bar_prefix(interaction, "<a:Angel:000000000000000000>")
+    await client.replace_bar_content(interaction, ui.ANGEL_CONTENT)
 
 @client.tree.command(name="pausing", description="Set status to Pausing.")
 async def pausing_command(interaction: discord.Interaction):
