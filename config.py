@@ -116,6 +116,13 @@ if os.getenv("STARTUP_CHANNEL_ID"): STARTUP_CHANNEL_ID = int(os.getenv("STARTUP_
 if os.getenv("MODEL_TEMPERATURE"): MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE"))
 if os.getenv("CONTEXT_WINDOW"): CONTEXT_WINDOW = int(os.getenv("CONTEXT_WINDOW"))
 
+# New Configs
+BAR_DEBOUNCE_SECONDS = 3.0
+NOTIFICATION_EMOJI = "<a:SeraphExclamark:1317628268299554877>"
+
+if os.getenv("BAR_DEBOUNCE_SECONDS"): BAR_DEBOUNCE_SECONDS = float(os.getenv("BAR_DEBOUNCE_SECONDS"))
+if os.getenv("NOTIFICATION_EMOJI"): NOTIFICATION_EMOJI = os.getenv("NOTIFICATION_EMOJI")
+
 # --- PLURALKIT API CONFIGURATION ---
 # Check for overrides from Environment
 if os.getenv("USE_LOCAL_PLURALKIT"):

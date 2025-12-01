@@ -211,10 +211,10 @@ class LMStudioBot(discord.Client):
         self.loop.create_task(self.heartbeat_task())
 
     def request_bar_drop(self, channel_id):
-        """Debounced drop request manager (3s silence timer)."""
-        # Update deadline to Now + 3s
+        """Debounced drop request manager (config.BAR_DEBOUNCE_SECONDS silence timer)."""
+        # Update deadline to Now + Debounce
         if not hasattr(self, "drop_deadlines"): self.drop_deadlines = {}
-        self.drop_deadlines[channel_id] = time.time() + 3.0
+        self.drop_deadlines[channel_id] = time.time() + config.BAR_DEBOUNCE_SECONDS
         
         if channel_id not in self.active_drop_tasks:
             self.active_drop_tasks.add(channel_id)
@@ -355,9 +355,9 @@ class LMStudioBot(discord.Client):
                 curr_content = target_msg.content
                 
                 if chk_content not in curr_content:
-                    new_content = f"{curr_content} {chk_content}"
+                    new_content = f"{curr_content}{chk_content}"
                     new_content = re.sub(r'>[ \t]+<', '><', new_content)
-                    new_content = new_content.replace(f"\n{chk_content}", f" {chk_content}")
+                    new_content = new_content.replace(f"\n{chk_content}", f"{chk_content}")
                     
                     try:
                         await services.service.limiter.wait_for_slot("edit_message", channel_id)
@@ -443,7 +443,7 @@ class LMStudioBot(discord.Client):
                         clean_middle = clean_middle[len(emoji):].strip()
                         break
                 
-                new_base_content = f"{sleeping_emoji} {clean_middle}"
+                new_base_content = f"{sleeping_emoji}{clean_middle.strip()}"
                 new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
 
                 # Attempt Edit-In-Place First
@@ -464,7 +464,7 @@ class LMStudioBot(discord.Client):
                     if has_merged_check:
                         chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                         if chk not in final_content:
-                            final_content = f"{final_content} {chk}"
+                            final_content = f"{final_content}{chk}"
                             final_content = re.sub(r'>[ \t]+<', '><', final_content)
 
                     try:
@@ -494,7 +494,7 @@ class LMStudioBot(discord.Client):
                 # But here we are constructing base content.
                 # Let's standardise: always include checkmark on new send.
                 chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-                send_content = f"{new_base_content} {chk}"
+                send_content = f"{new_base_content}{chk}"
                 send_content = re.sub(r'>[ \t]+<', '><', send_content)
 
                 view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
@@ -571,7 +571,7 @@ class LMStudioBot(discord.Client):
                         clean_middle = clean_middle[len(emoji):].strip()
                         break
                 
-                new_base_content = f"{idle_emoji} {clean_middle}"
+                new_base_content = f"{idle_emoji}{clean_middle.strip()}"
                 new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
 
                 # Attempt Edit-In-Place
@@ -592,7 +592,7 @@ class LMStudioBot(discord.Client):
                     if has_merged_check:
                         chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                         if chk not in final_content:
-                            final_content = f"{final_content} {chk}"
+                            final_content = f"{final_content}{chk}"
                             final_content = re.sub(r'>[ \t]+<', '><', final_content)
                     
                     try:
@@ -619,7 +619,7 @@ class LMStudioBot(discord.Client):
                 await self.wipe_channel_bars(ch)
                 
                 chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-                send_content = f"{new_base_content} {chk}"
+                send_content = f"{new_base_content}{chk}"
                 send_content = re.sub(r'>[ \t]+<', '><', send_content)
 
                 view = ui.StatusBarView(send_content, self.user.id, cid, persisting)
@@ -1372,7 +1372,7 @@ class LMStudioBot(discord.Client):
 
                 notification_mark = ""
                 if bar_data and bar_data.get('has_notification'):
-                     notification_mark = " <a:SeraphExclamark:1317628268299554877>"
+                     notification_mark = f" {config.NOTIFICATION_EMOJI}"
 
                 if bar_data:
                     guild_id = bar_data.get('guild_id')
@@ -1613,7 +1613,7 @@ class LMStudioBot(discord.Client):
             except: pass
             return
 
-        content_with_prefix = f"{new_prefix_emoji} {content}"
+        content_with_prefix = f"{new_prefix_emoji}{content.strip()}"
         content_with_prefix = re.sub(r'>[ \t]+<', '><', content_with_prefix)
         
         persisting = False
@@ -1632,7 +1632,7 @@ class LMStudioBot(discord.Client):
         if active_msg:
             # Edit In-Place (Keep checkmark if present)
             chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-            full_content = f"{content_with_prefix} {chk}"
+            full_content = f"{content_with_prefix}{chk}"
             full_content = re.sub(r'>[ \t]+<', '><', full_content)
 
             try:
@@ -1730,6 +1730,7 @@ class LMStudioBot(discord.Client):
         # Cleanup old
         await self.cleanup_old_bars(interaction.channel)
         
+        new_content = new_content.strip()
         # Strip spaces between emojis
         new_content = re.sub(r'>[ \t]+<', '><', new_content)
         
