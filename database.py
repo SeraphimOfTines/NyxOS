@@ -81,6 +81,12 @@ class Database:
                     c.execute("ALTER TABLE active_bars ADD COLUMN has_notification INTEGER DEFAULT 0")
                 except sqlite3.OperationalError:
                     pass # Column already exists
+
+                # Migration: Add checkmark_message_id if missing
+                try:
+                    c.execute("ALTER TABLE active_bars ADD COLUMN checkmark_message_id TEXT")
+                except sqlite3.OperationalError:
+                    pass # Column already exists
                 
                 # Bar History (For Restore)
                 c.execute("""CREATE TABLE IF NOT EXISTS bar_history (
@@ -234,14 +240,14 @@ class Database:
 
     # --- Active Bars Methods ---
 
-    def save_bar(self, channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None, has_notification=False):
+    def save_bar(self, channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None, has_notification=False, checkmark_message_id=None):
         try:
             with self._get_conn() as conn:
                 c = conn.cursor()
                 # 1. Upsert Active Bar
                 c.execute("""
-                    INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, current_prefix, has_notification, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, current_prefix, has_notification, checkmark_message_id, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(channel_id) DO UPDATE SET
                         message_id = excluded.message_id,
                         user_id = excluded.user_id,
@@ -249,8 +255,9 @@ class Database:
                         persisting = excluded.persisting,
                         current_prefix = excluded.current_prefix,
                         has_notification = excluded.has_notification,
+                        checkmark_message_id = excluded.checkmark_message_id,
                         timestamp = excluded.timestamp
-                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, current_prefix, 1 if has_notification else 0, datetime.now()))
+                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, current_prefix, 1 if has_notification else 0, str(checkmark_message_id) if checkmark_message_id else str(message_id), datetime.now()))
                 
                 # 2. Check History
                 # Get the most recent history entry for this channel
@@ -309,7 +316,8 @@ class Database:
                         "persisting": bool(row[8]),
                         "has_notification": bool(row[9]),
                         "previous_state": json.loads(row[10]) if row[10] else None,
-                        "timestamp": row[11]
+                        "timestamp": row[11],
+                        "checkmark_message_id": int(row[12]) if len(row) > 12 and row[12] else int(row[2])
                     }
                 return None
         except Exception as e:
@@ -345,7 +353,8 @@ class Database:
                         "persisting": bool(row[8]),
                         "has_notification": bool(row[9]),
                         "previous_state": json.loads(row[10]) if row[10] else None,
-                        "timestamp": row[11]
+                        "timestamp": row[11],
+                        "checkmark_message_id": int(row[12]) if len(row) > 12 and row[12] else int(row[2])
                     }
                 return bars
         except Exception as e:

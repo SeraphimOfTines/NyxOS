@@ -395,7 +395,8 @@ class LMStudioBot(discord.Client):
             final_content,
             self.active_bars[channel_id]["persisting"],
             current_prefix=self.active_bars[channel_id].get("current_prefix"),
-            has_notification=self.active_bars[channel_id].get("has_notification", False)
+            has_notification=self.active_bars[channel_id].get("has_notification", False),
+            checkmark_message_id=check_final_id
         )
 
     async def sleep_all_bars(self):
@@ -482,7 +483,7 @@ class LMStudioBot(discord.Client):
                             "has_notification": False
                         }
                         self._register_bar_message(cid, msg.id, view)
-                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting, current_prefix=sleeping_emoji, has_notification=False)
+                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting, current_prefix=sleeping_emoji, has_notification=False, checkmark_message_id=msg.id)
                         return True
                     except Exception as e:
                         logger.warning(f"Sleep edit failed in {cid}, falling back to wipe/send: {e}")
@@ -512,7 +513,7 @@ class LMStudioBot(discord.Client):
                 }
                 self._register_bar_message(cid, new_msg.id, view)
                 
-                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting, current_prefix=sleeping_emoji, has_notification=False)
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting, current_prefix=sleeping_emoji, has_notification=False, checkmark_message_id=new_msg.id)
                 return True
 
             except Exception as e:
@@ -610,7 +611,7 @@ class LMStudioBot(discord.Client):
                             "has_notification": False
                         }
                         self._register_bar_message(cid, msg.id, view)
-                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting, current_prefix=idle_emoji, has_notification=False)
+                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting, current_prefix=idle_emoji, has_notification=False, checkmark_message_id=msg.id)
                         return True
                     except Exception as e:
                         logger.warning(f"Idle edit failed in {cid}, falling back to wipe/send: {e}")
@@ -637,7 +638,7 @@ class LMStudioBot(discord.Client):
                 }
                 self._register_bar_message(cid, new_msg.id, view)
                 
-                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting, current_prefix=idle_emoji, has_notification=False)
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting, current_prefix=idle_emoji, has_notification=False, checkmark_message_id=new_msg.id)
                 return True
 
             except Exception as e:
@@ -738,7 +739,8 @@ class LMStudioBot(discord.Client):
                         bar_data["user_id"], 
                         final_content, 
                         bar_data.get("persisting", False),
-                        has_notification=False
+                        has_notification=False,
+                        checkmark_message_id=msg_id # Edit in place, checkmark merged if present
                     )
                     return True
                 except discord.NotFound:
@@ -840,7 +842,7 @@ class LMStudioBot(discord.Client):
                             "has_notification": False
                          }
                          self._register_bar_message(cid, msg.id, view)
-                         memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting, has_notification=False)
+                         memory_manager.save_bar(cid, ch.guild.id, msg.id, self.user.id, new_base_content, persisting, has_notification=False, checkmark_message_id=msg.id)
                          return True
                      except Exception:
                          pass # Fallthrough to wipe/send
@@ -869,7 +871,7 @@ class LMStudioBot(discord.Client):
                     "has_notification": False
                 }
                 self._register_bar_message(cid, new_msg.id, view)
-                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting, has_notification=False)
+                memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, new_base_content, persisting, has_notification=False, checkmark_message_id=new_msg.id)
                 return True
 
             except Exception as e:
@@ -924,7 +926,8 @@ class LMStudioBot(discord.Client):
                 new_content,
                 bar.get("persisting", False),
                 current_prefix=target_emoji,
-                has_notification=False
+                has_notification=False,
+                checkmark_message_id=bar.get("checkmark_message_id")
             )
             count += 1
         
@@ -1004,7 +1007,8 @@ class LMStudioBot(discord.Client):
                         bar_data["user_id"], 
                         new_base_content, 
                         bar_data.get("persisting", False),
-                        has_notification=False
+                        has_notification=False,
+                        checkmark_message_id=check_id if check_id else msg_id
                     )
                     return True
                 except discord.NotFound:
@@ -1041,6 +1045,49 @@ class LMStudioBot(discord.Client):
             except Exception as e:
                 logger.error(f"Failed to restore view for {channel_id}: {e}")
         logger.info(f"✅ Restored {count} status bar views.")
+
+    async def initialize_console_channel(self, t_ch):
+        """Initializes or updates the 3 console messages (Header, Master Bar, Uplinks List)."""
+        if not t_ch: return
+
+        master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
+        startup_header_text = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
+
+        # 1. Fetch existing messages
+        msgs = []
+        async for m in t_ch.history(limit=10):
+            if m.author.id == self.user.id:
+                msgs.append(m)
+        msgs.sort(key=lambda x: x.created_at)
+
+        # 2. Validate Structure (Header, Master, List)
+        h_msg, bar_msg, list_msg = None, None, None
+        
+        if len(msgs) == 3:
+            h_msg, bar_msg, list_msg = msgs
+        else:
+            # Invalid -> Wipe and Recreate
+            try: await t_ch.purge(limit=20)
+            except: pass
+            
+            h_msg = await t_ch.send(startup_header_text)
+            bar_msg = await t_ch.send(master_content)
+            list_msg = await t_ch.send(f"{divider}\nLoading Uplinks...", view=ui.ConsoleControlView())
+
+        # 3. Update Content
+        if h_msg.content != startup_header_text:
+            try: await h_msg.edit(content=startup_header_text)
+            except: pass
+            
+        if bar_msg.content != master_content:
+            try: await bar_msg.edit(content=master_content)
+            except: pass
+
+        # 4. Register references
+        self.startup_header_msg = h_msg
+        self.startup_bar_msg = bar_msg
+        self.console_progress_msgs = [list_msg]
 
     async def on_ready(self):
         logger.info('# ==========================================')
@@ -1082,110 +1129,23 @@ class LMStudioBot(discord.Client):
         if restart_data and restart_data.get("channel_id"):
             target_channels.add(restart_data.get("channel_id"))
         
-        progress_msgs = []
-        
         # Construct Texts
         divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
-        startup_header_text = f"{ui.FLAVOR_TEXT['REBOOT_HEADER']}\n{ui.FLAVOR_TEXT['REBOOT_SUB'].format(current=0, total=len(allowed_channels))}\n{divider}"
-        master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
-        msg2_text = f"{master_content.strip()}"
-        body_text = f"{divider}\n🔍 Scanning {len(allowed_channels)} channels for bars..."
-
+        startup_header_text = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
+        
+        # Just ensure the header exists and is updated. No "Scanning" body.
         for t_id in target_channels:
             try:
                 t_ch = self.get_channel(t_id) or await self.fetch_channel(t_id)
                 if not t_ch: continue
-
-                # STRICT STATE ENFORCEMENT
-                # Ensure channel has EXACTLY 3 messages: Header, Master Bar, Body.
-                # If not, WIPE and RESET.
-
-                existing_msgs = []
-                try:
-                    # Fetch history (ignore pinned if any, though strictly we want clean channel)
-                    async for m in t_ch.history(limit=10):
-                        existing_msgs.append(m)
-                except: pass
                 
-                # Sort Oldest -> Newest
-                existing_msgs.sort(key=lambda x: x.created_at)
+                await self.initialize_console_channel(t_ch)
                 
-                # Check if we have a valid state
-                # State is valid if: Count is 3 AND all are from us (optional, but safer to just count)
-                # If &reboot was used, we might have user msg + bot reply + 3 status = 5.
-                # In that case, we WANT to wipe.
-                
-                valid_state = (len(existing_msgs) == 3 and all(m.author.id == self.user.id for m in existing_msgs))
-                
-                h_msg = None
-                bar_msg = None
-                b_msg = None
-                success = False
-
-                if valid_state:
-                    h_msg = existing_msgs[0]
-                    bar_msg = existing_msgs[1]
-                    b_msg = existing_msgs[2]
-                    
-                    try:
-                        await services.service.limiter.wait_for_slot("edit_message", t_id)
-                        await h_msg.edit(content=startup_header_text)
-                        await asyncio.sleep(1.0)
-                        
-                        await services.service.limiter.wait_for_slot("edit_message", t_id)
-                        await bar_msg.edit(content=msg2_text)
-                        await asyncio.sleep(1.0)
-
-                        await services.service.limiter.wait_for_slot("edit_message", t_id)
-                        await b_msg.edit(content=body_text, embed=None, view=None)
-                        
-                        client.startup_header_msg = h_msg
-                        client.startup_bar_msg = bar_msg
-                        progress_msgs.append(b_msg)
-                        success = True
-                    except: 
-                        success = False # Edit failed (deleted?) -> Trigger Wipe
-
-                if not success:
-                    logger.info(f"🧹 Invalid state in {t_ch.name} (Msgs: {len(existing_msgs)}). Wiping and refreshing...")
-                    try: await t_ch.purge(limit=100)
-                    except: pass
-
-                    await services.service.limiter.wait_for_slot("send_message", t_id)
-                    h_msg = await t_ch.send(startup_header_text)
-                    client.startup_header_msg = h_msg
-                    await asyncio.sleep(1.0)
-                    
-                    await services.service.limiter.wait_for_slot("send_message", t_id)
-                    bar_msg = await t_ch.send(msg2_text)
-                    client.startup_bar_msg = bar_msg
-                    await asyncio.sleep(1.0)
-                    
-                    await services.service.limiter.wait_for_slot("send_message", t_id)
-                    msg = await t_ch.send(body_text, view=None)
-                    progress_msgs.append(msg)
-
             except Exception as e:
-                logger.error(f"❌ Failed to send startup messages to {t_id}: {e}")
-        
-        # Save for scanner
-        client.console_progress_msgs = progress_msgs
+                logger.error(f"❌ Failed to init startup messages in {t_id}: {e}")
 
         # --- PHASE 1: INITIALIZATION ---
-        # bar_whitelist is defined at the top of on_ready
         
-        # Just load DB into memory (Already done by active_bars init)
-        # We do NOT scan channels here to avoid rate limits on boot.
-        
-        # Update Header to "System Online" immediately
-        if hasattr(client, "startup_header_msg") and client.startup_header_msg:
-             final_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
-             try:
-                 # Wait for slot before editing header
-                 await services.service.limiter.wait_for_slot("edit_message", client.startup_header_msg.channel.id)
-                 await client.startup_header_msg.edit(content=final_header)
-             except: pass
-             
         # Populate Active Uplinks from DB
         await self.update_console_status()
         
@@ -1500,7 +1460,8 @@ class LMStudioBot(discord.Client):
                     content_with_prefix,
                     persisting,
                     current_prefix=new_prefix_emoji,
-                    has_notification=False
+                    has_notification=False,
+                    checkmark_message_id=active_msg.id
                 )
                 try: await interaction.response.send_message("Updated.", ephemeral=True, delete_after=2.0)
                 except: pass
@@ -1563,7 +1524,8 @@ class LMStudioBot(discord.Client):
             content_with_prefix,
             persisting,
             current_prefix=new_prefix_emoji,
-            has_notification=False
+            has_notification=False,
+            checkmark_message_id=new_check_id
         )
         
         # Sync Console
@@ -1614,7 +1576,8 @@ class LMStudioBot(discord.Client):
             interaction.user.id,
             full_content,
             persisting,
-            has_notification=False
+            has_notification=False,
+            checkmark_message_id=msg.id
         )
         
         await interaction.delete_original_response()
