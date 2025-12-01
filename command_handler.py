@@ -20,11 +20,18 @@ async def handle_prefix_command(client, message):
     if not message.content.startswith("&"):
         return False
 
+    # Resolve Author for PluralKit Proxies (Webhooks)
+    author_to_check = message.author
+    if message.webhook_id:
+        pk_data = await services.service.get_pk_message_data(message.id)
+        if pk_data and pk_data[4]: # sender_id is index 4
+            author_to_check = int(pk_data[4])
+
     cmd = message.content.split()[0].lower()
     
     # &addchannel
     if cmd == "&addchannel":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         
@@ -38,7 +45,7 @@ async def handle_prefix_command(client, message):
 
     # &removechannel
     if cmd == "&removechannel":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         
@@ -52,7 +59,7 @@ async def handle_prefix_command(client, message):
 
     # &reboot
     if cmd == "&reboot":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         await message.channel.send(ui.FLAVOR_TEXT["REBOOT_MESSAGE"])
@@ -70,7 +77,7 @@ async def handle_prefix_command(client, message):
 
     # &shutdown
     if cmd == "&shutdown":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         await message.channel.send(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"])
@@ -92,7 +99,7 @@ async def handle_prefix_command(client, message):
 
     # &clearmemory
     if cmd == "&clearmemory":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         
@@ -124,7 +131,7 @@ async def handle_prefix_command(client, message):
 
     # &synccommands
     if cmd == "&synccommands":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         await message.channel.send("🔄 Syncing commands...")
@@ -140,7 +147,7 @@ async def handle_prefix_command(client, message):
 
     # &debug
     if cmd == "&debug":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         current = memory_manager.get_server_setting("debug_mode", False)
@@ -152,7 +159,7 @@ async def handle_prefix_command(client, message):
 
     # &debugtest
     if cmd == "&debugtest":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         
@@ -185,7 +192,7 @@ async def handle_prefix_command(client, message):
 
     # &testmessage
     if cmd == "&testmessage":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         
@@ -210,7 +217,7 @@ async def handle_prefix_command(client, message):
 
     # &clearallmemory
     if cmd == "&clearallmemory":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         memory_manager.wipe_all_memories()
@@ -219,7 +226,7 @@ async def handle_prefix_command(client, message):
 
     # &wipelogs
     if cmd == "&wipelogs":
-        if not helpers.is_authorized(message.author):
+        if not helpers.is_authorized(author_to_check):
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
         memory_manager.wipe_all_logs()

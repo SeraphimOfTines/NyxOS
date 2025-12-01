@@ -17,8 +17,9 @@ class APIService:
         self.http_session = None
         self.db_pool = None
         self.pk_user_cache = OrderedDict()   
+        self.pk_message_cache = OrderedDict()
         self.pk_proxy_tags = OrderedDict()   
-        self.my_system_members = set() 
+        self.my_system_members = set()  
         self.limiter = rate_limiter.limiter 
         self.MAX_CACHE_SIZE = 500
 
@@ -151,6 +152,11 @@ class APIService:
         return tags
 
     async def get_pk_message_data(self, message_id):
+        # 0. Check Cache
+        if message_id in self.pk_message_cache:
+            self.pk_message_cache.move_to_end(message_id)
+            return self.pk_message_cache[message_id]
+
         # 1. Try DB if Local
         if self.db_pool:
             try:
@@ -177,7 +183,7 @@ class APIService:
                         desc = row['description']
                         if desc: desc = desc.replace('[', '(').replace(']', ')')
                         
-                        return (
+                        result = (
                             final_name, 
                             row['system_id'], 
                             row['system_name'], 
@@ -185,6 +191,13 @@ class APIService:
                             row['sender_id'], 
                             desc
                         )
+                        
+                        # Update Cache
+                        self.pk_message_cache[message_id] = result
+                        if len(self.pk_message_cache) > self.MAX_CACHE_SIZE:
+                            self.pk_message_cache.popitem(last=False)
+                        
+                        return result
             except Exception as e:
                 logger.error(f"PK DB Message Lookup Error: {e}")
 
@@ -208,7 +221,14 @@ class APIService:
                     if description:
                         description = description.replace('[', '(').replace(']', ')')
                     
-                    return final_name, system_id, system_name, system_tag, sender_id, description
+                    result = (final_name, system_id, system_name, system_tag, sender_id, description)
+                    
+                    # Update Cache
+                    self.pk_message_cache[message_id] = result
+                    if len(self.pk_message_cache) > self.MAX_CACHE_SIZE:
+                        self.pk_message_cache.popitem(last=False)
+
+                    return result
         except Exception as e:
             logger.warning(f"PK Message API Exception: {e}")
         return None, None, None, None, None, None

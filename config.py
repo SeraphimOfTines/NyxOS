@@ -67,6 +67,7 @@ if os.path.exists(injected_prompt_path):
 # NOTE: Ideally, move these to .env
 
 ADMIN_ROLE_IDS = []
+ADMIN_USER_IDS = []
 ADMIN_FLAVOR_TEXT = " (Seraph)"
 SPECIAL_ROLE_IDS = []
 SPECIAL_FLAVOR_TEXT = " (Chiara)"
@@ -101,6 +102,7 @@ except Exception as e:
 # Ensure IDs are integers to prevent auth failures
 try:
     ADMIN_ROLE_IDS = [int(uid) for uid in ADMIN_ROLE_IDS]
+    ADMIN_USER_IDS = [int(uid) for uid in ADMIN_USER_IDS]
     SPECIAL_ROLE_IDS = [int(uid) for uid in SPECIAL_ROLE_IDS]
     BOT_ROLE_IDS = [int(uid) for uid in BOT_ROLE_IDS]
 except Exception as e:

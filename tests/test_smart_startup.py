@@ -53,14 +53,17 @@ class TestSmartStartup(unittest.IsolatedAsyncioTestCase):
         msg_body = AsyncMock()
         msg_body.author.id = 999
         msg_body.content = "Body"
+        msg_body.created_at = 300
         
         msg_bar = AsyncMock()
         msg_bar.author.id = 999
         msg_bar.content = "Bar"
+        msg_bar.created_at = 200
         
         msg_header = AsyncMock()
         msg_header.author.id = 999
         msg_header.content = "Header"
+        msg_header.created_at = 100
         
         # Setup History (Return Body, Bar, Header)
         mock_channel.history = MagicMock(return_value=AsyncIter([msg_body, msg_bar, msg_header]))
@@ -85,7 +88,7 @@ class TestSmartStartup(unittest.IsolatedAsyncioTestCase):
             # Simulate the critical section of on_ready for ONE channel
             target_channels = [123]
             
-            # --- REPLICATED LOGIC FROM NyxOS.py (Simplified for Test) ---
+            # --- REPLICATED LOGIC FROM NyxOS.py (Updated for Strict Check) ---
             t_ch = mock_channel
             startup_header_text = "New Header"
             msg2_text = "New Bar"
@@ -93,29 +96,40 @@ class TestSmartStartup(unittest.IsolatedAsyncioTestCase):
             client = self.client
             progress_msgs = []
 
-            # ... (The logic I just wrote) ...
-            h_msg = None; bar_msg = None; b_msg = None
-            
-            candidates = []
+            existing_msgs = []
             async for m in t_ch.history(limit=10):
-                if m.author.id == 999: candidates.append(m)
+                existing_msgs.append(m)
             
-            if len(candidates) >= 3:
-                b_msg = candidates[0]
-                bar_msg = candidates[1]
-                h_msg = candidates[2]
+            # Sort Oldest -> Newest
+            existing_msgs.sort(key=lambda x: x.created_at)
+            
+            # Strict Check: Count == 3 AND Author is Bot
+            valid_state = (len(existing_msgs) == 3 and all(m.author.id == 999 for m in existing_msgs))
+            
+            h_msg = None; bar_msg = None; b_msg = None
+            success = False
+
+            if valid_state:
+                h_msg = existing_msgs[0]
+                bar_msg = existing_msgs[1]
+                b_msg = existing_msgs[2]
                 
-                await h_msg.edit(content=startup_header_text)
-                await bar_msg.edit(content=msg2_text)
-                await b_msg.edit(content=body_text)
-                
-                client.startup_header_msg = h_msg
-                client.startup_bar_msg = bar_msg
-                progress_msgs.append(b_msg)
-            else:
-                # Fallback
-                await t_ch.purge()
-                await t_ch.send()
+                try:
+                    await h_msg.edit(content=startup_header_text)
+                    await bar_msg.edit(content=msg2_text)
+                    await b_msg.edit(content=body_text)
+                    
+                    client.startup_header_msg = h_msg
+                    client.startup_bar_msg = bar_msg
+                    progress_msgs.append(b_msg)
+                    success = True
+                except: success = False
+
+            if not success:
+                await t_ch.purge(limit=100)
+                await t_ch.send("Header")
+                await t_ch.send("Bar")
+                await t_ch.send("Body")
             # -----------------------------------------------------------
 
             # Assertions
@@ -139,15 +153,53 @@ class TestSmartStartup(unittest.IsolatedAsyncioTestCase):
         # Return only 1 message
         msg1 = AsyncMock()
         msg1.author.id = 999
+        msg1.created_at = 100
         mock_channel.history = MagicMock(return_value=AsyncIter([msg1]))
         
-        # Execute Logic
+        # Execute Logic (Updated Strict)
         t_ch = mock_channel
-        candidates = []
+        existing_msgs = []
         async for m in t_ch.history(limit=10):
-             if m.author.id == 999: candidates.append(m)
+            existing_msgs.append(m)
+        existing_msgs.sort(key=lambda x: x.created_at)
         
-        if len(candidates) >= 3:
+        valid_state = (len(existing_msgs) == 3 and all(m.author.id == 999 for m in existing_msgs))
+        
+        if valid_state:
+             pass # Edit
+        else:
+             await t_ch.purge(limit=100)
+             await t_ch.send("Header")
+        
+        # Verify Purge and Send
+        mock_channel.purge.assert_called()
+        mock_channel.send.assert_called()
+
+    async def test_startup_too_many_messages(self):
+        """Test that startup logic wipes if there are TOO MANY messages."""
+        
+        mock_channel = MagicMock()
+        mock_channel.purge = AsyncMock()
+        mock_channel.send = AsyncMock(return_value=AsyncMock())
+        
+        # Return 4 messages
+        msgs = [AsyncMock() for _ in range(4)]
+        for i, m in enumerate(msgs):
+            m.author.id = 999
+            m.created_at = 100 + i
+            
+        mock_channel.history = MagicMock(return_value=AsyncIter(msgs))
+        
+        # Execute Logic (Updated Strict)
+        t_ch = mock_channel
+        existing_msgs = []
+        async for m in t_ch.history(limit=10):
+            existing_msgs.append(m)
+        existing_msgs.sort(key=lambda x: x.created_at)
+        
+        valid_state = (len(existing_msgs) == 3 and all(m.author.id == 999 for m in existing_msgs))
+        
+        if valid_state:
              pass # Edit
         else:
              await t_ch.purge(limit=100)

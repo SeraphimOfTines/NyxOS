@@ -973,29 +973,37 @@ class LMStudioBot(discord.Client):
                 t_ch = self.get_channel(t_id) or await self.fetch_channel(t_id)
                 if not t_ch: continue
 
-                # RECOVERY LOGIC (ID-BASED ONLY)
-                # We strictly avoid scanning history on boot to prevent rate limits.
+                # STRICT STATE ENFORCEMENT
+                # Ensure channel has EXACTLY 3 messages: Header, Master Bar, Body.
+                # If not, WIPE and RESET.
+
+                existing_msgs = []
+                try:
+                    # Fetch history (ignore pinned if any, though strictly we want clean channel)
+                    async for m in t_ch.history(limit=10):
+                        existing_msgs.append(m)
+                except: pass
+                
+                # Sort Oldest -> Newest
+                existing_msgs.sort(key=lambda x: x.created_at)
+                
+                # Check if we have a valid state
+                # State is valid if: Count is 3 AND all are from us (optional, but safer to just count)
+                # If &reboot was used, we might have user msg + bot reply + 3 status = 5.
+                # In that case, we WANT to wipe.
+                
+                valid_state = (len(existing_msgs) == 3 and all(m.author.id == self.user.id for m in existing_msgs))
                 
                 h_msg = None
                 bar_msg = None
                 b_msg = None
-                
-                if restart_data and restart_data.get("channel_id") == t_id:
-                    # Try to reuse known IDs from reboot
-                    try:
-                        h_id = restart_data.get("header_msg_id")
-                        bar_id = restart_data.get("bar_msg_id")
-                        b_id = restart_data.get("body_msg_id")
-                        
-                        if h_id: h_msg = await t_ch.fetch_message(h_id)
-                        if bar_id: bar_msg = await t_ch.fetch_message(bar_id)
-                        if b_id: b_msg = await t_ch.fetch_message(b_id)
-                    except: 
-                        h_msg = bar_msg = b_msg = None
-
-                # Attempt to Edit if we found them
                 success = False
-                if h_msg and bar_msg and b_msg:
+
+                if valid_state:
+                    h_msg = existing_msgs[0]
+                    bar_msg = existing_msgs[1]
+                    b_msg = existing_msgs[2]
+                    
                     try:
                         await h_msg.edit(content=startup_header_text)
                         await bar_msg.edit(content=msg2_text)
@@ -1005,13 +1013,13 @@ class LMStudioBot(discord.Client):
                         client.startup_bar_msg = bar_msg
                         progress_msgs.append(b_msg)
                         success = True
-                    except: success = False
-                
+                    except: 
+                        success = False # Edit failed (deleted?) -> Trigger Wipe
+
                 if not success:
-                    # Fallback: Post NEW messages (Avoid Purge on boot to save calls)
-                    # logger.info(f"🧹 Wiping and reposting startup messages in {t_ch.name}...")
-                    # try: await t_ch.purge(limit=100) # Too expensive on rate limits
-                    # except: pass
+                    logger.info(f"🧹 Invalid state in {t_ch.name} (Msgs: {len(existing_msgs)}). Wiping and refreshing...")
+                    try: await t_ch.purge(limit=100)
+                    except: pass
 
                     h_msg = await t_ch.send(startup_header_text)
                     client.startup_header_msg = h_msg
@@ -2827,7 +2835,8 @@ async def on_message(message):
                         image_data_uri,
                         member_description,
                         search_context=search_context,
-                        system_prompt_override=system_prompt_override
+                        reply_context_str=current_reply_context,
+                        system_prompt_override=None
                     )
                     
                     # Check Abort Signal AFTER Generation

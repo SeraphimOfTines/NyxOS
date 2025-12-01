@@ -95,9 +95,9 @@ def is_authorized(user_obj):
     if isinstance(user_obj, (int, str)):
         try:
             uid = int(user_obj)
-            # Note: This checks if the User ID is in the Role ID list. 
-            # This is valid if the user put their User ID in the config, 
-            # but usually these lists contain Role IDs.
+            # Check User IDs first
+            if uid in config.ADMIN_USER_IDS: return True
+            # Legacy/Fallback: Check Role IDs (Some users put User IDs here)
             if uid in config.ADMIN_ROLE_IDS: return True
             if uid in config.SPECIAL_ROLE_IDS: return True
         except: pass
@@ -106,6 +106,7 @@ def is_authorized(user_obj):
 
     # Check object ID (Permissive)
     if hasattr(user_obj, "id"):
+        if user_obj.id in config.ADMIN_USER_IDS: return True
         if user_obj.id in config.ADMIN_ROLE_IDS: return True
         if user_obj.id in config.SPECIAL_ROLE_IDS: return True
 
