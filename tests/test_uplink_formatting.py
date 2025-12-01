@@ -11,7 +11,7 @@ import ui
 
 @pytest.mark.asyncio
 class TestUplinkFormatting:
-    async def test_uplink_grouping(self):
+    async def test_uplink_no_grouping(self):
         client = NyxOS.LMStudioBot()
         client.active_bars = {}
         
@@ -49,25 +49,20 @@ class TestUplinkFormatting:
                 await client.update_console_status()
                 
             # Verify content
-            # 15 items. 6 per line.
-            # Line 1: 1..6
-            # Line 2: 7..12
-            # Line 3: 13..15
+            # 15 items. 1 per line.
             
             assert len(client.console_progress_msgs) >= 1
             last_msg = client.console_progress_msgs[-1]
             content = last_msg.edit.call_args[1]['content']
             
-            # Check for grouping
-            # We expect the separator "  " to appear multiple times
+            # Check for grouping (1 per line)
             lines = content.split('\n')
             # Filter out header
             uplink_lines = [l for l in lines if "https://" in l or "<#" in l]
             
-            assert len(uplink_lines) == 3
-            assert uplink_lines[0].count("https://") == 6
-            assert uplink_lines[1].count("https://") == 6
-            assert uplink_lines[2].count("https://") == 3
+            assert len(uplink_lines) == 15
+            assert uplink_lines[0].count("https://") == 1
+            assert uplink_lines[14].count("https://") == 1
 
     async def test_uplink_splitting(self):
         client = NyxOS.LMStudioBot()

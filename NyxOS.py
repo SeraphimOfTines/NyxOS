@@ -1353,17 +1353,6 @@ class LMStudioBot(discord.Client):
             except:
                 pass
                 
-        # Group lines by 6
-        chunked_lines = []
-        current_chunk = []
-        for i, line in enumerate(log_lines):
-            current_chunk.append(line)
-            if len(current_chunk) == 6:
-                chunked_lines.append("  ".join(current_chunk))
-                current_chunk = []
-        if current_chunk:
-            chunked_lines.append("  ".join(current_chunk))
-
         divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
         header = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n"
         
@@ -1373,7 +1362,7 @@ class LMStudioBot(discord.Client):
         current_msg_content = header
         is_first = True
         
-        for line in chunked_lines:
+        for line in log_lines:
             # +1 for newline
             if len(current_msg_content) + len(line) + 1 > 2000:
                 messages_content.append(current_msg_content)
