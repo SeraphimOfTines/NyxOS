@@ -1193,8 +1193,12 @@ class LMStudioBot(discord.Client):
         
         # Check commands
         await client.check_and_sync_commands()
+        
+        # --- PHASE 2: RECOVERY SCAN ---
+        # Launch background scan to restore lost uplinks or update prefixes
+        client.loop.create_task(client.perform_system_scan(restore_missing=True))
 
-    async def perform_system_scan(self, interaction=None):
+    async def perform_system_scan(self, interaction=None, restore_missing=False):
         """
         Scans all whitelisted channels to verify/restore bars.
         Updates the console message log.
@@ -1230,11 +1234,18 @@ class LMStudioBot(discord.Client):
                 
                 bar_msg = None
                 check_msg = None
+                found_prefix = None
                 
                 # 2. Verify / Fetch (DB First)
                 if stored_bar_id:
                     try: 
                         bar_msg = await ch.fetch_message(stored_bar_id)
+                        # Check prefix if found
+                        if bar_msg and bar_msg.content:
+                             for emoji in ui.BAR_PREFIX_EMOJIS:
+                                 if bar_msg.content.strip().startswith(emoji):
+                                     found_prefix = emoji
+                                     break
                     except (discord.NotFound, discord.HTTPException): 
                         bar_msg = None # Explicitly cleared if fetch fails
                 
@@ -1259,6 +1270,7 @@ class LMStudioBot(discord.Client):
                                 for emoji in ui.BAR_PREFIX_EMOJIS:
                                     if m.content.strip().startswith(emoji):
                                         bar_msg = m
+                                        found_prefix = emoji
                                         break
                             if bar_msg: break
                     
@@ -1280,6 +1292,9 @@ class LMStudioBot(discord.Client):
                     persisting = existing.get("persisting", False)
                     user_id = existing.get("user_id", self.user.id)
                     
+                    # Use found prefix if available, else fallback to existing or default
+                    current_prefix = found_prefix or existing.get("current_prefix")
+                    
                     view = ui.StatusBarView(content, user_id, cid, persisting)
                     self.add_view(view, message_id=bar_msg.id)
                     self._register_bar_message(cid, bar_msg.id, view)
@@ -1291,11 +1306,11 @@ class LMStudioBot(discord.Client):
                         "message_id": bar_msg.id,
                         "checkmark_message_id": check_msg.id if check_msg else None,
                         "persisting": persisting,
-                        "current_prefix": existing.get("current_prefix"), # Preserve prefix
+                        "current_prefix": current_prefix, 
                         "has_notification": existing.get("has_notification", False)
                     }
                     
-                    memory_manager.save_bar(cid, ch.guild.id, bar_msg.id, user_id, content, persisting, current_prefix=existing.get("current_prefix"))
+                    memory_manager.save_bar(cid, ch.guild.id, bar_msg.id, user_id, content, persisting, current_prefix=current_prefix)
                     
                     # Log (Link to Checkmark)
                     link_id = check_msg.id if check_msg else bar_msg.id
@@ -1303,8 +1318,39 @@ class LMStudioBot(discord.Client):
                     saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
                     wake_log.append(f"{saturn_emoji} {link.strip()}")
                 
+                elif restore_missing:
+                    # Lost? Create new idle bar (Restoration Logic)
+                    await asyncio.sleep(1.0)
+                    
+                    master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+                    idle_prefix = "<a:NotWatching:1301840196966285322>"
+                    # Force inline checkmark
+                    new_content = f"{idle_prefix}{master_content.strip()} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+                    new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                    new_content = new_content.replace(f"\n{ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}", f" {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}")
+                    
+                    view = ui.StatusBarView(new_content, self.user.id, cid, False)
+                    new_msg = await ch.send(new_content, view=view)
+                    
+                    self.active_bars[cid] = {
+                        "content": f"{idle_prefix}{master_content.strip()}",
+                        "user_id": self.user.id,
+                        "message_id": new_msg.id,
+                        "checkmark_message_id": new_msg.id,
+                        "persisting": False,
+                        "current_prefix": idle_prefix,
+                        "has_notification": False
+                    }
+                    self._register_bar_message(cid, new_msg.id, view)
+                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, self.active_bars[cid]["content"], False, current_prefix=idle_prefix, has_notification=False)
+                    memory_manager.save_channel_location(cid, new_msg.id, new_msg.id)
+                    
+                    link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{new_msg.id}"
+                    saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
+                    wake_log.append(f"{saturn_emoji} {link.strip()} (Restored)")
+
                 else:
-                    # Lost? Log it but DO NOT create new one (User requested manual control)
+                    # Lost? Log it but DO NOT create new one (Manual Mode)
                     saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
                     wake_log.append(f"{saturn_emoji} <#{cid}> (Signal Lost)")
 
@@ -1314,19 +1360,15 @@ class LMStudioBot(discord.Client):
                 
                 # Use cached console messages if available
                 targets = getattr(self, "console_progress_msgs", [])
-                # If empty (maybe manually run scan later?), try to find them CAREFULLY
-                if not targets and config.STARTUP_CHANNEL_ID:
-                     # We avoid scanning if possible. If manual scan, maybe just send a new report?
-                     # Or just skip updating if we can't find them easily.
-                     # Let's try to fetch just the last message if we really need to.
-                     # But for now, let's rely on the cache from on_ready.
-                     pass
-
+                
                 for m in targets:
                    try: 
                        await services.service.limiter.wait_for_slot("edit_message", m.channel.id)
                        await m.edit(content=current_status)
                    except: pass
+                
+                # Sync Console (Partial Update)
+                await self.update_console_status()
 
             except Exception as e:
                 logger.error(f"Scan failed for {cid_str}: {e}")
