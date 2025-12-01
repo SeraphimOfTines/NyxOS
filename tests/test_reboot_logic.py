@@ -62,8 +62,11 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
                 await self.mock_client.perform_shutdown_sequence(interaction, restart=True)
                 
                 # Verify UI updates
-                h_msg.edit.assert_called()
-                b_msg.edit.assert_called()
+                # h_msg should be edited twice (Powering Down, then Offline)
+                self.assertEqual(h_msg.edit.call_count, 2)
+                
+                # b_msg (Bar) should NOT be edited (Preserve Status Icons)
+                b_msg.edit.assert_not_called()
                 
                 # Verify Meta Write
                 self.assertTrue(os.path.exists(config.RESTART_META_FILE))

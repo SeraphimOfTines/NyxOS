@@ -120,8 +120,12 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
         
         self.assertEqual(count, 2)
         
-        # Check that DB update was called
-        self.mock_update.assert_called()
+        # Verify update_bar_content called for each
+        # self.mock_update.assert_called()
+        # Updated to use save_bar
+        self.mock_save.assert_called()
+        # Setup has 2 items in setUp (100, 200)
+        self.assertEqual(self.mock_save.call_count, 2)
         
         # Check that internal state active_bars is updated
         self.assertTrue(self.client.active_bars[100]["content"].startswith(target_emoji))
