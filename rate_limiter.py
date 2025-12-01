@@ -1,6 +1,7 @@
 import asyncio
 import time
 import logging
+import inspect
 from collections import defaultdict
 
 logger = logging.getLogger("RateLimiter")
@@ -64,7 +65,14 @@ class RateLimiter:
                 wait_time = (oldest + window) - now + 0.05 # Small buffer
                 
                 if wait_time > 0:
-                    # logger.debug(f"Rate Limit Reached for {action} on {key}. Sleeping {wait_time:.2f}s")
+                    try:
+                        # Stack: [0]=_wait_for_bucket, [1]=wait_for_slot, [2]=Caller
+                        frame = inspect.stack()[2]
+                        caller_info = f"{frame.filename.split('/')[-1]}:{frame.lineno}"
+                    except Exception:
+                        caller_info = "Unknown"
+                    
+                    logger.warning(f"Rate Limit Reached for {action} on {key}. Sleeping {wait_time:.2f}s. Source: {caller_info}")
                     await asyncio.sleep(wait_time)
                 
                 # Re-check time after sleep

@@ -11,10 +11,66 @@ import time
 import signal
 import hashlib
 import subprocess
+import traceback
 from collections import OrderedDict, deque
 
 # Local Modules
 import config
+
+# ==========================================
+# LOGGING SETUP (Must be before other imports)
+# ==========================================
+# Ensure logs directory exists
+os.makedirs(config.LOGS_DIR, exist_ok=True)
+
+class RobustHTTPLogger(logging.Filter):
+    def filter(self, record):
+        # Catch "We are being rate limited" from discord.http
+        if record.name == "discord.http" and "rate limited" in record.getMessage().lower():
+            stack = traceback.format_stack()
+            filtered = []
+            found_local = False
+            for line in stack:
+                # Filter for our files to identify the source
+                if any(x in line for x in ["NyxOS.py", "services.py", "ui.py", "memory_manager.py", "helpers.py"]):
+                    filtered.append(f" >> {line.strip()}")
+                    found_local = True
+            
+            if found_local:
+                record.msg += f"\n🚨 RATE LIMIT SOURCE TRACE:\n" + "\n".join(filtered)
+            else:
+                # Fallback if no local file found (weird, but capture last few lines)
+                record.msg += f"\n🚨 RATE LIMIT (External Source):\n" + "".join(stack[-5:])
+        return True
+
+# Configure Logging
+logger = logging.getLogger('NyxOS') # Local logger for this file
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+
+# Add filter to handlers (so it modifies the record before emit)
+robust_filter = RobustHTTPLogger()
+
+# Console Handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(formatter)
+console_handler.addFilter(robust_filter)
+
+# File Handler
+file_handler = logging.FileHandler(os.path.join(config.LOGS_DIR, 'nyxos.log'), encoding='utf-8')
+file_handler.setFormatter(formatter)
+file_handler.addFilter(robust_filter)
+
+# Apply handlers to root (captures all loggers: NyxOS, RateLimiter, discord, etc.)
+if not root_logger.handlers:
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+
+# Force discord.http to show requests if needed (Uncomment to see ALL traffic)
+# logging.getLogger("discord.http").setLevel(logging.INFO)
+
+# Other Local Modules (Imported AFTER logging is set up)
 import helpers
 import services
 import memory_manager
@@ -23,30 +79,6 @@ import ui
 # ==========================================
 # BOT SETUP
 # ==========================================
-
-# Ensure logs directory exists
-os.makedirs(config.LOGS_DIR, exist_ok=True)
-
-# Configure Logging
-logger = logging.getLogger('NyxOS')
-logger.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
-
-# Console Handler
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(formatter)
-
-# File Handler
-file_handler = logging.FileHandler(os.path.join(config.LOGS_DIR, 'nyxos.log'), encoding='utf-8')
-file_handler.setFormatter(formatter)
-
-# Apply handlers (avoid duplicates)
-if not logger.handlers:
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-
-# Set root logger level to suppress debug noise from libraries if needed
-logging.getLogger().setLevel(logging.INFO)
 
 def kill_duplicate_processes():
     """Nuclear option: Kills other instances with SIGKILL and ensures they are dead."""
@@ -1074,6 +1106,8 @@ class LMStudioBot(discord.Client):
         if hasattr(client, "startup_header_msg") and client.startup_header_msg:
              final_header = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
              try:
+                 # Wait for slot before editing header
+                 await services.service.limiter.wait_for_slot("edit_message", client.startup_header_msg.channel.id)
                  await client.startup_header_msg.edit(content=final_header)
              except: pass
              
@@ -1301,7 +1335,9 @@ class LMStudioBot(discord.Client):
              final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(List truncated... {len(log_lines)} active)"
 
         for m in targets:
-            try: await m.edit(content=final_body)
+            try: 
+                await services.service.limiter.wait_for_slot("edit_message", m.channel.id)
+                await m.edit(content=final_body)
             except: pass
 
     async def check_and_sync_commands(self):

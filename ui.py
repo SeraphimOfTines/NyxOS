@@ -56,7 +56,7 @@ FLAVOR_TEXT = {
     "CHECKMARK_EMOJI": "<a:AllCaughtUp:1289323947082387526>",
     "REBOOT_HEADER": "# <a:RebootingMainframe:1444740155784036512> Rebooting . . .",
     "REBOOT_SUB": "-# Good morning! ",
-    "STARTUP_HEADER": "# <a:SeraphErynianChip:1444481882988216473> System Online <a:SeraphErynianChip:1444481882988216473>",
+    "STARTUP_HEADER": "# <a:SATVRNCommand:1301834555086602240> System Online",
     "STARTUP_SUB": "-# Good morning! <a:SeraphHeartRainbowPulse:1307567594433155073>",
     "STARTUP_SUB_DONE": "-# NyxOS v2.0",
     "UPLINKS_HEADER": "Active Uplinks",
