@@ -300,11 +300,16 @@ class Database:
         try:
             with self._get_conn() as conn:
                 c = conn.cursor()
-                c.execute("SELECT * FROM active_bars WHERE channel_id = ?", (str(channel_id),))
+                c.execute("""
+                    SELECT channel_id, guild_id, message_id, user_id, content, 
+                           original_prefix, current_prefix, is_sleeping, persisting, 
+                           has_notification, previous_state, timestamp, checkmark_message_id 
+                    FROM active_bars WHERE channel_id = ?
+                """, (str(channel_id),))
                 row = c.fetchone()
                 if row:
                     # Map row to dict
-                    return {
+                    result = {
                         "channel_id": int(row[0]),
                         "guild_id": int(row[1]) if row[1] else None,
                         "message_id": int(row[2]),
@@ -317,7 +322,7 @@ class Database:
                         "has_notification": bool(row[9]),
                         "previous_state": None,
                         "timestamp": row[11],
-                        "checkmark_message_id": int(row[12]) if len(row) > 12 and row[12] else int(row[2])
+                        "checkmark_message_id": int(row[12]) if row[12] else int(row[2])
                     }
                     try:
                         if row[10]:
@@ -344,7 +349,12 @@ class Database:
         try:
             with self._get_conn() as conn:
                 c = conn.cursor()
-                c.execute("SELECT * FROM active_bars")
+                c.execute("""
+                    SELECT channel_id, guild_id, message_id, user_id, content, 
+                           original_prefix, current_prefix, is_sleeping, persisting, 
+                           has_notification, previous_state, timestamp, checkmark_message_id 
+                    FROM active_bars
+                """)
                 rows = c.fetchall()
                 bars = {}
                 for row in rows:
@@ -361,7 +371,7 @@ class Database:
                         "has_notification": bool(row[9]),
                         "previous_state": None,
                         "timestamp": row[11],
-                        "checkmark_message_id": int(row[12]) if len(row) > 12 and row[12] else int(row[2])
+                        "checkmark_message_id": int(row[12]) if row[12] else int(row[2])
                     }
                     try:
                         if row[10]:

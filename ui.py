@@ -159,9 +159,18 @@ class StatusBarView(discord.ui.View):
 
     def update_buttons(self):
         for child in self.children:
+            # Update Persist Button
             if getattr(child, "custom_id", "") == "bar_persist_btn":
                 child.label = FLAVOR_TEXT["BAR_PERSIST_ON"] if self.persisting else FLAVOR_TEXT["BAR_PERSIST_OFF"]
                 child.style = discord.ButtonStyle.success if self.persisting else discord.ButtonStyle.secondary
+            
+            # Update Drop Buttons (Disable if Persisting/Auto Mode is ON)
+            if getattr(child, "custom_id", "") in ["bar_drop_all_btn", "bar_drop_check_btn"]:
+                child.disabled = self.persisting
+                if getattr(child, "custom_id", "") == "bar_drop_all_btn":
+                     child.label = "Auto Mode" if self.persisting else FLAVOR_TEXT["BAR_DROP_ALL"]
+                elif getattr(child, "custom_id", "") == "bar_drop_check_btn":
+                     child.label = "—" if self.persisting else FLAVOR_TEXT["BAR_DROP_CHECK"]
 
     async def check_auth(self, interaction, button):
         # Only Original User or Admin
