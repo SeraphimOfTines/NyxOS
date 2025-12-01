@@ -203,34 +203,45 @@ class APIService:
 
         # 2. Fallback to API
         url = config.PLURALKIT_MESSAGE_API.format(message_id)
-        try:
-            async with self.http_session.get(url) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    member_name = data.get('member', {}).get('name')
-                    member_display = data.get('member', {}).get('display_name')
-                    final_name = member_display if member_display else member_name
-                    
-                    system_data = data.get('system', {})
-                    system_id = system_data.get('id')
-                    system_name = system_data.get('name')
-                    system_tag = system_data.get('tag')
-                    sender_id = data.get('sender') 
-                    
-                    description = data.get('member', {}).get('description', "")
-                    if description:
-                        description = description.replace('[', '(').replace(']', ')')
-                    
-                    result = (final_name, system_id, system_name, system_tag, sender_id, description)
-                    
-                    # Update Cache
-                    self.pk_message_cache[message_id] = result
-                    if len(self.pk_message_cache) > self.MAX_CACHE_SIZE:
-                        self.pk_message_cache.popitem(last=False)
+        for attempt in range(3):
+            try:
+                async with self.http_session.get(url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        member_name = data.get('member', {}).get('name')
+                        member_display = data.get('member', {}).get('display_name')
+                        final_name = member_display if member_display else member_name
+                        
+                        system_data = data.get('system', {})
+                        system_id = system_data.get('id')
+                        system_name = system_data.get('name')
+                        system_tag = system_data.get('tag')
+                        sender_id = data.get('sender') 
+                        
+                        description = data.get('member', {}).get('description', "")
+                        if description:
+                            description = description.replace('[', '(').replace(']', ')')
+                        
+                        result = (final_name, system_id, system_name, system_tag, sender_id, description)
+                        
+                        # Update Cache
+                        self.pk_message_cache[message_id] = result
+                        if len(self.pk_message_cache) > self.MAX_CACHE_SIZE:
+                            self.pk_message_cache.popitem(last=False)
 
-                    return result
-        except Exception as e:
-            logger.warning(f"PK Message API Exception: {e}")
+                        return result
+                    elif resp.status == 429:
+                        logger.warning(f"PK Rate Limit (429) on attempt {attempt+1}. Retrying...")
+                        await asyncio.sleep(1 * (attempt + 1))
+                    elif resp.status == 404:
+                        # Not a PK message
+                        return None, None, None, None, None, None
+                    else:
+                        logger.warning(f"PK API Error {resp.status} on attempt {attempt+1}.")
+            except Exception as e:
+                logger.warning(f"PK Message API Exception on attempt {attempt+1}: {e}")
+                await asyncio.sleep(1)
+        
         return None, None, None, None, None, None
 
     # --- WEB SEARCH ---
