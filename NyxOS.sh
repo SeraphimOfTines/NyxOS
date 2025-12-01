@@ -45,6 +45,6 @@ while true; do
         break
     fi
     
-    echo "🔄 Process exited (Code: $EXIT_CODE). Restarting in 2 seconds..."
-    sleep 2
+    echo "🔄 Process exited (Code: $EXIT_CODE). Restarting in 8 seconds..."
+    sleep 8
 done

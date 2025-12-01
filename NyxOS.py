@@ -1193,200 +1193,6 @@ class LMStudioBot(discord.Client):
         
         # Check commands
         await client.check_and_sync_commands()
-        
-        # --- PHASE 2: RECOVERY SCAN ---
-        # Launch background scan to restore lost uplinks or update prefixes
-        client.loop.create_task(client.perform_system_scan(restore_missing=True))
-
-    async def perform_system_scan(self, interaction=None, restore_missing=False):
-        """
-        Scans all whitelisted channels to verify/restore bars.
-        Updates the console message log.
-        """
-        # 1. Setup Console Output
-        # We use cached messages from on_ready to avoid scanning history
-        console_msgs = getattr(self, "console_progress_msgs", [])
-        
-        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
-        status_str = f"{divider}\n🔍 Scanning channels..."
-        for m in console_msgs:
-            try: await m.edit(content=status_str)
-            except: pass
-
-        bar_whitelist = memory_manager.get_bar_whitelist()
-        wake_log = []
-        
-        for cid_str in bar_whitelist:
-            await asyncio.sleep(8.0) # Rate limit protection (Aggressive 8s delay)
-            
-            try:
-                cid = int(cid_str)
-                if cid == 99999:
-                    # Clean up invalid channel
-                    memory_manager.remove_bar_whitelist(cid)
-                    continue
-                
-                ch = self.get_channel(cid) or await self.fetch_channel(cid)
-                if not ch: continue
-                
-                # 1. Load Location
-                stored_bar_id, stored_check_id = memory_manager.get_channel_location(cid)
-                
-                bar_msg = None
-                check_msg = None
-                found_prefix = None
-                
-                # 2. Verify / Fetch (DB First)
-                if stored_bar_id:
-                    try: 
-                        bar_msg = await ch.fetch_message(stored_bar_id)
-                        # Check prefix if found
-                        if bar_msg and bar_msg.content:
-                             for emoji in ui.BAR_PREFIX_EMOJIS:
-                                 if bar_msg.content.strip().startswith(emoji):
-                                     found_prefix = emoji
-                                     break
-                    except (discord.NotFound, discord.HTTPException): 
-                        bar_msg = None # Explicitly cleared if fetch fails
-                
-                # If bar found, check if checkmark is merged or separate
-                if bar_msg:
-                    if stored_check_id == stored_bar_id:
-                        check_msg = bar_msg # Merged
-                    elif stored_check_id:
-                        try: 
-                            check_msg = await ch.fetch_message(stored_check_id)
-                        except (discord.NotFound, discord.HTTPException):
-                            check_msg = None
-
-                # 3. Fallback Scan (Only if DB lookup failed)
-                if not bar_msg:
-                    # Extra delay before expensive scan
-                    await asyncio.sleep(2.0) 
-                    
-                    async for m in ch.history(limit=5):
-                        if m.author.id == self.user.id:
-                            if m.content:
-                                for emoji in ui.BAR_PREFIX_EMOJIS:
-                                    if m.content.strip().startswith(emoji):
-                                        bar_msg = m
-                                        found_prefix = emoji
-                                        break
-                            if bar_msg: break
-                    
-                    if bar_msg:
-                        # Found one, assume merged or lost check
-                        stored_bar_id = bar_msg.id
-                        stored_check_id = bar_msg.id if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in bar_msg.content else None
-                        memory_manager.save_channel_location(cid, bar_msg_id=bar_msg.id, check_msg_id=stored_check_id)
-
-                # 4. Register / Restore
-                if bar_msg:
-                    # Extract clean content
-                    content = bar_msg.content
-                    if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in content:
-                         content = content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
-                    
-                    # Ensure View is Active
-                    existing = self.active_bars.get(cid, {})
-                    persisting = existing.get("persisting", False)
-                    user_id = existing.get("user_id", self.user.id)
-                    
-                    # Use found prefix if available, else fallback to existing or default
-                    current_prefix = found_prefix or existing.get("current_prefix")
-                    
-                    view = ui.StatusBarView(content, user_id, cid, persisting)
-                    self.add_view(view, message_id=bar_msg.id)
-                    self._register_bar_message(cid, bar_msg.id, view)
-                    
-                    # Update Active State
-                    self.active_bars[cid] = {
-                        "content": content,
-                        "user_id": user_id,
-                        "message_id": bar_msg.id,
-                        "checkmark_message_id": check_msg.id if check_msg else None,
-                        "persisting": persisting,
-                        "current_prefix": current_prefix, 
-                        "has_notification": existing.get("has_notification", False)
-                    }
-                    
-                    memory_manager.save_bar(cid, ch.guild.id, bar_msg.id, user_id, content, persisting, current_prefix=current_prefix)
-                    
-                    # Log (Link to Checkmark)
-                    link_id = check_msg.id if check_msg else bar_msg.id
-                    link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{link_id}"
-                    saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
-                    wake_log.append(f"{saturn_emoji} {link.strip()}")
-                
-                elif restore_missing:
-                    # Lost? Create new idle bar (Restoration Logic)
-                    await asyncio.sleep(1.0)
-                    
-                    master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
-                    idle_prefix = "<a:NotWatching:1301840196966285322>"
-                    # Force inline checkmark
-                    new_content = f"{idle_prefix}{master_content.strip()} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-                    new_content = re.sub(r'>[ \t]+<', '><', new_content)
-                    new_content = new_content.replace(f"\n{ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}", f" {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}")
-                    
-                    view = ui.StatusBarView(new_content, self.user.id, cid, False)
-                    new_msg = await ch.send(new_content, view=view)
-                    
-                    self.active_bars[cid] = {
-                        "content": f"{idle_prefix}{master_content.strip()}",
-                        "user_id": self.user.id,
-                        "message_id": new_msg.id,
-                        "checkmark_message_id": new_msg.id,
-                        "persisting": False,
-                        "current_prefix": idle_prefix,
-                        "has_notification": False
-                    }
-                    self._register_bar_message(cid, new_msg.id, view)
-                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, self.active_bars[cid]["content"], False, current_prefix=idle_prefix, has_notification=False)
-                    memory_manager.save_channel_location(cid, new_msg.id, new_msg.id)
-                    
-                    link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{new_msg.id}"
-                    saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
-                    wake_log.append(f"{saturn_emoji} {link.strip()} (Restored)")
-
-                else:
-                    # Lost? Log it but DO NOT create new one (Manual Mode)
-                    saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
-                    wake_log.append(f"{saturn_emoji} <#{cid}> (Signal Lost)")
-
-                # Update Console
-                log_str = "\n".join(wake_log[-8:]) 
-                current_status = f"{divider}\n<a:Thinking:1322962569300017214> Initializing Uplinks...\n{log_str}"
-                
-                # Use cached console messages if available
-                targets = getattr(self, "console_progress_msgs", [])
-                
-                for m in targets:
-                   try: 
-                       await services.service.limiter.wait_for_slot("edit_message", m.channel.id)
-                       await m.edit(content=current_status)
-                   except: pass
-                
-                # Sync Console (Partial Update)
-                await self.update_console_status()
-
-            except Exception as e:
-                logger.error(f"Scan failed for {cid_str}: {e}")
-
-        # Final Update
-        final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n" + "\n".join(wake_log)
-        if len(final_body) > 2000:
-             final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(Log truncated...)"
-
-        targets = getattr(self, "console_progress_msgs", [])
-        for m in targets:
-            try: 
-                await services.service.limiter.wait_for_slot("edit_message", m.channel.id)
-                await m.edit(content=final_body, view=ui.ConsoleControlView())
-            except: pass
-        
-        if interaction:
-            await interaction.followup.send(f"✅ Scan complete. Verified {len(wake_log)} uplinks.", ephemeral=True)
 
     async def update_console_status(self):
         """Updates the console message with the current list of known uplinks from DB."""
@@ -1954,14 +1760,50 @@ client = LMStudioBot()
 # SLASH COMMANDS
 # ==========================================
 
-@client.tree.command(name="scan", description="Manually scan channels to verify and restore uplinks.")
-async def scan_command(interaction: discord.Interaction):
+@client.tree.command(name="syncconsole", description="Check uplinks one-by-one (3s delay). Removes lost bars.")
+async def syncconsole_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
          return
     
     await interaction.response.defer(ephemeral=True)
-    await client.perform_system_scan(interaction)
+    
+    bar_whitelist = memory_manager.get_bar_whitelist()
+    removed_count = 0
+    verified_count = 0
+    
+    for cid_str in bar_whitelist:
+        cid = int(cid_str)
+        # Respect rate limits (3s delay)
+        await asyncio.sleep(3.0)
+        
+        try:
+            # Get Location
+            stored_bar_id, _ = memory_manager.get_channel_location(cid)
+            if not stored_bar_id:
+                # No ID known, assume lost
+                raise discord.NotFound(None, "No ID stored")
+
+            # Check Channel
+            ch = client.get_channel(cid) or await client.fetch_channel(cid)
+            
+            # Check Message
+            await ch.fetch_message(stored_bar_id)
+            verified_count += 1
+            
+        except (discord.NotFound, discord.HTTPException, discord.Forbidden):
+            # Bar lost or inaccessible -> Remove from system
+            if cid in client.active_bars: del client.active_bars[cid]
+            memory_manager.remove_bar_whitelist(cid)
+            memory_manager.delete_bar(cid)
+            removed_count += 1
+        except Exception as e:
+            logger.warning(f"Sync check failed for {cid}: {e}")
+
+    # Update Console
+    await client.update_console_status()
+    
+    await interaction.followup.send(f"✅ Sync complete.\nVerified: {verified_count}\nRemoved: {removed_count}", ephemeral=True)
 
 @client.tree.command(name="addchannel", description="Add the current channel to the bot's whitelist.")
 async def add_channel_command(interaction: discord.Interaction):
@@ -2579,7 +2421,7 @@ async def on_message(message):
             "disableall": (disableall_command, None),
             "reboot": (reboot_command, None),
             "shutdown": (shutdown_command, None),
-            "scan": (scan_command, None),
+            "syncconsole": (syncconsole_command, None),
             "clearmemory": (clearmemory_command, None),
             "reportbug": (reportbug_command, None),
             "goodbot": (good_bot_leaderboard, None),

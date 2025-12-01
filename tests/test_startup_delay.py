@@ -23,66 +23,25 @@ class TestStartupDelay(unittest.IsolatedAsyncioTestCase):
         self.client.get_channel = MagicMock(return_value=None)
         self.client.fetch_channel = AsyncMock(return_value=None)
         
-    async def test_startup_scan_delay_and_skip(self):
-        """
-        Test that the startup loop:
-        1. Waits 8 seconds between scans.
-        2. Skips channel ID 99999.
-        """
+    async def test_sync_console_delay(self):
+        """Test that the sync console loop waits 3s between checks."""
         
-        # Define the whitelist with regular channels and the forbidden one
-        # 3 valid channels + 1 invalid (99999)
-        whitelist = ["1001", "99999", "1002", "1003"]
-        
-        # Mock Dependencies
-        with patch('NyxOS.logger'), \
-             patch('NyxOS.client', self.client), \
-             patch('NyxOS.memory_manager.get_all_bars', return_value={}), \
-             patch('os.path.exists', return_value=False), \
-             patch('NyxOS.memory_manager.get_bar_whitelist', return_value=whitelist), \
-             patch('NyxOS.memory_manager.get_allowed_channels', return_value=set(map(int, whitelist))), \
-             patch('NyxOS.memory_manager.get_master_bar', return_value="System Online"), \
-             patch('NyxOS.memory_manager.get_channel_location', return_value=(None, None)), \
-             patch('NyxOS.memory_manager.save_channel_location'), \
-             patch('NyxOS.memory_manager.save_bar'), \
-             patch('NyxOS.config.STARTUP_CHANNEL_ID', None), \
-             patch('NyxOS.asyncio.sleep', new_callable=AsyncMock) as mock_sleep, \
-             patch('NyxOS.ui.WakeupReportView', return_value=MagicMock()):
-            
-            # Run perform_system_scan
-            await self.client.perform_system_scan()
-            
-            # VERIFICATION
-            
-            # 1. Check 1.5s delays
-            # The loop calls sleep(1.5)
-            # We expect 4 calls with 1.5
-            
-            # Debug: print calls if failed
-            # sleeps = [c for c in mock_sleep.call_args_list if c.args[0] == 1.5]
-            
-            # Just assert we called it with 1.5 at least once per item
-            # Note: There might be other sleep calls (e.g. 2.0s fallback, or 1.0s new bar delay)
-            # But we simulate DB fetch failure (return None, None) -> Fallback -> 2.0s delay
-            # So we expect 1.5s AND 2.0s.
-            
-            calls_delay = [c for c in mock_sleep.call_args_list if c.args[0] == 8.0]
-            self.assertEqual(len(calls_delay), 4, f"Expected 4 sleeps of 8.0s, got {len(calls_delay)}. Calls: {mock_sleep.call_args_list}")
-            
-            # 2. Check Channel 99999 Skip
-            # fetch_channel should be called for 1001, 1002, 1003 but NOT 99999
-            # get_channel is tried first, then fetch_channel.
-            
-            # Gather all calls to get_channel and fetch_channel
-            get_calls = [args[0] for args, _ in self.client.get_channel.call_args_list]
-            fetch_calls = [args[0] for args, _ in self.client.fetch_channel.call_args_list]
-            
-            all_attempts = set(get_calls + fetch_calls)
-            
-            self.assertIn(1001, all_attempts)
-            self.assertIn(1002, all_attempts)
-            self.assertIn(1003, all_attempts)
-            self.assertNotIn(99999, all_attempts, "Channel 99999 should have been skipped before any API call")
+        # Mock Whitelist
+        with patch('memory_manager.get_bar_whitelist', return_value=['100', '200', '300']), \
+             patch('asyncio.sleep') as mock_sleep, \
+             patch('memory_manager.get_channel_location', return_value=(1, 1)), \
+             patch('helpers.is_authorized', return_value=True), \
+             patch('NyxOS.client', self.client): # Patch global client
+             
+             self.client.get_channel = MagicMock()
+             
+             # Run syncconsole command
+             interaction = AsyncMock()
+             await NyxOS.syncconsole_command.callback(interaction)
+             
+             # Verify 3 sleeps of 3.0s
+             self.assertEqual(mock_sleep.call_count, 3)
+             mock_sleep.assert_called_with(3.0)
 
 if __name__ == '__main__':
     unittest.main()
