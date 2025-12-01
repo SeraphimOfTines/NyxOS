@@ -922,6 +922,31 @@ class LMStudioBot(discord.Client):
         results = await asyncio.gather(*tasks)
         return sum(1 for r in results if r)
 
+    def restore_status_bar_views(self):
+        """
+        Restores StatusBarViews for all loaded active bars.
+        Crucial for button persistence after reboot.
+        """
+        logger.info("🔄 Restoring status bar views...")
+        count = 0
+        for channel_id, bar_data in self.active_bars.items():
+            msg_id = bar_data.get("message_id")
+            if not msg_id: continue
+            
+            try:
+                view = ui.StatusBarView(
+                    bar_data.get("content", ""),
+                    bar_data.get("user_id", self.user.id),
+                    channel_id,
+                    bar_data.get("persisting", False)
+                )
+                self.add_view(view, message_id=msg_id)
+                self._register_view(msg_id, view)
+                count += 1
+            except Exception as e:
+                logger.error(f"Failed to restore view for {channel_id}: {e}")
+        logger.info(f"✅ Restored {count} status bar views.")
+
     async def on_ready(self):
         logger.info('# ==========================================')
         logger.info('#                NyxOS v2.0')
@@ -934,6 +959,9 @@ class LMStudioBot(discord.Client):
         # Load Active Bars from DB (Internal state mostly, but we override content via scan)
         self.active_bars = memory_manager.get_all_bars()
         logger.info(f"Active Bars loaded (DB): {len(self.active_bars)}")
+        
+        # Restore Views for Persistence
+        self.restore_status_bar_views()
         
         # Check for restart metadata
         restart_data = None
@@ -1144,6 +1172,7 @@ class LMStudioBot(discord.Client):
                     user_id = existing.get("user_id", self.user.id)
                     
                     view = ui.StatusBarView(content, user_id, cid, persisting)
+                    self.add_view(view, message_id=bar_msg.id)
                     self._register_bar_message(cid, bar_msg.id, view)
                     
                     # Update Active State
