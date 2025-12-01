@@ -2748,9 +2748,19 @@ async def on_message(message):
                     return
 
         if should_respond:
+            # Determine if this was an explicit trigger (Ping/Role) vs just a reply or keyword
+            is_explicit_trigger = (client.user in message.mentions)
+            if not is_explicit_trigger and message.role_mentions:
+                 for role in message.role_mentions:
+                     if role.id in TRIGGER_ROLES: is_explicit_trigger = True; break
+
             global_chat = memory_manager.get_server_setting("global_chat_enabled", False)
             allowed_ids = memory_manager.get_allowed_channels()
-            if not global_chat and message.channel.id not in allowed_ids: return
+            
+            # Allow explicit triggers to bypass whitelist
+            if not global_chat and message.channel.id not in allowed_ids and not is_explicit_trigger: 
+                # logger.debug(f"Ignoring message in {message.channel.name}: Not whitelisted.")
+                return
 
             if message.channel.id not in client.boot_cleared_channels:
                 logger.info(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")
