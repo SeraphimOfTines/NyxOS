@@ -67,6 +67,47 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
                 
                 # Verify Console Update
                 mock_update_console.assert_called()
+                
+    async def test_subsequent_messages_do_not_trigger_update(self):
+        # Setup
+        cid = 123
+        self.client.active_bars = {
+            cid: {
+                "content": "Bar", 
+                "user_id": 1, 
+                "message_id": 10, 
+                "has_notification": False,
+                "persisting": False
+            }
+        }
+        
+        message = AsyncMock()
+        message.channel.id = cid
+        message.author.id = 456 
+        message.webhook_id = None
+        message.content = "Msg 1"
+        message.reference = None
+        
+        with patch('NyxOS.client', self.client):
+            with patch('memory_manager.set_bar_notification') as mock_set_db, \
+                 patch.object(self.client, 'update_console_status', new_callable=AsyncMock) as mock_update_console, \
+                 patch('memory_manager.get_server_setting', return_value=False), \
+                 patch('helpers.matches_proxy_tag', return_value=False):
+                
+                # 1. First Message
+                await NyxOS.on_message(message)
+                mock_update_console.assert_called_once()
+                self.assertTrue(self.client.active_bars[cid]["has_notification"])
+                
+                # Reset Mock
+                mock_update_console.reset_mock()
+                
+                # 2. Second Message
+                message.content = "Msg 2"
+                await NyxOS.on_message(message)
+                
+                # Should NOT be called again
+                mock_update_console.assert_not_called()
 
     async def test_drop_clears_notification(self):
         # Setup
