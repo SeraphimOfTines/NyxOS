@@ -65,6 +65,7 @@ class Database:
                     current_prefix TEXT,
                     is_sleeping INTEGER DEFAULT 0,
                     persisting INTEGER DEFAULT 0,
+                    has_notification INTEGER DEFAULT 0,
                     previous_state TEXT,
                     timestamp TIMESTAMP
                 )""")
@@ -72,6 +73,12 @@ class Database:
                 # Migration: Add current_prefix if missing
                 try:
                     c.execute("ALTER TABLE active_bars ADD COLUMN current_prefix TEXT")
+                except sqlite3.OperationalError:
+                    pass # Column already exists
+
+                # Migration: Add has_notification if missing
+                try:
+                    c.execute("ALTER TABLE active_bars ADD COLUMN has_notification INTEGER DEFAULT 0")
                 except sqlite3.OperationalError:
                     pass # Column already exists
                 
@@ -227,22 +234,23 @@ class Database:
 
     # --- Active Bars Methods ---
 
-    def save_bar(self, channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None):
+    def save_bar(self, channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None, has_notification=False):
         try:
             with self._get_conn() as conn:
                 c = conn.cursor()
                 # 1. Upsert Active Bar
                 c.execute("""
-                    INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, current_prefix, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO active_bars (channel_id, guild_id, message_id, user_id, content, persisting, current_prefix, has_notification, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(channel_id) DO UPDATE SET
                         message_id = excluded.message_id,
                         user_id = excluded.user_id,
                         content = excluded.content,
                         persisting = excluded.persisting,
                         current_prefix = excluded.current_prefix,
+                        has_notification = excluded.has_notification,
                         timestamp = excluded.timestamp
-                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, current_prefix, datetime.now()))
+                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, current_prefix, 1 if has_notification else 0, datetime.now()))
                 
                 # 2. Check History
                 # Get the most recent history entry for this channel
@@ -259,6 +267,15 @@ class Database:
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to save bar: {e}")
+
+    def set_bar_notification(self, channel_id, has_notification):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("UPDATE active_bars SET has_notification = ? WHERE channel_id = ?", (1 if has_notification else 0, str(channel_id)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to set bar notification: {e}")
 
     def get_latest_history(self, channel_id, offset=0):
         """Retrieves a bar content from history with offset (0 = latest, 1 = previous)."""
@@ -290,8 +307,9 @@ class Database:
                         "current_prefix": row[6],
                         "is_sleeping": bool(row[7]),
                         "persisting": bool(row[8]),
-                        "previous_state": json.loads(row[9]) if row[9] else None,
-                        "timestamp": row[10]
+                        "has_notification": bool(row[9]),
+                        "previous_state": json.loads(row[10]) if row[10] else None,
+                        "timestamp": row[11]
                     }
                 return None
         except Exception as e:
@@ -325,8 +343,9 @@ class Database:
                         "current_prefix": row[6],
                         "is_sleeping": bool(row[7]),
                         "persisting": bool(row[8]),
-                        "previous_state": json.loads(row[9]) if row[9] else None,
-                        "timestamp": row[10]
+                        "has_notification": bool(row[9]),
+                        "previous_state": json.loads(row[10]) if row[10] else None,
+                        "timestamp": row[11]
                     }
                 return bars
         except Exception as e:

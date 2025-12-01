@@ -283,27 +283,7 @@ class ConsoleControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🔄 Reboot", style=discord.ButtonStyle.danger, custom_id="console_reboot_btn")
-    async def reboot_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_authorized(interaction.user):
-            await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
-            return
-        if hasattr(interaction.client, "perform_shutdown_sequence"):
-            await interaction.client.perform_shutdown_sequence(interaction, restart=True)
-        else:
-            await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
-
-    @discord.ui.button(label="🛑 Shutdown", style=discord.ButtonStyle.danger, custom_id="console_shutdown_btn")
-    async def shutdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_authorized(interaction.user):
-            await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
-            return
-        if hasattr(interaction.client, "perform_shutdown_sequence"):
-            await interaction.client.perform_shutdown_sequence(interaction, restart=False)
-        else:
-            await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
-
-    @discord.ui.button(emoji="💤", style=discord.ButtonStyle.primary, custom_id="console_idle_btn")
+    @discord.ui.button(emoji="💤", style=discord.ButtonStyle.secondary, custom_id="console_idle_btn", row=0)
     async def idle_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not helpers.is_authorized(interaction.user):
              await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
@@ -314,7 +294,7 @@ class ConsoleControlView(discord.ui.View):
         else:
              await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 
-    @discord.ui.button(emoji="🛏️", style=discord.ButtonStyle.secondary, custom_id="console_sleep_btn")
+    @discord.ui.button(emoji="🛏️", style=discord.ButtonStyle.secondary, custom_id="console_sleep_btn", row=0)
     async def sleep_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not helpers.is_authorized(interaction.user):
              await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
@@ -324,6 +304,26 @@ class ConsoleControlView(discord.ui.View):
              await interaction.client.sleep_all_bars()
         else:
              await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
+
+    @discord.ui.button(emoji="🔄", style=discord.ButtonStyle.danger, custom_id="console_reboot_btn", row=0)
+    async def reboot_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not helpers.is_authorized(interaction.user):
+            await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+            return
+        if hasattr(interaction.client, "perform_shutdown_sequence"):
+            await interaction.client.perform_shutdown_sequence(interaction, restart=True)
+        else:
+            await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
+
+    @discord.ui.button(emoji="🛑", style=discord.ButtonStyle.danger, custom_id="console_shutdown_btn", row=0)
+    async def shutdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not helpers.is_authorized(interaction.user):
+            await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+            return
+        if hasattr(interaction.client, "perform_shutdown_sequence"):
+            await interaction.client.perform_shutdown_sequence(interaction, restart=False)
+        else:
+            await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 
 
 # ==========================================

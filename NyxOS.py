@@ -363,6 +363,11 @@ class LMStudioBot(discord.Client):
         
         memory_manager.save_channel_location(channel_id, bar_final_id, check_final_id)
         
+        # Reset Notification Flag on Drop
+        if channel_id in self.active_bars:
+            self.active_bars[channel_id]["has_notification"] = False
+            memory_manager.set_bar_notification(channel_id, False)
+        
         # Also update legacy save_bar (for content persistence)
         final_content = self.active_bars[channel_id]["content"]
         # We save the content WITHOUT checkmark to DB (clean), but display WITH it.
@@ -372,7 +377,9 @@ class LMStudioBot(discord.Client):
             bar_final_id,
             self.active_bars[channel_id]["user_id"],
             final_content,
-            self.active_bars[channel_id]["persisting"]
+            self.active_bars[channel_id]["persisting"],
+            current_prefix=self.active_bars[channel_id].get("current_prefix"),
+            has_notification=False
         )
 
     async def sleep_all_bars(self):
@@ -1358,6 +1365,10 @@ class LMStudioBot(discord.Client):
                 if bar_data and bar_data.get('current_prefix'):
                      status_emoji = bar_data.get('current_prefix')
 
+                notification_mark = ""
+                if bar_data and bar_data.get('has_notification'):
+                     notification_mark = " <a:SeraphExclamark:1317628268299554877>"
+
                 if bar_data:
                     guild_id = bar_data.get('guild_id')
                     if not guild_id:
@@ -1368,11 +1379,11 @@ class LMStudioBot(discord.Client):
                     
                     if guild_id and target_id:
                         link = f"https://discord.com/channels/{guild_id}/{cid}/{target_id}"
-                        log_lines.append(f"{status_emoji} {link}")
+                        log_lines.append(f"{status_emoji} {link}{notification_mark}")
                     else:
-                        log_lines.append(f"{status_emoji} <#{cid}> (Out of sync.)")
+                        log_lines.append(f"{status_emoji} <#{cid}>{notification_mark}")
                 else:
-                    log_lines.append(f"{status_emoji} <#{cid}> (Out of sync.)")
+                    log_lines.append(f"{status_emoji} <#{cid}>")
             except:
                 pass
                 
@@ -2622,6 +2633,16 @@ async def on_message(message):
         #         await message.add_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"])
         #         reaction_added = True
         #     except: pass
+
+        # --- UPLINK NOTIFICATION CHECK ---
+        # If this channel has an active uplink, and the message is not from me (the bot)
+        if message.channel.id in client.active_bars and message.author.id != client.user.id:
+            # Only update if not already notified to save DB writes
+            if not client.active_bars[message.channel.id].get("has_notification", False):
+                client.active_bars[message.channel.id]["has_notification"] = True
+                memory_manager.set_bar_notification(message.channel.id, True)
+                # Update console to show the Exclamark
+                await client.update_console_status()
 
         # --- PROXY/WEBHOOK CHECKS ---
         if message.webhook_id is None:
