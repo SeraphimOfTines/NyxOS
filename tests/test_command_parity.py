@@ -106,32 +106,34 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
 
     async def test_set_speed_all_bars_logic(self):
         """Test that set_speed_all_bars updates the prefix globally."""
-        mock_channel = MagicMock()
-        mock_msg = AsyncMock()
-        
-        self.client.get_channel = MagicMock(return_value=mock_channel)
-        self.client.fetch_channel = AsyncMock(return_value=mock_channel)
-        mock_channel.fetch_message = AsyncMock(return_value=mock_msg)
-        
-        target_emoji = "<a:SpeedTest:999>"
-        
-        # Run method
-        count = await self.client.set_speed_all_bars(target_emoji)
-        
-        self.assertEqual(count, 2)
-        
-        # Verify update_bar_content called for each
-        # self.mock_update.assert_called()
-        # Updated to use save_bar
-        self.mock_save.assert_called()
-        # Setup has 2 items in setUp (100, 200)
-        self.assertEqual(self.mock_save.call_count, 2)
-        
-        # Check that internal state active_bars is updated
-        self.assertTrue(self.client.active_bars[100]["content"].startswith(target_emoji))
-        
-        # Check that loop.create_task was called (background update)
-        self.assertTrue(self.client.loop.create_task.called)
+        # Patch asyncio.create_task
+        with patch('asyncio.create_task') as mock_create_task:
+            mock_channel = MagicMock()
+            mock_msg = AsyncMock()
+            
+            self.client.get_channel = MagicMock(return_value=mock_channel)
+            self.client.fetch_channel = AsyncMock(return_value=mock_channel)
+            mock_channel.fetch_message = AsyncMock(return_value=mock_msg)
+            
+            target_emoji = "<a:SpeedTest:999>"
+            
+            # Run method
+            count = await self.client.set_speed_all_bars(target_emoji)
+            
+            self.assertEqual(count, 2)
+            
+            # Verify update_bar_content called for each
+            # self.mock_update.assert_called()
+            # Updated to use save_bar
+            self.mock_save.assert_called()
+            # Setup has 2 items in setUp (100, 200)
+            self.assertEqual(self.mock_save.call_count, 2)
+            
+            # Check that internal state active_bars is updated
+            self.assertTrue(self.client.active_bars[100]["content"].startswith(target_emoji))
+            
+            # Check that asyncio.create_task was called (background update)
+            self.assertTrue(mock_create_task.called)
 
     async def test_slash_command_response_parity(self):
         """Test that new slash commands use visible responses (ephemeral=False)."""

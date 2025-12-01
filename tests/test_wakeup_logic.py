@@ -13,12 +13,19 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 class TestWakeupLogic(unittest.IsolatedAsyncioTestCase):
     
     def setUp(self):
+        self.tree_patcher = patch('discord.app_commands.CommandTree')
+        self.tree_patcher.start()
         self.client = NyxOS.LMStudioBot()
-        # Mock internal connection
         self.client._connection = MagicMock()
         self.client._connection.user = MagicMock()
         self.client._connection.user.id = 999
-        self.client.active_bars = {'100': {}} # Dummy entry for deletion test
+        
+        self.client.get_channel = MagicMock()
+        self.client.fetch_channel = AsyncMock()
+        self.client.active_bars = {}
+
+    def tearDown(self):
+        self.tree_patcher.stop()
 
     async def test_sync_removes_missing_bars(self):
         """Test that syncconsole removes bars if missing/404."""

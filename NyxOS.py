@@ -208,7 +208,15 @@ class LMStudioBot(discord.Client):
         await services.service.start()
         self.add_view(ui.ResponseView())
         self.add_view(ui.ConsoleControlView())
-        self.loop.create_task(self.heartbeat_task())
+        asyncio.create_task(self.heartbeat_task())
+
+    async def handle_bar_touch(self, channel_id):
+        """Centralized handler for bar interactions (touch events). Syncs DB state to Console."""
+        # 1. Update Console
+        try:
+            await self.update_console_status()
+        except Exception as e:
+            logger.error(f"Failed to sync console after touch in {channel_id}: {e}")
 
     def request_bar_drop(self, channel_id):
         """Debounced drop request manager (config.BAR_DEBOUNCE_SECONDS silence timer)."""
@@ -218,7 +226,7 @@ class LMStudioBot(discord.Client):
         
         if channel_id not in self.active_drop_tasks:
             self.active_drop_tasks.add(channel_id)
-            self.loop.create_task(self._process_drop_queue(channel_id))
+            asyncio.create_task(self._process_drop_queue(channel_id))
 
     async def _process_drop_queue(self, channel_id):
         try:
@@ -341,7 +349,17 @@ class LMStudioBot(discord.Client):
                     old_chk = await channel.fetch_message(old_check_id)
                     await old_chk.delete()
                  except: pass
-            
+            elif old_check_id and old_check_id == old_bar_id and not move_bar:
+                 # If we are not moving the bar, but moving the check, and they were merged:
+                 # The bar message stays, but we need to edit it to remove the checkmark
+                 # This is handled by the "SPLIT" logic in move_bar block above, OR we need to do it here if move_bar was False.
+                 try:
+                    old_chk_msg = await channel.fetch_message(old_check_id)
+                    content_no_check = old_chk_msg.content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
+                    # Just edit, don't delete
+                    await old_chk_msg.edit(content=content_no_check)
+                 except: pass
+
             # Send new check (Inline if target is bar)
             target_msg = new_bar_msg
             if not target_msg and old_bar_id:
@@ -398,6 +416,9 @@ class LMStudioBot(discord.Client):
             has_notification=self.active_bars[channel_id].get("has_notification", False),
             checkmark_message_id=check_final_id
         )
+        
+        # Touch Event
+        asyncio.create_task(self.handle_bar_touch(channel_id))
 
     async def sleep_all_bars(self):
         """
@@ -915,7 +936,7 @@ class LMStudioBot(discord.Client):
                     await msg.edit(content=full)
                 except: pass
             
-            self.loop.create_task(update_msg(cid, bar["message_id"], new_content))
+            asyncio.create_task(update_msg(cid, bar["message_id"], new_content))
             
             # Update DB with new prefix
             memory_manager.save_bar(
@@ -1466,8 +1487,8 @@ class LMStudioBot(discord.Client):
                 try: await interaction.response.send_message("Updated.", ephemeral=True, delete_after=2.0)
                 except: pass
                 
-                # Sync Console
-                await self.update_console_status()
+                # Sync Console (Touch Event)
+                await self.handle_bar_touch(interaction.channel_id)
                 return
             except Exception as e:
                 logger.warning(f"In-place edit failed, falling back to drop: {e}")
@@ -1528,8 +1549,9 @@ class LMStudioBot(discord.Client):
             checkmark_message_id=new_check_id
         )
         
-        # Sync Console
-        await self.update_console_status()
+        # Sync Console (Touch Event)
+        await self.handle_bar_touch(interaction.channel_id)
+        
         try: await interaction.delete_original_response()
         except: pass
         
@@ -1579,6 +1601,9 @@ class LMStudioBot(discord.Client):
             has_notification=False,
             checkmark_message_id=msg.id
         )
+        
+        # Touch Event
+        await self.handle_bar_touch(interaction.channel_id)
         
         await interaction.delete_original_response()
 
@@ -2024,49 +2049,96 @@ async def bar_command(interaction: discord.Interaction, content: str):
 
     await interaction.response.send_message(f"✅ Master Bar updated and propagated to {count} channels.", ephemeral=True, delete_after=2.0)
 
-@client.tree.command(name="addbar", description="Whitelist this channel and spawn a bar.")
+@client.tree.command(name="addbar", description="Summon a status bar to this channel.")
 async def addbar_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
-        
+
+    await interaction.response.defer(ephemeral=True)
+    
+    # 1. Scan and Delete Existing Bar (Limit 5)
+    try:
+        deleted = False
+        async for msg in interaction.channel.history(limit=5):
+            if msg.author.id == client.user.id:
+                # Check if it looks like a bar
+                is_bar = False
+                if msg.components:
+                    for row in msg.components:
+                        for child in row.children:
+                            if getattr(child, "custom_id", "").startswith("bar_"):
+                                is_bar = True; break
+                        if is_bar: break
+                
+                if not is_bar and msg.content:
+                    for emoji in ui.BAR_PREFIX_EMOJIS:
+                        if msg.content.strip().startswith(emoji):
+                            is_bar = True; break
+                
+                if is_bar:
+                    await msg.delete()
+                    deleted = True
+    except Exception as e:
+        logger.warning(f"Addbar scan failed: {e}")
+
+    # 2. Determine Content (Prefix)
+    # Check DB for last known state
+    db_bar = memory_manager.get_bar(interaction.channel_id)
+    
+    prefix = "<a:NotWatching:1301840196966285322>" # Default Speed 0
+    if db_bar and db_bar.get('current_prefix'):
+        prefix = db_bar.get('current_prefix')
+    elif db_bar and db_bar.get('content'):
+        # Try to extract from content if current_prefix column is empty
+        for emoji in ui.BAR_PREFIX_EMOJIS:
+            if db_bar['content'].startswith(emoji):
+                prefix = emoji
+                break
+
+    # 3. Build Content
+    master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+    content = f"{prefix} {master_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
+    content = re.sub(r'>[ \t]+<', '><', content)
+    
+    # 4. Send
+    # Preserve persistence if known
+    persisting = db_bar.get('persisting', False) if db_bar else False
+    
+    view = ui.StatusBarView(content, interaction.user.id, interaction.channel_id, persisting)
+    await services.service.limiter.wait_for_slot("send_message", interaction.channel_id)
+    msg = await interaction.channel.send(content, view=view)
+    
+    # 5. Save to DB
     memory_manager.add_bar_whitelist(interaction.channel_id)
     
-    master_content = memory_manager.get_master_bar()
-    if not master_content:
-        master_content = "NyxOS Uplink Active"
-    
-    master_content = master_content.strip()
-    
-    # Default State: Idle
-    prefix = "<a:NotWatching:1301840196966285322>"
-    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-    
-    # Display Content
-    full_content = f"{prefix} {master_content} {chk}"
-    full_content = re.sub(r'>[ \t]+<', '><', full_content)
-    
-    # Cleanup old
-    await client.cleanup_old_bars(interaction.channel)
-    
-    view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, False)
-    msg = await interaction.channel.send(full_content, view=view)
-    
-    # Base content for storage/logic (Prefix + Master)
-    base_content = f"{prefix} {master_content}"
-    
     client.active_bars[interaction.channel_id] = {
-        "content": base_content,
+        "content": f"{prefix} {master_content}",
         "user_id": interaction.user.id,
         "message_id": msg.id,
         "checkmark_message_id": msg.id,
-        "persisting": False,
+        "persisting": persisting,
+        "current_prefix": prefix,
         "has_notification": False
     }
     client._register_bar_message(interaction.channel_id, msg.id, view)
-    memory_manager.save_bar(interaction.channel_id, interaction.guild_id, msg.id, interaction.user.id, base_content, False, has_notification=False)
     
-    await interaction.response.send_message("✅ Channel whitelisted and bar created.", ephemeral=True, delete_after=2.0)
+    memory_manager.save_bar(
+        interaction.channel_id, 
+        interaction.guild_id,
+        msg.id,
+        interaction.user.id,
+        f"{prefix} {master_content}",
+        persisting,
+        current_prefix=prefix,
+        has_notification=False,
+        checkmark_message_id=msg.id
+    )
+    
+    # 6. Touch Event (Sync Console)
+    await client.handle_bar_touch(interaction.channel_id)
+    
+    await interaction.followup.send("✅ Bar summoned.", ephemeral=True)
 
 @client.tree.command(name="removebar", description="Remove bar and un-whitelist channel.")
 async def removebar_command(interaction: discord.Interaction):

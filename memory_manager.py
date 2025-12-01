@@ -53,8 +53,8 @@ def get_bar_whitelist():
 
 # --- Active Bars (DB Facade) ---
 
-def save_bar(channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None, has_notification=False):
-    db.save_bar(channel_id, guild_id, message_id, user_id, content, persisting, current_prefix, has_notification)
+def save_bar(channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None, has_notification=False, checkmark_message_id=None):
+    db.save_bar(channel_id, guild_id, message_id, user_id, content, persisting, current_prefix, has_notification, checkmark_message_id)
 
 def set_bar_notification(channel_id, has_notification):
     db.set_bar_notification(channel_id, has_notification)

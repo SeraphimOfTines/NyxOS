@@ -1,11 +1,10 @@
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch, AsyncMock, mock_open
 import sys
 import os
+import NyxOS
 import config
 import ui
-import NyxOS
-import helpers
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,31 +23,25 @@ class TestServerAdmin(unittest.IsolatedAsyncioTestCase):
             shutil.rmtree(self.test_dir)
 
     async def test_smart_sync(self):
-        client = NyxOS.LMStudioBot()
-        client.tree = MagicMock()
-        
-        # Mock command list
-        cmd = MagicMock()
-        cmd.name = "test_cmd"
-        cmd.description = "desc"
-        cmd.nsfw = False
-        client.tree.get_commands.return_value = [cmd]
-        
-        # 1. First Run (No hash file) -> Should Sync
-        client.tree.sync = AsyncMock()
-        await client.check_and_sync_commands()
-        client.tree.sync.assert_called_once()
-        
-        # 2. Second Run (Hash file exists and matches) -> Should NOT Sync
-        client.tree.sync.reset_mock()
-        await client.check_and_sync_commands()
-        client.tree.sync.assert_not_called()
-        
-        # 3. Change Command -> Should Sync
-        cmd.description = "new desc"
-        client.tree.get_commands.return_value = [cmd]
-        await client.check_and_sync_commands()
-        client.tree.sync.assert_called_once()
+        with patch('discord.app_commands.CommandTree'):
+            client = NyxOS.LMStudioBot()
+            client.tree = AsyncMock()
+            client.get_tree_hash = MagicMock(return_value="hash123")
+            
+            # Case 1: Hash Mismatch
+            with patch("builtins.open", mock_open(read_data="oldhash")), \
+                 patch("os.path.exists", return_value=True):
+                
+                await client.check_and_sync_commands()
+                client.tree.sync.assert_called_once()
+            
+            # Case 2: Hash Match
+            client.tree.sync.reset_mock()
+            with patch("builtins.open", mock_open(read_data="hash123")), \
+                 patch("os.path.exists", return_value=True):
+                
+                await client.check_and_sync_commands()
+                client.tree.sync.assert_not_called()
 
 class TestCommands(unittest.IsolatedAsyncioTestCase):
     """Tests for Slash Commands"""

@@ -7,36 +7,52 @@ import ui
 import NyxOS
 import json
 
+class AsyncIter:
+    def __init__(self, items):
+        self.items = list(items)
+    def __aiter__(self):
+        return self
+    async def __anext__(self):
+        if not self.items:
+            raise StopAsyncIteration
+        return self.items.pop(0)
+
 class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
-    """Tests for the perform_shutdown_sequence logic in NyxOS.py"""
     
     def setUp(self):
-        self.test_dir = "tests/temp_reboot"
-        os.makedirs(self.test_dir, exist_ok=True)
-        # Override configs to use test dir
-        config.RESTART_META_FILE = os.path.join(self.test_dir, "restart_meta.json")
-        config.SHUTDOWN_FLAG_FILE = os.path.join(self.test_dir, "shutdown.flag")
-        config.STARTUP_CHANNEL_ID = 12345
-
-        # Create a mock client that uses the REAL perform_shutdown_sequence method
-        self.mock_client = MagicMock(spec=NyxOS.LMStudioBot)
-        self.mock_client.perform_shutdown_sequence = NyxOS.LMStudioBot.perform_shutdown_sequence.__get__(self.mock_client, NyxOS.LMStudioBot)
+        self.patcher = patch('discord.Client.__init__')
+        self.mock_init = self.patcher.start()
+        self.mock_init.return_value = None
         
-        # Mock async methods called within perform_shutdown_sequence
+        # Need to mock app_commands.CommandTree because LMStudioBot inits it
+        with patch('discord.app_commands.CommandTree'):
+             from NyxOS import LMStudioBot
+             self.mock_client = LMStudioBot()
+             
+        self.mock_client._connection = MagicMock()
+        self.mock_client._connection.user = MagicMock()
+        self.mock_client._connection.user.id = 12345
         self.mock_client.close = AsyncMock()
-        self.mock_client.fetch_channel = AsyncMock()
-        self.mock_client.get_channel = MagicMock(return_value=None)
-        self.mock_client.startup_header_msg = None
-        self.mock_client.startup_bar_msg = None
-        self.mock_client.console_progress_msgs = []
         
-        # Helper attributes expected by the method
-        self.mock_client.user.id = 999
+        # Mock Channel
+        self.mock_channel = AsyncMock()
+        # Fix: history returns an AsyncIter, not a Coroutine
+        self.mock_channel.history = MagicMock(return_value=AsyncIter([]))
+        
+        self.mock_client.fetch_channel = AsyncMock(return_value=self.mock_channel)
+        
+        # Clean up temp files
+        if os.path.exists(config.RESTART_META_FILE):
+            os.remove(config.RESTART_META_FILE)
+        if os.path.exists(config.SHUTDOWN_FLAG_FILE):
+            os.remove(config.SHUTDOWN_FLAG_FILE)
 
     def tearDown(self):
-        import shutil
-        if os.path.exists(self.test_dir):
-            shutil.rmtree(self.test_dir)
+        self.patcher.stop()
+        if os.path.exists(config.RESTART_META_FILE):
+            os.remove(config.RESTART_META_FILE)
+        if os.path.exists(config.SHUTDOWN_FLAG_FILE):
+            os.remove(config.SHUTDOWN_FLAG_FILE)
 
     async def test_reboot_sequence_with_console(self):
         """Test reboot logic when console messages are cached"""

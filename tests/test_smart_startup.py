@@ -21,6 +21,10 @@ class AsyncIter:
 class TestSmartStartup(unittest.IsolatedAsyncioTestCase):
     
     def setUp(self):
+        # Patch CommandTree to avoid http dependency during init
+        self.tree_patcher = patch('discord.app_commands.CommandTree')
+        self.mock_tree = self.tree_patcher.start()
+        
         self.client = NyxOS.LMStudioBot()
         # Mocking the user property is tricky on an instance if it's a property.
         # We can mock the internal _connection which discord.py uses.
@@ -38,6 +42,7 @@ class TestSmartStartup(unittest.IsolatedAsyncioTestCase):
         patch('NyxOS.logger').start()
 
     def tearDown(self):
+        self.tree_patcher.stop()
         patch.stopall()
 
     async def test_startup_reuse_existing_messages(self):

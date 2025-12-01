@@ -14,14 +14,13 @@ import config
 class TestStartupDelay(unittest.IsolatedAsyncioTestCase):
     
     async def asyncSetUp(self):
+        self.tree_patcher = patch('discord.app_commands.CommandTree')
+        self.tree_patcher.start()
         self.client = NyxOS.LMStudioBot()
-        self.client._connection = MagicMock()
-        self.client._connection.user = MagicMock()
-        self.client._connection.user.id = 12345
+        self.client.update_console_status = AsyncMock()
         
-        # Mock basic methods
-        self.client.get_channel = MagicMock(return_value=None)
-        self.client.fetch_channel = AsyncMock(return_value=None)
+    async def asyncTearDown(self):
+        self.tree_patcher.stop()
         
     async def test_sync_console_delay(self):
         """Test that the sync console loop waits 3s between checks."""
