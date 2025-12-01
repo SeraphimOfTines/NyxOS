@@ -10,6 +10,8 @@ import memory_manager
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tests.mock_utils import AsyncIter
+
 class TestBarManagement(unittest.IsolatedAsyncioTestCase):
     """Tests for Bar Creation and Management"""
 
@@ -19,6 +21,9 @@ class TestBarManagement(unittest.IsolatedAsyncioTestCase):
         interaction.channel_id = 100
         interaction.guild_id = 555
         interaction.channel.send = AsyncMock()
+        
+        # Mock history to return an empty async iterator
+        interaction.channel.history = MagicMock(return_value=AsyncIter([]))
         
         # Create a fake message return for send
         mock_msg = MagicMock()

@@ -315,10 +315,17 @@ class Database:
                         "is_sleeping": bool(row[7]),
                         "persisting": bool(row[8]),
                         "has_notification": bool(row[9]),
-                        "previous_state": json.loads(row[10]) if row[10] else None,
+                        "previous_state": None,
                         "timestamp": row[11],
                         "checkmark_message_id": int(row[12]) if len(row) > 12 and row[12] else int(row[2])
                     }
+                    try:
+                        if row[10]:
+                             result["previous_state"] = json.loads(row[10])
+                    except json.JSONDecodeError:
+                         logger.warning(f"Corrupt JSON in active_bars for channel {row[0]}")
+                    
+                    return result
                 return None
         except Exception as e:
             logger.error(f"Failed to get bar: {e}")
@@ -352,10 +359,16 @@ class Database:
                         "is_sleeping": bool(row[7]),
                         "persisting": bool(row[8]),
                         "has_notification": bool(row[9]),
-                        "previous_state": json.loads(row[10]) if row[10] else None,
+                        "previous_state": None,
                         "timestamp": row[11],
                         "checkmark_message_id": int(row[12]) if len(row) > 12 and row[12] else int(row[2])
                     }
+                    try:
+                        if row[10]:
+                            bars[int(row[0])]["previous_state"] = json.loads(row[10])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Corrupt JSON in active_bars for channel {row[0]}")
+                        
                 return bars
         except Exception as e:
             logger.error(f"Failed to get all bars: {e}")
@@ -408,7 +421,11 @@ class Database:
                 c.execute("SELECT previous_state FROM active_bars WHERE channel_id = ?", (str(channel_id),))
                 row = c.fetchone()
                 if row and row[0]:
-                    return json.loads(row[0])
+                    try:
+                        return json.loads(row[0])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Corrupt JSON previous_state for channel {channel_id}")
+                        return None
                 return None
         except Exception as e:
             logger.error(f"Failed to get previous state: {e}")
@@ -440,7 +457,11 @@ class Database:
                 c.execute("SELECT data FROM view_persistence WHERE message_id = ?", (str(message_id),))
                 row = c.fetchone()
                 if row:
-                    return json.loads(row[0])
+                    try:
+                        return json.loads(row[0])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Corrupt JSON view_state for message {message_id}")
+                        return None
                 return None
         except Exception as e:
             logger.error(f"Failed to get view state: {e}")
@@ -599,7 +620,11 @@ class Database:
                 c.execute("SELECT value FROM server_settings WHERE key = ?", (str(key),))
                 row = c.fetchone()
                 if row:
-                    return json.loads(row[0])
+                    try:
+                        return json.loads(row[0])
+                    except json.JSONDecodeError:
+                         logger.warning(f"Corrupt JSON in server_settings for key {key}")
+                         return default
                 return default
         except Exception as e:
             logger.error(f"Failed to get setting {key}: {e}")

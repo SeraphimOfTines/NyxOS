@@ -9,15 +9,7 @@ import memory_manager
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-class AsyncIter:
-    def __init__(self, items):
-        self.items = items
-    def __aiter__(self):
-        return self
-    async def __anext__(self):
-        if not self.items:
-            raise StopAsyncIteration
-        return self.items.pop(0)
+from tests.mock_utils import AsyncIter
 
 class TestGoodBot(unittest.IsolatedAsyncioTestCase):
     
@@ -39,6 +31,8 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client.good_bot_cooldowns = {}
         mock_client.active_views = {}
         mock_client.processing_locks = set()
+        mock_client.abort_signals = set()
+        mock_client._update_lru_cache = MagicMock()
 
         # Mock Message
         message = AsyncMock()
@@ -83,6 +77,8 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client.user.id = 888
         mock_client.last_bot_message_id = {999: 1000}
         mock_client.processing_locks = set()
+        mock_client.abort_signals = set()
+        mock_client._update_lru_cache = MagicMock()
         
         # Set cooldown
         import time

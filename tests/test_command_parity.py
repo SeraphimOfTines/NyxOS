@@ -11,16 +11,7 @@ import discord
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Helper for async iteration
-class AsyncIter:
-    def __init__(self, items):
-        self.items = items
-    def __aiter__(self):
-        return self
-    async def __anext__(self):
-        if not self.items:
-            raise StopAsyncIteration
-        return self.items.pop(0)
+from tests.mock_utils import AsyncIter
 
 class TestCommandParity(unittest.IsolatedAsyncioTestCase):
     
@@ -36,9 +27,6 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
         self.client._connection = MagicMock()
         self.client._connection.user = MagicMock()
         self.client._connection.user.id = 99999
-        # Also patch the property just in case, or rely on _connection if that works
-        # But wait, accessing self.client.user might still fail if property looks elsewhere.
-        # Let's checking discord.py source... usually it returns self._connection.user.
         
         # Mock active_bars with some data
         self.client.active_bars = {
@@ -106,8 +94,13 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
 
     async def test_set_speed_all_bars_logic(self):
         """Test that set_speed_all_bars updates the prefix globally."""
+        
+        def close_coro(coro):
+            coro.close()
+            return MagicMock()
+
         # Patch asyncio.create_task
-        with patch('asyncio.create_task') as mock_create_task:
+        with patch('asyncio.create_task', side_effect=close_coro) as mock_create_task:
             mock_channel = MagicMock()
             mock_msg = AsyncMock()
             
@@ -123,10 +116,7 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(count, 2)
             
             # Verify update_bar_content called for each
-            # self.mock_update.assert_called()
-            # Updated to use save_bar
             self.mock_save.assert_called()
-            # Setup has 2 items in setUp (100, 200)
             self.assertEqual(self.mock_save.call_count, 2)
             
             # Check that internal state active_bars is updated
@@ -155,7 +145,6 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
                 await NyxOS.awake_command.callback(interaction)
                 
                 # Should be visible (ephemeral=False) or ephemeral=True depending on implementation
-                # Updated to True based on current implementation
                 interaction.response.defer.assert_called_with(ephemeral=True)
                 interaction.followup.send.assert_called()
                 msg = interaction.followup.send.call_args[0][0]

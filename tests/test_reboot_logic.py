@@ -72,7 +72,7 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
         self.mock_client.startup_bar_msg = b_msg
         self.mock_client.fetch_channel.return_value = h_msg.channel
         
-        with patch('time.sleep'): # Skip sleep
+        with patch('asyncio.sleep'): # Skip sleep
             with patch('sys.exit') as mock_exit:
                 
                 await self.mock_client.perform_shutdown_sequence(interaction, restart=True)
@@ -90,9 +90,8 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
                     data = json.load(f)
                     self.assertEqual(data['header_msg_id'], 100)
                 
-                # Verify Close and Exit
+                # Verify Close (Exit is handled by main loop now)
                 self.mock_client.close.assert_called_once()
-                mock_exit.assert_called_with(0)
 
     async def test_shutdown_sequence_logic(self):
         """Test shutdown logic (restart=False)"""
@@ -101,7 +100,7 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
         interaction.response.defer = AsyncMock()
         interaction.followup.send = AsyncMock()
         
-        with patch('time.sleep'):
+        with patch('asyncio.sleep'):
              with patch('sys.exit') as mock_exit:
                 
                 await self.mock_client.perform_shutdown_sequence(interaction, restart=False)
@@ -109,9 +108,8 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
                 # Verify Flag Write
                 self.assertTrue(os.path.exists(config.SHUTDOWN_FLAG_FILE))
                 
-                # Verify Close and Exit
+                # Verify Close (Exit is handled by main loop now)
                 self.mock_client.close.assert_called_once()
-                mock_exit.assert_called_with(0)
 
     async def test_reboot_fallback_no_ui(self):
         """Test reboot fallback when UI not found"""
@@ -126,7 +124,7 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
         # Mock fetch_channel to fail or return None for startup channel
         self.mock_client.fetch_channel.side_effect = Exception("Not Found")
         
-        with patch('time.sleep'):
+        with patch('asyncio.sleep'):
              with patch('sys.exit') as mock_exit:
                 
                 await self.mock_client.perform_shutdown_sequence(interaction, restart=True)
@@ -139,5 +137,3 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
                 with open(config.RESTART_META_FILE, 'r') as f:
                     data = json.load(f)
                     self.assertEqual(data['channel_id'], 999)
-                
-                mock_exit.assert_called_with(0)

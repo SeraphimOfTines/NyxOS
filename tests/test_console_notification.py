@@ -7,6 +7,8 @@ import ui
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tests.mock_utils import AsyncIter
+
 # Mock config before importing NyxOS
 with patch.dict(os.environ, {"BOT_TOKEN": "test", "KAGI_API_TOKEN": "test"}):
     import NyxOS
@@ -48,6 +50,8 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
         message.webhook_id = None
         message.content = "Hello"
         message.reference = None
+        # Mock history
+        message.channel.history = MagicMock(return_value=AsyncIter([]))
         
         # Patch the global 'client' in NyxOS with our test instance
         with patch('NyxOS.client', self.client):
@@ -87,6 +91,8 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
         message.webhook_id = None
         message.content = "Msg 1"
         message.reference = None
+        # Mock history
+        message.channel.history = MagicMock(return_value=AsyncIter([]))
         
         with patch('NyxOS.client', self.client):
             with patch('memory_manager.set_bar_notification') as mock_set_db, \
@@ -133,6 +139,8 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
             mock_msg = AsyncMock()
             mock_msg.id = 99
             mock_ch.send.return_value = mock_msg
+            # Mock history
+            mock_ch.history = MagicMock(return_value=AsyncIter([]))
             
             # 1. Manual Drop (Default) -> Should Clear
             await self.client.drop_status_bar(cid)

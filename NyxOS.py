@@ -1196,8 +1196,18 @@ class LMStudioBot(discord.Client):
                 bar_data = self.active_bars.get(cid)
                 
                 status_emoji = default_emoji
-                if bar_data and bar_data.get('current_prefix'):
-                     status_emoji = bar_data.get('current_prefix')
+                
+                if bar_data:
+                    # 1. Priority: Explicit DB Field
+                    if bar_data.get('current_prefix'):
+                         status_emoji = bar_data.get('current_prefix')
+                    
+                    # 2. Fallback: Derive from Content
+                    elif bar_data.get('content'):
+                         for emoji in ui.BAR_PREFIX_EMOJIS:
+                             if bar_data['content'].strip().startswith(emoji):
+                                 status_emoji = emoji
+                                 break
 
                 notification_mark = ""
                 if bar_data and bar_data.get('has_notification'):
@@ -1700,12 +1710,12 @@ class LMStudioBot(discord.Client):
         if restart:
             # Wait for Discord to fully release the session/token
             logger.info("⏳ Session closed. Waiting 5s for token release before restart...")
-            time.sleep(5.0)
+            await asyncio.sleep(5.0)
             
-            # Exit process. Watcher script (NyxOS.sh) will handle the relaunch.
-            sys.exit(0)
+            # Exit process is handled in main block after client.run returns
         else:
-            sys.exit(0)
+            # Exit process is handled in main block after client.run returns
+            pass
 
 # --- Helper Class for Internal Interaction Mocking ---
 class MockInteraction:
@@ -1747,6 +1757,57 @@ client = LMStudioBot()
 # ==========================================
 # SLASH COMMANDS
 # ==========================================
+
+@client.tree.command(name="syncbars", description="Fast cleanup: Removes bars that are missing from the server.")
+async def syncbars_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+         return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    bar_whitelist = memory_manager.get_bar_whitelist()
+    removed_count = 0
+    
+    # Copy list to avoid modification during iteration issues (though strings are safe)
+    for cid_str in list(bar_whitelist):
+        cid = int(cid_str)
+        
+        # 1. Check if known in DB active_bars
+        if cid not in client.active_bars:
+            # In whitelist but no active bar data -> Remove
+            memory_manager.remove_bar_whitelist(cid)
+            removed_count += 1
+            continue
+            
+        # 2. Check Server Existence
+        # We check if we can fetch the message.
+        bar_data = client.active_bars[cid]
+        msg_id = bar_data.get("message_id")
+        
+        if not msg_id:
+             # Corrupt data -> Remove
+             del client.active_bars[cid]
+             memory_manager.delete_bar(cid)
+             memory_manager.remove_bar_whitelist(cid)
+             removed_count += 1
+             continue
+             
+        try:
+            ch = client.get_channel(cid) or await client.fetch_channel(cid)
+            await ch.fetch_message(msg_id)
+            # If succeeds, it exists. Do nothing.
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            # Missing -> Remove
+            if cid in client.active_bars: del client.active_bars[cid]
+            memory_manager.delete_bar(cid)
+            memory_manager.remove_bar_whitelist(cid)
+            removed_count += 1
+            
+    # Update Console
+    await client.update_console_status()
+    
+    await interaction.followup.send(f"🧹 Cleanup complete. Removed {removed_count} invalid bars.", ephemeral=True)
 
 @client.tree.command(name="syncconsole", description="Check uplinks one-by-one (3s delay). Removes lost bars.")
 async def syncconsole_command(interaction: discord.Interaction):
@@ -2283,8 +2344,37 @@ async def drop_command(interaction: discord.Interaction):
 @client.tree.command(name="help", description="Show the help index.")
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
-    embed.add_field(name="General Commands", value="`/killmyembeds` - Toggle auto-suppression of link embeds.\n`/goodbot` - Show the Good Bot leaderboard.\n`/reportbug` - Submit a bug report.", inline=False)
-    embed.add_field(name="Admin Commands", value="`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/addchannel` - Whitelist channel.\n`/removechannel` - Blacklist channel.\n`/suppressembedson/off` - Toggle server-wide embed suppression.\n`/clearmemory` - Clear current channel memory.\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test msg (Debug).\n`/clearallmemory` - Wipe ALL memories (Debug).\n`/wipelogs` - Wipe ALL logs (Debug).\n`/synccommands` - Force sync slash commands.\n`/restore` - Restore last Uplink Bar.\n`/restore2` - Restore backup Uplink Bar.\n`/cleanbars` - Wipe Uplink Bar artifacts.", inline=False)
+    
+    embed.add_field(
+        name="General Commands", 
+        value="`/help` - Show this help index.\n`/reportbug` - Submit a bug report.\n`/goodbot` - Show the Good Bot leaderboard.\n`/killmyembeds` - Toggle auto-suppression of link embeds.", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Bar Management", 
+        value="`/bar` - Create/Update bar in current channel.\n`/addbar` - Summon a persistent bar here.\n`/removebar` - Remove bar and un-whitelist channel.\n`/drop` - Drop/Refresh current bar.\n`/dropcheck` - Drop only the checkmark.\n`/linkcheck` - Get link to current checkmark.\n`/restore` - Restore last bar content.\n`/restore2` - Restore previous bar content (backup).\n`/cleanbars` - Wipe bar artifacts.\n`/syncbars` - Cleanup invalid/ghost bars.\n`/syncconsole` - Sync console list (slow).", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Status Control (Global)", 
+        value="`/global` - Update text on ALL bars.\n`/sleep` - Put all bars to sleep.\n`/idle` - Set all bars to Idle (Not Watching).\n`/awake` - Wake up all bars.\n`/speedall0` - Set all to Not Watching.\n`/speedall1` - Set all to Watching Occasionally.\n`/speedall2` - Set all to Watching Closely.", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Status Control (Local)", 
+        value="`/speed0` - Not Watching.\n`/speed1` - Watching Occasionally.\n`/speed2` - Watching Closely.\n`/thinking`, `/reading`, `/backlogging`, `/typing`\n`/brb`, `/processing`, `/pausing`\n`/angel`, `/darkangel`", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="System / Admin", 
+        value="`/addchannel` - Whitelist current channel.\n`/removechannel` - Blacklist current channel.\n`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/clearmemory` - Clear channel memory.\n`/clearallmemory` - Wipe ALL memories.\n`/wipelogs` - Wipe ALL logs.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test message.\n`/synccommands` - Force sync slash commands.\n`/suppressembedson/off` - Global embed suppression.", 
+        inline=False
+    )
+    
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @client.tree.command(name="d", description="Alias for /drop")
@@ -2456,6 +2546,7 @@ async def on_message(message):
             "disableall": (disableall_command, None),
             "reboot": (reboot_command, None),
             "shutdown": (shutdown_command, None),
+            "syncbars": (syncbars_command, None),
             "syncconsole": (syncconsole_command, None),
             "clearmemory": (clearmemory_command, None),
             "reportbug": (reportbug_command, None),
@@ -2936,4 +3027,17 @@ if __name__ == "__main__":
     if not config.BOT_TOKEN:
         logger.error("❌ BOT_TOKEN not found.")
     else:
-        client.run(config.BOT_TOKEN)
+        try:
+            client.run(config.BOT_TOKEN)
+        except KeyboardInterrupt:
+            logger.info("🛑 Keyboard Interrupt received.")
+        finally:
+            if os.path.exists(config.RESTART_META_FILE):
+                logger.info("🔄 Restart flag detected. Exiting with code 0 for restart...")
+                sys.exit(0)
+            elif os.path.exists(config.SHUTDOWN_FLAG_FILE):
+                logger.info("🛑 Shutdown flag detected. Exiting with code 0.")
+                sys.exit(0)
+            else:
+                logger.info("🛑 Process ended naturally.")
+                sys.exit(0)
