@@ -80,27 +80,13 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         with patch('helpers.is_authorized', return_value=True):
             # Patch NyxOS.client
             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
-                mock_client.active_bars = {123: {'message_id': 1, 'content': 'foo', 'user_id': 99}} # Mock dict
-                mock_client.get_channel = MagicMock() # Synchronous
-                mock_client.get_channel.return_value.name = "Test Channel"
                 
-                # Patch os.execl and sys.executable
-                with patch('os.execl') as mock_execl, \
-                     patch('sys.executable', '/usr/bin/python'):
-                    
-                    # Call the callback directly
-                    await NyxOS.reboot_command.callback(interaction)
-                    
-                    # Assertions
-                    # Expect followup because defer was called
-                    interaction.followup.send.assert_called() 
-                    mock_client.close.assert_called_once()
-                    
-                    # Verify restart meta file
-                    self.assertTrue(os.path.exists(config.RESTART_META_FILE))
-                    
-                    # Verify os.execl call
-                    mock_execl.assert_called()
+                # Call the callback directly
+                await NyxOS.reboot_command.callback(interaction)
+                
+                # Assertions
+                # Verify that the sequence was initiated
+                mock_client.perform_shutdown_sequence.assert_called_once_with(interaction, restart=True)
 
     async def test_reboot_command_unauthorized(self):
         interaction = AsyncMock()
@@ -112,7 +98,7 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
              interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
              # Ensure no reboot
              with patch('NyxOS.client', new=AsyncMock()) as mock_client:
-                 mock_client.close.assert_not_called()
+                 mock_client.perform_shutdown_sequence.assert_not_called()
 
     async def test_shutdown_command(self):
         interaction = AsyncMock()
@@ -121,14 +107,8 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         
         with patch('helpers.is_authorized', return_value=True):
             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
-                # FIX: Make active_bars a dict, not an AsyncMock
-                mock_client.active_bars = {123: {"content": "foo", "message_id": 1}}
                 
-                with patch('sys.exit') as mock_exit:
-                     
-                     await NyxOS.shutdown_command.callback(interaction)
-                     
-                     interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"], ephemeral=False)
-                     mock_client.close.assert_called_once()
-                     mock_exit.assert_called_with(0)
-                     self.assertTrue(os.path.exists(config.SHUTDOWN_FLAG_FILE))
+                 await NyxOS.shutdown_command.callback(interaction)
+                 
+                 # Verify sequence initiated
+                 mock_client.perform_shutdown_sequence.assert_called_once_with(interaction, restart=False)

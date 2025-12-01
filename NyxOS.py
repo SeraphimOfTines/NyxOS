@@ -1923,22 +1923,6 @@ async def shutdown_command(interaction: discord.Interaction):
         return
     await client.perform_shutdown_sequence(interaction, restart=False)
 
-    for cid, bar in list(client.active_bars.items()):
-        tasks.append(set_thinking(cid, bar))
-    
-    if tasks:
-        await asyncio.gather(*tasks)
-        await asyncio.sleep(1.0) # Give discord time to propagate
-
-    # Write shutdown flag so monitor knows it was intentional
-    try:
-        with open(config.SHUTDOWN_FLAG_FILE, "w") as f:
-            f.write("shutdown")
-    except: pass
-
-    await client.close()
-    sys.exit(0)
-
 @client.tree.command(name="killmyembeds", description="Toggle auto-suppression of hyperlink embeds for your messages.")
 async def killmyembeds_command(interaction: discord.Interaction):
     is_enabled = memory_manager.toggle_suppressed_user(interaction.user.id)

@@ -217,25 +217,15 @@ class TestCommandParityChecks(unittest.IsolatedAsyncioTestCase):
                         self.assertIsInstance(kwargs['view'], ui.ResponseView)
 
     async def test_reboot_command_parity(self):
-        """Test that &reboot works (calls exec)"""
+        """Test that &reboot works (calls perform_shutdown_sequence)"""
         mock_channel = AsyncMock()
         mock_user = MagicMock()
         interaction = NyxOS.MockInteraction(None, mock_channel, mock_user)
         
         with patch('helpers.is_authorized', return_value=True):
             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
-                # Fix active_bars to be a dict
-                mock_client.active_bars = {}
-                mock_client.get_channel.return_value = None
-                mock_client.fetch_channel.return_value = None
                 
-                with patch('os.execl') as mock_execl:
-                    with patch('sys.executable', 'python'):
-                        with patch('os.fsync'):
-                             with patch('NyxOS.config.STARTUP_CHANNEL_ID', None):
-                                await NyxOS.reboot_command.callback(interaction)
-                                
-                                # Should send "Reboot initiated..."
-                                mock_channel.send.assert_called()
-                                self.assertTrue(mock_channel.send.called)
-                                mock_execl.assert_called()
+                await NyxOS.reboot_command.callback(interaction)
+                
+                # Verify delegation
+                mock_client.perform_shutdown_sequence.assert_called_once_with(interaction, restart=True)
