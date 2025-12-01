@@ -299,6 +299,11 @@ class LMStudioBot(discord.Client):
                         break
             except: pass
 
+        # Fix: If moving check only (move_bar=False), and check is already merged on bar, do nothing.
+        if not move_bar and move_check:
+             if old_check_id and old_bar_id and old_check_id == old_bar_id:
+                  move_check = False
+
         # Reset Notification Flag on Drop
         if manual and channel_id in self.active_bars:
              self.active_bars[channel_id]["has_notification"] = False
@@ -1190,24 +1195,28 @@ class LMStudioBot(discord.Client):
 
         # 1. Fetch existing messages
         msgs = []
-        async for m in t_ch.history(limit=10):
+        async for m in t_ch.history(limit=20):
             if m.author.id == self.user.id:
                 msgs.append(m)
         msgs.sort(key=lambda x: x.created_at)
 
         # 2. Validate Structure (Header, Master, List)
-        h_msg, bar_msg, list_msg = None, None, None
+        # We expect AT LEAST 3 messages. 
+        h_msg, bar_msg = None, None
+        list_msgs = []
         
-        if len(msgs) == 3:
-            h_msg, bar_msg, list_msg = msgs
+        if len(msgs) >= 3:
+            h_msg = msgs[0]
+            bar_msg = msgs[1]
+            list_msgs = msgs[2:]
         else:
             # Invalid -> Wipe and Recreate
-            try: await t_ch.purge(limit=20)
+            try: await t_ch.purge(limit=100)
             except: pass
             
             h_msg = await t_ch.send(startup_header_text)
             bar_msg = await t_ch.send(master_content)
-            list_msg = await t_ch.send(f"{divider}\nLoading Uplinks...", view=ui.ConsoleControlView())
+            list_msgs = [await t_ch.send(f"{divider}\nLoading Uplinks...", view=ui.ConsoleControlView())]
 
         # 3. Update Content
         if h_msg.content != startup_header_text:
@@ -1221,7 +1230,7 @@ class LMStudioBot(discord.Client):
         # 4. Register references
         self.startup_header_msg = h_msg
         self.startup_bar_msg = bar_msg
-        self.console_progress_msgs = [list_msg]
+        self.console_progress_msgs = list_msgs
 
     async def on_ready(self):
         logger.info('# ==========================================')
@@ -1344,17 +1353,86 @@ class LMStudioBot(discord.Client):
             except:
                 pass
                 
-        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
-        final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n" + "\n".join(log_lines)
-        
-        if len(final_body) > 2000:
-             final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(List truncated... {len(log_lines)} active)"
+        # Group lines by 6
+        chunked_lines = []
+        current_chunk = []
+        for i, line in enumerate(log_lines):
+            current_chunk.append(line)
+            if len(current_chunk) == 6:
+                chunked_lines.append("  ".join(current_chunk))
+                current_chunk = []
+        if current_chunk:
+            chunked_lines.append("  ".join(current_chunk))
 
-        for m in targets:
-            try: 
-                await services.service.limiter.wait_for_slot("edit_message", m.channel.id)
-                await m.edit(content=final_body, view=ui.ConsoleControlView())
-            except: pass
+        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
+        header = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n"
+        
+        # Build Messages (Max 2000 chars each)
+        messages_content = []
+        
+        current_msg_content = header
+        is_first = True
+        
+        for line in chunked_lines:
+            # +1 for newline
+            if len(current_msg_content) + len(line) + 1 > 2000:
+                messages_content.append(current_msg_content)
+                current_msg_content = line
+                is_first = False
+            else:
+                if is_first and current_msg_content == header:
+                    current_msg_content += line
+                elif not is_first and current_msg_content == line: # Start of new msg
+                    pass # Already set
+                else:
+                    current_msg_content += "\n" + line
+        
+        if current_msg_content:
+            messages_content.append(current_msg_content)
+            
+        if not messages_content:
+             messages_content.append(header + "(No uplinks active)")
+
+        # Update Messages
+        channel = targets[0].channel
+        new_msg_list = []
+        
+        for i, content in enumerate(messages_content):
+            # Only last message gets the buttons
+            view = ui.ConsoleControlView() if i == len(messages_content) - 1 else None
+            
+            if i < len(targets):
+                msg = targets[i]
+                try:
+                    await services.service.limiter.wait_for_slot("edit_message", channel.id)
+                    # Optimization: Don't edit if same
+                    if msg.content != content: # View check hard, but content check easy
+                        await msg.edit(content=content, view=view)
+                    # Ensure view is correct even if content same (e.g. button state change)
+                    if msg.content == content and i == len(messages_content) - 1:
+                         await msg.edit(view=view)
+                         
+                    new_msg_list.append(msg)
+                except (discord.NotFound, discord.HTTPException):
+                    # Lost message, recreate
+                    try:
+                        m = await channel.send(content, view=view)
+                        new_msg_list.append(m)
+                    except: pass
+            else:
+                # New message
+                try:
+                    m = await channel.send(content, view=view)
+                    new_msg_list.append(m)
+                except: pass
+        
+        # Delete extras
+        if len(targets) > len(messages_content):
+            for i in range(len(messages_content), len(targets)):
+                try: await targets[i].delete()
+                except: pass
+
+        self.console_progress_msgs = new_msg_list
 
     async def check_and_sync_commands(self):
         """Checks if commands have changed since last boot and syncs if needed."""
