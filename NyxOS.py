@@ -1049,11 +1049,8 @@ class LMStudioBot(discord.Client):
                  await client.startup_header_msg.edit(content=final_header)
              except: pass
              
-        # Update Body to "Waiting"
-        wait_text = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(Waiting for `/scan`...)"
-        for p_msg in progress_msgs:
-            try: await p_msg.edit(content=wait_text, embed=None, view=None)
-            except: pass
+        # Populate Active Uplinks from DB
+        await self.update_console_status()
         
         client.has_synced = True
         
@@ -1229,6 +1226,54 @@ class LMStudioBot(discord.Client):
         
         if interaction:
             await interaction.followup.send(f"✅ Scan complete. Verified {len(wake_log)} uplinks.", ephemeral=True)
+
+    async def update_console_status(self):
+        """Updates the console message with the current list of known uplinks from DB."""
+        # Get target messages
+        targets = getattr(self, "console_progress_msgs", [])
+        if not targets: return
+
+        # Get Data
+        whitelist = memory_manager.get_bar_whitelist() # Strings
+        
+        # Build List
+        log_lines = []
+        saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
+        
+        for cid_str in whitelist:
+            try:
+                cid = int(cid_str)
+                
+                # We rely on active_bars (DB loaded) for the "link" info
+                bar_data = self.active_bars.get(cid)
+                
+                if bar_data:
+                    guild_id = bar_data.get('guild_id')
+                    if not guild_id:
+                        ch = self.get_channel(cid)
+                        if ch: guild_id = ch.guild.id
+
+                    target_id = bar_data.get('checkmark_message_id') or bar_data.get('message_id')
+                    
+                    if guild_id and target_id:
+                        link = f"https://discord.com/channels/{guild_id}/{cid}/{target_id}"
+                        log_lines.append(f"{saturn_emoji} {link}")
+                    else:
+                        log_lines.append(f"{saturn_emoji} <#{cid}> (Out of sync.)")
+                else:
+                    log_lines.append(f"{saturn_emoji} <#{cid}> (Out of sync.)")
+            except:
+                pass
+                
+        divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
+        final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n" + "\n".join(log_lines)
+        
+        if len(final_body) > 2000:
+             final_body = f"{divider}\n{ui.FLAVOR_TEXT['UPLINKS_HEADER']}\n(List truncated... {len(log_lines)} active)"
+
+        for m in targets:
+            try: await m.edit(content=final_body)
+            except: pass
 
     async def check_and_sync_commands(self):
         """Checks if commands have changed since last boot and syncs if needed."""
@@ -1646,6 +1691,7 @@ async def add_channel_command(interaction: discord.Interaction):
         await interaction.response.send_message("✅ Channel already whitelisted.", ephemeral=False, delete_after=2.0)
     else:
         memory_manager.add_allowed_channel(interaction.channel_id)
+        await client.update_console_status()
         await interaction.response.send_message(f"😄 I'll talk in this channel!", ephemeral=False, delete_after=2.0)
 
 @client.tree.command(name="removechannel", description="Remove the current channel from the bot's whitelist.")
@@ -1666,6 +1712,7 @@ async def remove_channel_command(interaction: discord.Interaction):
     allowed_ids = memory_manager.get_allowed_channels()
     if interaction.channel_id in allowed_ids:
         memory_manager.remove_allowed_channel(interaction.channel_id)
+        await client.update_console_status()
         await interaction.response.send_message(f"🤐 I'll ignore this channel!", ephemeral=False, delete_after=2.0)
     else:
         await interaction.response.send_message("⚠️ Channel not in whitelist.", ephemeral=False, delete_after=2.0)
