@@ -109,7 +109,7 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
                 # Should NOT be called again
                 mock_update_console.assert_not_called()
 
-    async def test_drop_clears_notification(self):
+    async def test_drop_notification_logic(self):
         # Setup
         cid = 123
         self.client.active_bars = {
@@ -134,14 +134,19 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
             mock_msg.id = 99
             mock_ch.send.return_value = mock_msg
             
-            # Execute
+            # 1. Manual Drop (Default) -> Should Clear
             await self.client.drop_status_bar(cid)
-            
-            # Verify State Cleared
             self.assertFalse(self.client.active_bars[cid]["has_notification"])
-            
-            # Verify DB Call
             mock_set_db.assert_called_with(cid, False)
+            
+            # Reset
+            self.client.active_bars[cid]["has_notification"] = True
+            mock_set_db.reset_mock()
+            
+            # 2. Auto Drop (manual=False) -> Should Persist
+            await self.client.drop_status_bar(cid, manual=False)
+            self.assertTrue(self.client.active_bars[cid]["has_notification"])
+            mock_set_db.assert_not_called()
 
     async def test_update_console_renders_exclamark(self):
         # Setup
