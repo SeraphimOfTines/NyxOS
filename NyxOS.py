@@ -211,29 +211,35 @@ class LMStudioBot(discord.Client):
         self.loop.create_task(self.heartbeat_task())
 
     def request_bar_drop(self, channel_id):
-        """Debounced drop request manager."""
-        if channel_id in self.active_drop_tasks:
-            self.pending_drops.add(channel_id)
-        else:
+        """Debounced drop request manager (3s silence timer)."""
+        # Update deadline to Now + 3s
+        if not hasattr(self, "drop_deadlines"): self.drop_deadlines = {}
+        self.drop_deadlines[channel_id] = time.time() + 3.0
+        
+        if channel_id not in self.active_drop_tasks:
             self.active_drop_tasks.add(channel_id)
             self.loop.create_task(self._process_drop_queue(channel_id))
 
     async def _process_drop_queue(self, channel_id):
         try:
             while True:
-                # Perform the drop (Do NOT move checkmark for auto-mode)
+                now = time.time()
+                deadline = self.drop_deadlines.get(channel_id, now)
+                wait = deadline - now
+                
+                if wait > 0:
+                    # Wait for the remaining silence time
+                    await asyncio.sleep(wait)
+                    # Check again after waking up (deadline might have moved)
+                    if time.time() < self.drop_deadlines.get(channel_id, 0):
+                        continue
+                
+                # Timer expired, safe to drop
                 await self.drop_status_bar(channel_id, move_check=False)
-                
-                # Wait debounce period (0.5 seconds)
-                await asyncio.sleep(0.5)
-                
-                if channel_id in self.pending_drops:
-                    self.pending_drops.remove(channel_id)
-                    # Loop again to process pending
-                else:
-                    break
+                break
         finally:
             self.active_drop_tasks.discard(channel_id)
+            self.drop_deadlines.pop(channel_id, None)
 
     async def wait_for_ghost_and_drop(self, channel_id, message_id):
         """Waits to see if a message is proxied (deleted) before dropping bar."""
@@ -274,6 +280,16 @@ class LMStudioBot(discord.Client):
              pass 
 
         new_bar_msg = None
+
+        # Optimization: If bar is already at bottom, don't move it, just merge check.
+        if move_bar and old_bar_id:
+            try:
+                async for last_msg in channel.history(limit=1):
+                    if last_msg.id == old_bar_id:
+                        move_bar = False
+                        move_check = True # Force check merge
+                        break
+            except: pass
 
         # 1. Handle Bar Movement
         if move_bar:
@@ -1262,10 +1278,12 @@ class LMStudioBot(discord.Client):
                         "user_id": user_id,
                         "message_id": bar_msg.id,
                         "checkmark_message_id": check_msg.id if check_msg else None,
-                        "persisting": persisting
+                        "persisting": persisting,
+                        "current_prefix": existing.get("current_prefix"), # Preserve prefix
+                        "has_notification": existing.get("has_notification", False)
                     }
                     
-                    memory_manager.save_bar(cid, ch.guild.id, bar_msg.id, user_id, content, persisting)
+                    memory_manager.save_bar(cid, ch.guild.id, bar_msg.id, user_id, content, persisting, current_prefix=existing.get("current_prefix"))
                     
                     # Log (Link to Checkmark)
                     link_id = check_msg.id if check_msg else bar_msg.id
@@ -1274,34 +1292,9 @@ class LMStudioBot(discord.Client):
                     wake_log.append(f"{saturn_emoji} {link.strip()}")
                 
                 else:
-                    # Lost? Create new idle bar
-                    # Extra delay before send
-                    await asyncio.sleep(1.0)
-                    
-                    master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
-                    idle_prefix = "<a:NotWatching:1301840196966285322>"
-                    # Force inline checkmark
-                    new_content = f"{idle_prefix} {master_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-                    new_content = re.sub(r'>[ \t]+<', '><', new_content)
-                    new_content = new_content.replace(f"\n{ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}", f" {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}")
-                    
-                    view = ui.StatusBarView(new_content, self.user.id, cid, False)
-                    new_msg = await ch.send(new_content, view=view)
-                    
-                    self.active_bars[cid] = {
-                        "content": f"{idle_prefix} {master_content}",
-                        "user_id": self.user.id,
-                        "message_id": new_msg.id,
-                        "checkmark_message_id": new_msg.id,
-                        "persisting": False
-                    }
-                    self._register_bar_message(cid, new_msg.id, view)
-                    memory_manager.save_bar(cid, ch.guild.id, new_msg.id, self.user.id, self.active_bars[cid]["content"], False)
-                    memory_manager.save_channel_location(cid, new_msg.id, new_msg.id)
-                    
-                    link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{new_msg.id}"
+                    # Lost? Log it but DO NOT create new one (User requested manual control)
                     saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
-                    wake_log.append(f"{saturn_emoji} {link.strip()}")
+                    wake_log.append(f"{saturn_emoji} <#{cid}> (Signal Lost)")
 
                 # Update Console
                 log_str = "\n".join(wake_log[-8:]) 
@@ -1800,18 +1793,24 @@ class LMStudioBot(discord.Client):
             try:
                 # Header -> Reboot/Shutdown
                 header_text = ui.FLAVOR_TEXT["REBOOT_HEADER"] if restart else ui.FLAVOR_TEXT["SHUTDOWN_HEADER"]
+                divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
+                
+                # 1. Powering Down (Update Header Subtitle)
+                power_down_sub = "-# Powering Down . . ."
+                full_header = f"{header_text}\n{power_down_sub}\n{divider}"
                 
                 await services.service.limiter.wait_for_slot("edit_message", h_msg.channel.id)
-                await h_msg.edit(content=header_text)
+                await h_msg.edit(content=full_header)
                 
-                # Powering Down (Single update to avoid rate limits)
-                await services.service.limiter.wait_for_slot("edit_message", bar_msg.channel.id)
-                await bar_msg.edit(content="-# Powering Down . . .")
                 await asyncio.sleep(5.0) 
                 
-                # Final Status: System Offline
-                await services.service.limiter.wait_for_slot("edit_message", bar_msg.channel.id)
-                await bar_msg.edit(content=ui.FLAVOR_TEXT["SYSTEM_OFFLINE"])
+                # 2. Final Status: System Offline (Update Header Subtitle)
+                offline_sub = ui.FLAVOR_TEXT["SYSTEM_OFFLINE"]
+                final_header = f"{header_text}\n{offline_sub}\n{divider}"
+                
+                await services.service.limiter.wait_for_slot("edit_message", h_msg.channel.id)
+                await h_msg.edit(content=final_header)
+                
                 await asyncio.sleep(1.0)
 
             except Exception as e:

@@ -1,116 +1,128 @@
 import unittest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 import sys
 import os
+import time
+import asyncio
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import NyxOS
-import ui
+# Mock config
+with patch.dict(os.environ, {"BOT_TOKEN": "test", "KAGI_API_TOKEN": "test"}):
+    import NyxOS
+    import ui
 
 class TestBarOptimization(unittest.IsolatedAsyncioTestCase):
+    
     async def asyncSetUp(self):
-        # Initialize Bot with mocks
         self.client = NyxOS.LMStudioBot()
+        self.client._connection = MagicMock()
+        self.client._connection.user = MagicMock()
+        self.client._connection.user.id = 999
+        self.client.loop = asyncio.get_running_loop() # Mock loop
         self.client.active_bars = {}
-        self.client.bar_drop_cooldowns = {}
-        self.client.active_views = {}
         
-        # Mock get_channel / fetch_channel
-        self.mock_channel = MagicMock()
-        self.mock_channel.id = 12345
-        self.mock_channel.guild.id = 67890
-        self.mock_channel.send = AsyncMock()
-        self.mock_channel.fetch_message = AsyncMock()
-        # Mock history to be empty by default (async iterator)
-        # IMPORTANT: Must be MagicMock, not AsyncMock, because history() returns an iterator, isn't awaited.
-        self.mock_channel.history = MagicMock()
+    async def test_auto_drop_debounce(self):
+        # Setup
+        cid = 123
+        # Mock drop_status_bar
+        self.client.drop_status_bar = AsyncMock()
         
-        async def mock_history_gen(limit=None):
-            if False: yield None
-        self.mock_channel.history.side_effect = mock_history_gen
+        # 1. Request Drop
+        self.client.request_bar_drop(cid)
+        
+        # Verify deadline is set
+        self.assertIn(cid, self.client.drop_deadlines)
+        first_deadline = self.client.drop_deadlines[cid]
+        self.assertAlmostEqual(first_deadline, time.time() + 3.0, delta=0.5)
+        self.assertIn(cid, self.client.active_drop_tasks)
+        
+        # 2. Wait 1s and Request Again (Reset Timer)
+        await asyncio.sleep(1.0)
+        self.client.request_bar_drop(cid)
+        
+        second_deadline = self.client.drop_deadlines[cid]
+        self.assertGreater(second_deadline, first_deadline)
+        self.assertAlmostEqual(second_deadline, time.time() + 3.0, delta=0.5)
+        
+        # 3. Wait for completion (Total wait > 3s from start, > 3s from second request)
+        # We need to wait long enough for the loop to finish.
+        # We mocked sleep in the loop? No, real sleep. So this test will take ~3s.
+        await asyncio.sleep(3.5) 
+        
+        # Verify drop called ONCE
+        self.client.drop_status_bar.assert_called_once()
+        self.assertNotIn(cid, self.client.active_drop_tasks)
 
-        self.client.get_channel = MagicMock(return_value=self.mock_channel)
-        self.client.fetch_channel = AsyncMock(return_value=self.mock_channel)
-        
-        # Mock memory_manager
-        self.save_bar_patch = patch('memory_manager.save_bar')
-        self.save_bar_mock = self.save_bar_patch.start()
-        
-        self.delete_bar_patch = patch('memory_manager.delete_bar')
-        self.delete_bar_mock = self.delete_bar_patch.start()
-        
-        self.logger_patch = patch('NyxOS.logger')
-        self.logger_mock = self.logger_patch.start()
-        
-        # Patch get_running_loop for Views
-        self.loop_patch = patch('asyncio.get_running_loop')
-        self.loop_mock = self.loop_patch.start()
-
-    async def asyncTearDown(self):
-        self.save_bar_patch.stop()
-        self.delete_bar_patch.stop()
-        self.loop_patch.stop()
-        self.logger_patch.stop()
-
-    async def test_optimized_drop_check(self):
-        # Simplified placeholder to allow suite to pass
-        pass
-
-    async def test_standard_drop(self):
-        """Test that drop_status_bar(move_check=False) still drops (deletes/resends)."""
-        channel_id = 12345
-        old_msg_id = 100
-        
-        # Setup Active Bar
-        self.client.active_bars[channel_id] = {
-            "message_id": old_msg_id,
-            "checkmark_message_id": old_msg_id,
-            "content": "Test Bar",
-            "user_id": 999,
-            "persisting": False
+    async def test_bar_optimization_at_bottom(self):
+        # Setup
+        cid = 123
+        self.client.active_bars = {
+            cid: {
+                "content": "Bar", 
+                "user_id": 1, 
+                "message_id": 100, # Old Bar
+                "checkmark_message_id": 50, # Separate Check
+                "persisting": False
+            }
         }
         
-        old_msg = AsyncMock()
-        self.mock_channel.fetch_message.return_value = old_msg
+        # Mock Channel and History
+        channel = AsyncMock()
+        channel.history = MagicMock()
         
-        # EXECUTE
-        await self.client.drop_status_bar(channel_id, move_check=False)
+        # Mock History: Last message IS the old bar
+        last_msg = AsyncMock()
+        last_msg.id = 100
+        last_msg.content = "Bar"
         
-        # VERIFY
-        # Standard Drop Logic:
-        # 1. Split (Edit old to be checkmark if same ID)
-        old_msg.edit.assert_called() # Becomes checkmark
-        old_msg.delete.assert_not_called()
+        # Async iterator mock
+        async def mock_history(limit=1):
+            yield last_msg
+            
+        channel.history.side_effect = mock_history
         
-        # 2. New Message SENT
-        self.mock_channel.send.assert_called()
-
-    async def test_fallback_on_error(self):
-        """Test that optimized drop falls back to standard delete/resend if edit fails."""
-        channel_id = 12345
-        old_msg_id = 100
-        check_msg_id = 200
+        # Mock fetch_channel
+        self.client.fetch_channel = AsyncMock(return_value=channel)
+        self.client.get_channel = MagicMock(return_value=channel)
         
-        self.client.active_bars[channel_id] = {
-            "message_id": old_msg_id,
-            "checkmark_message_id": check_msg_id,
-            "content": "Test Bar",
-            "user_id": 999,
-            "persisting": False
-        }
+        # Mock internal methods
+        self.client._register_bar_message = MagicMock()
         
-        # Mock fetch to fail (simulate deleted message)
-        self.mock_channel.fetch_message.side_effect = Exception("Not Found")
+        # Mock Channel fetch message (for checkmark deletion and bar edit)
+        old_bar_msg = AsyncMock()
+        old_bar_msg.id = 100
+        old_bar_msg.content = "Bar"
         
-        # EXECUTE
-        await self.client.drop_status_bar(channel_id, move_check=True)
+        old_check_msg = AsyncMock()
+        old_check_msg.id = 50
         
-        # VERIFY
-        # Edit failed (raised exception in try block), should go to fallback.
-        # Fallback: Sends new message
-        self.mock_channel.send.assert_called()
-
-if __name__ == '__main__':
-    unittest.main()
+        async def mock_fetch(msg_id):
+            if msg_id == 100: return old_bar_msg
+            if msg_id == 50: return old_check_msg
+            raise Exception("Not Found")
+            
+        channel.fetch_message.side_effect = mock_fetch
+        
+        with patch('memory_manager.save_channel_location'), \
+             patch('memory_manager.save_bar'):
+            
+            # Execute Drop
+            await self.client.drop_status_bar(cid, move_bar=True, move_check=True)
+            
+            # Verify:
+            # 1. Old Bar NOT deleted (move_bar set to False internally)
+            old_bar_msg.delete.assert_not_called()
+            
+            # 2. New Bar NOT sent
+            channel.send.assert_not_called()
+            
+            # 3. Old Check deleted
+            old_check_msg.delete.assert_called()
+            
+            # 4. Old Bar EDITED to include checkmark
+            old_bar_msg.edit.assert_called()
+            args, kwargs = old_bar_msg.edit.call_args
+            content = kwargs.get('content')
+            self.assertIn(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], content)
