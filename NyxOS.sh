@@ -1,6 +1,9 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
+# Trap Ctrl+C to exit the loop
+trap "echo '🛑 Manual interrupt detected. Exiting watcher.'; exit 0" SIGINT SIGTERM
+
 # 1. Auto-Setup Virtual Environment
 if [ ! -d "venv" ]; then
     echo "📦 Creating virtual environment..."
@@ -17,7 +20,7 @@ pip install -r requirements.txt --quiet
 # 4. Cleanup Previous Instances
 echo "☢️  Nuking old processes..."
 
-# Kill other instances of this script
+# Kill other instances of this script (careful not to kill self if logic is tricky, but pgrep usually safe)
 my_pid=$$
 other_scripts=$(pgrep -f "NyxOS.sh" | grep -v "$my_pid")
 if [ -n "$other_scripts" ]; then
@@ -26,9 +29,22 @@ if [ -n "$other_scripts" ]; then
 fi
 
 pkill -9 -f "python.*NyxOS.py" || true
-sleep 5
+sleep 2
 
-# 5. Launch Bot
-echo "🚀 Starting NyxOS..."
-python3 NyxOS.py
+# 5. Launch Bot Loop
+echo "🚀 Starting NyxOS Watcher..."
 
+while true; do
+    python3 NyxOS.py
+    EXIT_CODE=$?
+    
+    # Check for explicit shutdown flag (Created by NyxOS.py on /shutdown)
+    if [ -f "shutdown.flag" ]; then
+        echo "🛑 Shutdown flag detected. Powering down."
+        rm "shutdown.flag"
+        break
+    fi
+    
+    echo "🔄 Process exited (Code: $EXIT_CODE). Restarting in 2 seconds..."
+    sleep 2
+done

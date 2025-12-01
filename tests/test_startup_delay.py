@@ -66,8 +66,8 @@ class TestStartupDelay(unittest.IsolatedAsyncioTestCase):
             # But we simulate DB fetch failure (return None, None) -> Fallback -> 2.0s delay
             # So we expect 1.5s AND 2.0s.
             
-            calls_1_5 = [c for c in mock_sleep.call_args_list if c.args[0] == 1.5]
-            self.assertEqual(len(calls_1_5), 4, f"Expected 4 sleeps of 1.5s, got {len(calls_1_5)}. Calls: {mock_sleep.call_args_list}")
+            calls_delay = [c for c in mock_sleep.call_args_list if c.args[0] == 8.0]
+            self.assertEqual(len(calls_delay), 4, f"Expected 4 sleeps of 8.0s, got {len(calls_delay)}. Calls: {mock_sleep.call_args_list}")
             
             # 2. Check Channel 99999 Skip
             # fetch_channel should be called for 1001, 1002, 1003 but NOT 99999

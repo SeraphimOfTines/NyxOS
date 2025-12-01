@@ -207,6 +207,7 @@ class LMStudioBot(discord.Client):
             
         await services.service.start()
         self.add_view(ui.ResponseView())
+        self.add_view(ui.ConsoleControlView())
         self.loop.create_task(self.heartbeat_task())
 
     def request_bar_drop(self, channel_id):
@@ -1065,8 +1066,15 @@ class LMStudioBot(discord.Client):
                     b_msg = existing_msgs[2]
                     
                     try:
+                        await services.service.limiter.wait_for_slot("edit_message", t_id)
                         await h_msg.edit(content=startup_header_text)
+                        await asyncio.sleep(1.0)
+                        
+                        await services.service.limiter.wait_for_slot("edit_message", t_id)
                         await bar_msg.edit(content=msg2_text)
+                        await asyncio.sleep(1.0)
+
+                        await services.service.limiter.wait_for_slot("edit_message", t_id)
                         await b_msg.edit(content=body_text, embed=None, view=None)
                         
                         client.startup_header_msg = h_msg
@@ -1081,12 +1089,17 @@ class LMStudioBot(discord.Client):
                     try: await t_ch.purge(limit=100)
                     except: pass
 
+                    await services.service.limiter.wait_for_slot("send_message", t_id)
                     h_msg = await t_ch.send(startup_header_text)
                     client.startup_header_msg = h_msg
+                    await asyncio.sleep(1.0)
                     
+                    await services.service.limiter.wait_for_slot("send_message", t_id)
                     bar_msg = await t_ch.send(msg2_text)
                     client.startup_bar_msg = bar_msg
+                    await asyncio.sleep(1.0)
                     
+                    await services.service.limiter.wait_for_slot("send_message", t_id)
                     msg = await t_ch.send(body_text, view=None)
                     progress_msgs.append(msg)
 
@@ -1138,7 +1151,7 @@ class LMStudioBot(discord.Client):
         wake_log = []
         
         for cid_str in bar_whitelist:
-            await asyncio.sleep(1.5) # Rate limit protection
+            await asyncio.sleep(8.0) # Rate limit protection (Aggressive 8s delay)
             
             try:
                 cid = int(cid_str)
@@ -1223,7 +1236,7 @@ class LMStudioBot(discord.Client):
                     # Log (Link to Checkmark)
                     link_id = check_msg.id if check_msg else bar_msg.id
                     link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{link_id}"
-                    saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
+                    saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
                     wake_log.append(f"{saturn_emoji} {link.strip()}")
                 
                 else:
@@ -1253,7 +1266,7 @@ class LMStudioBot(discord.Client):
                     memory_manager.save_channel_location(cid, new_msg.id, new_msg.id)
                     
                     link = f"https://discord.com/channels/{ch.guild.id}/{cid}/{new_msg.id}"
-                    saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
+                    saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
                     wake_log.append(f"{saturn_emoji} {link.strip()}")
 
                 # Update Console
@@ -1271,7 +1284,9 @@ class LMStudioBot(discord.Client):
                      pass
 
                 for m in targets:
-                   try: await m.edit(content=current_status)
+                   try: 
+                       await services.service.limiter.wait_for_slot("edit_message", m.channel.id)
+                       await m.edit(content=current_status)
                    except: pass
 
             except Exception as e:
@@ -1284,7 +1299,9 @@ class LMStudioBot(discord.Client):
 
         targets = getattr(self, "console_progress_msgs", [])
         for m in targets:
-            try: await m.edit(content=final_body)
+            try: 
+                await services.service.limiter.wait_for_slot("edit_message", m.channel.id)
+                await m.edit(content=final_body, view=ui.ConsoleControlView())
             except: pass
         
         if interaction:
@@ -1301,7 +1318,7 @@ class LMStudioBot(discord.Client):
         
         # Build List
         log_lines = []
-        saturn_emoji = "<a:SATVRNCommand:1301834555086602240>"
+        saturn_emoji = ui.FLAVOR_TEXT["UPLINK_BULLET"]
         
         for cid_str in whitelist:
             try:
@@ -1337,7 +1354,7 @@ class LMStudioBot(discord.Client):
         for m in targets:
             try: 
                 await services.service.limiter.wait_for_slot("edit_message", m.channel.id)
-                await m.edit(content=final_body)
+                await m.edit(content=final_body, view=ui.ConsoleControlView())
             except: pass
 
     async def check_and_sync_commands(self):
@@ -1686,6 +1703,100 @@ class LMStudioBot(discord.Client):
         
         await interaction.delete_original_response()
 
+    async def perform_shutdown_sequence(self, interaction, restart=True):
+        # 1. Setup
+        memory_manager.set_server_setting("global_chat_enabled", False)
+        
+        # Ensure Ephemeral Response if interaction
+        if interaction and not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
+        # 2. Identify Console Channel
+        console_channel = None
+        if config.STARTUP_CHANNEL_ID:
+            try: console_channel = await self.fetch_channel(config.STARTUP_CHANNEL_ID)
+            except: pass
+        
+        # Fallback to interaction channel if console not found
+        if not console_channel and interaction:
+            console_channel = interaction.channel
+
+        # 3. Locate Messages
+        h_msg = getattr(self, "startup_header_msg", None)
+        bar_msg = getattr(self, "startup_bar_msg", None)
+        
+        # If not cached, scan console channel
+        if console_channel and (not h_msg or not bar_msg):
+            try:
+                candidates = []
+                async for m in console_channel.history(limit=10):
+                    if m.author.id == self.user.id:
+                        candidates.append(m)
+                # Sort Oldest -> Newest
+                candidates.sort(key=lambda x: x.created_at)
+                if len(candidates) >= 3:
+                    h_msg = candidates[0]
+                    bar_msg = candidates[1]
+            except: pass
+
+        # 4. UI Updates (Countdown)
+        if h_msg and bar_msg:
+            try:
+                # Header -> Reboot/Shutdown
+                header_text = ui.FLAVOR_TEXT["REBOOT_HEADER"] if restart else ui.FLAVOR_TEXT["SHUTDOWN_HEADER"]
+                
+                await services.service.limiter.wait_for_slot("edit_message", h_msg.channel.id)
+                await h_msg.edit(content=header_text)
+                
+                # Powering Down (Single update to avoid rate limits)
+                await services.service.limiter.wait_for_slot("edit_message", bar_msg.channel.id)
+                await bar_msg.edit(content="-# Powering Down . . .")
+                await asyncio.sleep(5.0) 
+                
+                # Final Status: System Offline
+                await services.service.limiter.wait_for_slot("edit_message", bar_msg.channel.id)
+                await bar_msg.edit(content=ui.FLAVOR_TEXT["SYSTEM_OFFLINE"])
+                await asyncio.sleep(1.0)
+
+            except Exception as e:
+                logger.warning(f"Shutdown UI update failed: {e}")
+        else:
+            # Fallback if no UI found
+            if interaction:
+                await interaction.followup.send(f"{ui.FLAVOR_TEXT['SHUTDOWN_MESSAGE']} (UI Not Found, forcing exit)", ephemeral=True)
+            await asyncio.sleep(5.0) # Wait anyway
+
+        # 5. Meta Write (Only for Reboot)
+        if restart:
+            meta = {
+                "channel_id": console_channel.id if console_channel else None,
+                "header_msg_id": h_msg.id if h_msg else None,
+                "bar_msg_id": bar_msg.id if bar_msg else None
+            }
+            try:
+                with open(config.RESTART_META_FILE, "w") as f:
+                    json.dump(meta, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except: pass
+        else:
+            try:
+                with open(config.SHUTDOWN_FLAG_FILE, "w") as f: f.write("shutdown")
+            except: pass
+
+        # 6. Close & Exit
+        await self.close()
+        
+        if restart:
+            # Wait for Discord to fully release the session/token
+            logger.info("⏳ Session closed. Waiting 5s for token release before restart...")
+            time.sleep(5.0)
+            
+            # Exit process. Watcher script (NyxOS.sh) will handle the relaunch.
+            sys.exit(0)
+        else:
+            sys.exit(0)
+
 # --- Helper Class for Internal Interaction Mocking ---
 class MockInteraction:
     def __init__(self, client, channel, user):
@@ -1798,207 +1909,19 @@ async def disableall_command(interaction: discord.Interaction):
     memory_manager.set_server_setting("global_chat_enabled", False)
     await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_DISABLED"], ephemeral=False, delete_after=2.0)
 
-async def perform_reboot(interaction=None, message=None):
-    # 1. Setup
-    memory_manager.set_server_setting("global_chat_enabled", False)
-    
-    user = interaction.user if interaction else message.author
-    channel_id = interaction.channel_id if interaction else message.channel.id
-    guild_id = interaction.guild_id if interaction else message.guild.id
-
-    # Ensure Ephemeral Response
-    if interaction and not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=True)
-
-    # 2. Identify Console Channel
-    console_channel = None
-    if config.STARTUP_CHANNEL_ID:
-        try: console_channel = await client.fetch_channel(config.STARTUP_CHANNEL_ID)
-        except: pass
-
-    # 3. Prepare Messages
-    active_ids = list(client.active_bars.keys())
-    uplink_count = len(active_ids)
-    divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
-    header_sub = ui.FLAVOR_TEXT["REBOOT_SUB"].format(current=0, total=uplink_count)
-    msg1_text = f"{ui.FLAVOR_TEXT['REBOOT_HEADER']}\n{header_sub}\n{divider}"
-    master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
-    msg2_text = f"{master_content.strip()}"
-    body_text_msg = f"{divider}\n⏳ System Cycling..."
-
-    # 4. Send to Console / Fallback
-    header_msg_id = None
-    bar_msg_id = None
-    body_msg_id = None
-    console_id = config.STARTUP_CHANNEL_ID
-
-    if console_channel:
-        try:
-            # SMART REBOOT: Try to edit existing messages first
-            h_msg = None
-            bar_msg = None
-            b_msg = None
-            
-            candidates = []
-            try:
-                async for m in console_channel.history(limit=10):
-                    if m.author.id == client.user.id:
-                        candidates.append(m)
-            except: pass
-
-            if len(candidates) >= 3:
-                b_msg = candidates[0]
-                bar_msg = candidates[1]
-                h_msg = candidates[2]
-                
-                # Edit them
-                await h_msg.edit(content=msg1_text)
-                await bar_msg.edit(content=msg2_text)
-                await b_msg.edit(content=body_text_msg, embed=None, view=None)
-                
-                header_msg_id = h_msg.id
-                bar_msg_id = bar_msg.id
-                body_msg_id = b_msg.id
-            else:
-                # Fallback: Purge and Send
-                try: await console_channel.purge(limit=50)
-                except: pass
-
-                m1 = await console_channel.send(msg1_text)
-                header_msg_id = m1.id
-                m2 = await console_channel.send(msg2_text)
-                bar_msg_id = m2.id
-                m3 = await console_channel.send(content=body_text_msg)
-                body_msg_id = m3.id
-            
-            # Send Ephemeral Link to User
-            link = f"https://discord.com/channels/{console_channel.guild.id}/{console_channel.id}"
-            
-            if interaction:
-                await interaction.followup.send(f"Reboot initiated. [View Console](<{link}>)", ephemeral=True)
-            elif message:
-                 try: await message.delete()
-                 except: pass
-                 # For prefix commands, we can't do ephemeral, but we can delete quickly
-                 try: await message.channel.send(f"Reboot initiated. [View Console](<{link}>)", delete_after=5)
-                 except: pass
-
-        except Exception as e:
-            logger.warning(f"Failed to send to console: {e}")
-            # Fallback: Just Reply
-            try:
-                fallback_text = f"{msg1_text}\n{msg2_text}\n{body_text_msg}"
-                if interaction:
-                    await interaction.followup.send(fallback_text, ephemeral=True)
-                elif message:
-                    await message.channel.send(fallback_text)
-            except: pass
-            console_id = channel_id
-    else:
-        # No console configured
-        try:
-            fallback_text = f"{msg1_text}\n{msg2_text}\n(Console not configured)\n{body_text_msg}"
-            if interaction:
-                await interaction.followup.send(fallback_text, ephemeral=True)
-            elif message:
-                 await message.channel.send(fallback_text)
-        except: pass
-        console_id = channel_id
-
-    # 5. Loading Mode for Bars (Concurrent)
-    loading_emoji = ui.FLAVOR_TEXT["REBOOT_EMOJI"]
-    tasks = []
-    
-    async def set_thinking(cid, bar):
-        try:
-            memory_manager.save_previous_state(cid, bar)
-            clean_middle = bar["content"]
-            for emoji in ui.BAR_PREFIX_EMOJIS:
-                if clean_middle.startswith(emoji):
-                    clean_middle = clean_middle[len(emoji):].strip()
-                    break
-            loading_content = f"{loading_emoji} {clean_middle}"
-            memory_manager.update_bar_content(cid, loading_content)
-            
-            ch = client.get_channel(cid) or await client.fetch_channel(cid)
-            msg = await ch.fetch_message(bar["message_id"])
-            full = f"{loading_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-            full = re.sub(r'>[ \t]+<', '><', full)
-            await msg.edit(content=full)
-        except: pass
-
-    for cid, bar in list(client.active_bars.items()):
-        tasks.append(set_thinking(cid, bar))
-    
-    if tasks:
-        await asyncio.gather(*tasks)
-        await asyncio.sleep(1.0) # Give time for discord to catch up
-
-    # 6. Write Meta & Restart
-    meta = {
-        "channel_id": console_id,
-        "header_msg_id": header_msg_id,
-        "bar_msg_id": bar_msg_id,
-        "body_msg_id": body_msg_id
-    }
-    try:
-        with open(config.RESTART_META_FILE, "w") as f:
-            json.dump(meta, f)
-            f.flush()
-            os.fsync(f.fileno())
-    except Exception as e:
-        logger.warning(f"⚠️ Failed to write restart metadata: {e}")
-
-    await client.close()
-    python = sys.executable
-    os.execl(python, python, *sys.argv)
-
 @client.tree.command(name="reboot", description="Full restart of the bot process.")
 async def reboot_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
-    await perform_reboot(interaction=interaction)
+    await client.perform_shutdown_sequence(interaction, restart=True)
 
 @client.tree.command(name="shutdown", description="Gracefully shut down the bot.")
 async def shutdown_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
         return
-
-    # Send to current channel
-    await interaction.response.send_message(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"], ephemeral=False)
-    
-    # Send to Startup/System Channel (if different)
-    if config.STARTUP_CHANNEL_ID and config.STARTUP_CHANNEL_ID != interaction.channel_id:
-        try:
-            sys_channel = await client.fetch_channel(config.STARTUP_CHANNEL_ID)
-            if sys_channel:
-                await sys_channel.send(ui.FLAVOR_TEXT["SHUTDOWN_MESSAGE"])
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to send shutdown msg to system channel: {e}")
-    
-    # Set Bars to Thinking Mode (Concurrent)
-    loading_emoji = "<a:Thinking:1322962569300017214>"
-    tasks = []
-
-    async def set_thinking(cid, bar):
-        try:
-            memory_manager.save_previous_state(cid, bar)
-            clean_middle = bar["content"]
-            for emoji in ui.BAR_PREFIX_EMOJIS:
-                if clean_middle.startswith(emoji):
-                    clean_middle = clean_middle[len(emoji):].strip()
-                    break
-            loading_content = f"{loading_emoji} {clean_middle}"
-            memory_manager.update_bar_content(cid, loading_content)
-            
-            ch = client.get_channel(cid) or await client.fetch_channel(cid)
-            msg = await ch.fetch_message(bar["message_id"])
-            full = f"{loading_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
-            full = re.sub(r'>[ \t]+<', '><', full)
-            await msg.edit(content=full)
-        except: pass
+    await client.perform_shutdown_sequence(interaction, restart=False)
 
     for cid, bar in list(client.active_bars.items()):
         tasks.append(set_thinking(cid, bar))

@@ -59,10 +59,13 @@ FLAVOR_TEXT = {
     "STARTUP_HEADER": "# <a:SATVRNCommand:1301834555086602240> System Online",
     "STARTUP_SUB": "-# Good morning! <a:SeraphHeartRainbowPulse:1307567594433155073>",
     "STARTUP_SUB_DONE": "-# NyxOS v2.0",
+    "SHUTDOWN_HEADER": "# <a:Sleeping:1312772391759249410> System Shutdown",
+    "SYSTEM_OFFLINE": "-# System Offline.",
     "UPLINKS_HEADER": "Active Uplinks",
-    "COSMETIC_DIVIDER": "⋘───────⋅☾𓆩⭖𓆪☽⋅────────⋙",
+    "COSMETIC_DIVIDER": "<a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562>",
     "CUSTOM_CHECKMARK": "<a:SeraphHyperYes:1331530716508459018>",
     "REBOOT_EMOJI": "<a:RebootingMainframe:1444740155784036512>",
+    "UPLINK_BULLET": "<a:divider:1420151062614118562>",
 }
 
 BAR_PREFIX_EMOJIS = [
@@ -270,6 +273,35 @@ class WakeupReportView(discord.ui.View):
              return
         
         await interaction.message.delete()
+
+
+# ==========================================
+# CONSOLE CONTROL VIEW
+# ==========================================
+
+class ConsoleControlView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🔄 Reboot", style=discord.ButtonStyle.danger, custom_id="console_reboot_btn")
+    async def reboot_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not helpers.is_authorized(interaction.user):
+            await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+            return
+        if hasattr(interaction.client, "perform_shutdown_sequence"):
+            await interaction.client.perform_shutdown_sequence(interaction, restart=True)
+        else:
+            await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
+
+    @discord.ui.button(label="🛑 Shutdown", style=discord.ButtonStyle.danger, custom_id="console_shutdown_btn")
+    async def shutdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not helpers.is_authorized(interaction.user):
+            await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+            return
+        if hasattr(interaction.client, "perform_shutdown_sequence"):
+            await interaction.client.perform_shutdown_sequence(interaction, restart=False)
+        else:
+            await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 
 
 # ==========================================
@@ -487,29 +519,19 @@ class ResponseView(discord.ui.View):
         if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
-        await interaction.response.send_message(FLAVOR_TEXT["REBOOT_MESSAGE"])
-        
-        meta = {"channel_id": interaction.channel_id}
-        try:
-            with open(config.RESTART_META_FILE, "w") as f:
-                json.dump(meta, f)
-                f.flush()
-                os.fsync(f.fileno())
-        except: pass
-        await interaction.client.close()
-        python = sys.executable
-        os.execl(python, python, *sys.argv)
+        if hasattr(interaction.client, "perform_shutdown_sequence"):
+            await interaction.client.perform_shutdown_sequence(interaction, restart=True)
+        else:
+            await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 
     async def debug_shutdown_callback(self, interaction: discord.Interaction):
         if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
-        await interaction.response.send_message(FLAVOR_TEXT["SHUTDOWN_MESSAGE"])
-        try:
-            with open(config.SHUTDOWN_FLAG_FILE, "w") as f: f.write("shutdown")
-        except: pass
-        await interaction.client.close()
-        sys.exit(0)
+        if hasattr(interaction.client, "perform_shutdown_sequence"):
+            await interaction.client.perform_shutdown_sequence(interaction, restart=False)
+        else:
+            await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 
     async def debug_wipe_mem_callback(self, interaction: discord.Interaction):
         if not helpers.is_authorized(interaction.user):
