@@ -78,13 +78,7 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
     )
 
     # Monitor Real Output
-    # Regex to capture text before the progress numbers. 
-    # It usually looks like: "Exporting General... (5/100)" or just "(5/100)"
-    # We capture the text before '...' and the numbers.
-    
-    # More flexible filename pattern:
-    # Matches "Exporting [Name]..." OR "Exporting [Name] ("
-    filename_pattern = re.compile(r"Exporting\s+(.+?)(?:\.{3}|\s+\()")
+    # Regex to capture progress numbers. 
     progress_pattern = re.compile(r"\((\d+)/(\d+)\)")
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-9:;<=>?]*[ -/]*[@-~])')
     
@@ -126,15 +120,7 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
             if len(output_buffer) > 1000:
                 output_buffer = output_buffer[-1000:]
 
-            # Check for Filename Update
-            file_match = list(filename_pattern.finditer(output_buffer))
-            if file_match:
-                raw_name = file_match[-1].group(1)
-                if raw_name and raw_name.strip():
-                     # Clean up filename (remove any trailing carriage returns or noise)
-                    current_filename = raw_name.strip().split('\r')[-1]
-
-            # Check for Progress Update
+            # Check for Progress Update from Stdout
             prog_match = list(progress_pattern.finditer(output_buffer))
             
             percent = last_percent
@@ -162,7 +148,27 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
             # Update if:
             # 1. Percentage changed
             # 2. It's been 3 seconds since last update (throttled)
-            # 3. Filename changed
+            # 3. Filename changed (checked via FS)
+            
+            fs_check_needed = (now - last_update_time >= 3)
+            
+            if fs_check_needed:
+                # Check File System for latest HTML file
+                try:
+                    # Scan for .html files in backup_dir
+                    with os.scandir(backup_dir) as it:
+                        entries = [e for e in it if e.is_file() and e.name.endswith('.html')]
+                        if entries:
+                            # Find latest modified
+                            latest_entry = max(entries, key=lambda e: e.stat().st_mtime)
+                            # Truncate name if too long
+                            raw_name = latest_entry.name
+                            if len(raw_name) > 30:
+                                raw_name = raw_name[:27] + "..."
+                            current_filename = raw_name
+                except OSError:
+                    pass # Ignore FS errors
+
             should_update = (percent != last_percent) or \
                             (now - last_update_time >= 3) or \
                             (current_filename != last_filename)
