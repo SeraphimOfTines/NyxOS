@@ -2773,6 +2773,7 @@ async def on_message(message):
             "testmessage": (testmessage_command, None),
             "clearallmemory": (clearallmemory_command, None),
             "wipelogs": (wipelogs_command, None),
+            "nukedatabase": (nukedatabase_command, None),
             "debugtest": (debugtest_command, None),
             "help": (help_command, None),
             "killmyembeds": (killmyembeds_command, None),
