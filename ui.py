@@ -160,7 +160,7 @@ class StatusBarView(discord.ui.View):
     def update_buttons(self):
         for child in self.children:
             if getattr(child, "custom_id", "") == "bar_persist_btn":
-                child.label = FLAVOR_TEXT["BAR_PERSIST_ON"] if self.persisting else FLAVOR_TEXT["BAR_PERSIST_OFF"]
+                child.label = "Auto"
                 child.style = discord.ButtonStyle.success if self.persisting else discord.ButtonStyle.secondary
 
     async def check_auth(self, interaction, button):
@@ -189,18 +189,29 @@ class StatusBarView(discord.ui.View):
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 
+    @discord.ui.button(label="⬇", style=discord.ButtonStyle.secondary, custom_id="bar_drop_bar_btn")
+    async def drop_bar_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.check_auth(interaction, button): return
+        
+        await interaction.response.defer()
+        if hasattr(interaction.client, "drop_status_bar"):
+            # Drop Bar Only: Move Bar, Leave Check Behind (move_check=False)
+            await interaction.client.drop_status_bar(self.channel_id, move_bar=True, move_check=False)
+        else:
+            await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
+
     @discord.ui.button(label=FLAVOR_TEXT["BAR_DROP_CHECK"], style=discord.ButtonStyle.secondary, custom_id="bar_drop_check_btn")
     async def drop_check_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self.check_auth(interaction, button): return
         
         await interaction.response.defer()
         if hasattr(interaction.client, "drop_status_bar"):
-            # Drop Check Only: Move Check (Bar stays)
-            await interaction.client.drop_status_bar(self.channel_id, move_bar=False, move_check=True)
+            # Drop Check: Moves Check to Bar (and drags bar to bottom if needed per request)
+            await interaction.client.drop_status_bar(self.channel_id, move_bar=True, move_check=True)
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 
-    @discord.ui.button(label=FLAVOR_TEXT["BAR_PERSIST_OFF"], style=discord.ButtonStyle.secondary, custom_id="bar_persist_btn")
+    @discord.ui.button(label="Auto", style=discord.ButtonStyle.secondary, custom_id="bar_persist_btn")
     async def persist_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self.check_auth(interaction, button): return
         
@@ -210,7 +221,7 @@ class StatusBarView(discord.ui.View):
         if hasattr(interaction.client, "active_bars") and self.channel_id in interaction.client.active_bars:
             interaction.client.active_bars[self.channel_id]['persisting'] = self.persisting
             
-            # Sync to DB (Full save needed as persisting is a column)
+            # Sync to DB
             bar_data = interaction.client.active_bars[self.channel_id]
             memory_manager.save_bar(
                 self.channel_id,
@@ -218,7 +229,10 @@ class StatusBarView(discord.ui.View):
                 bar_data["message_id"],
                 bar_data["user_id"],
                 bar_data["content"],
-                self.persisting
+                self.persisting,
+                current_prefix=bar_data.get("current_prefix"),
+                has_notification=bar_data.get("has_notification", False),
+                checkmark_message_id=bar_data.get("checkmark_message_id")
             )
         
         # Check if at bottom
@@ -229,12 +243,13 @@ class StatusBarView(discord.ui.View):
                     is_at_bottom = True
         except: pass
 
-        # If enabled and NOT at bottom, drop/resend. 
+        # If enabled and NOT at bottom, drop/resend (Drop All to keep check). 
         # If disabled, OR if enabled but already at bottom, just update in place.
         if self.persisting and not is_at_bottom:
              await interaction.response.defer()
              if hasattr(interaction.client, "drop_status_bar"):
-                 await interaction.client.drop_status_bar(self.channel_id, move_check=False)
+                 # When auto-dropping for persistence, we likely want to keep the checkmark if it's there.
+                 await interaction.client.drop_status_bar(self.channel_id, move_bar=True, move_check=True)
         else:
              self.update_buttons()
              await interaction.response.edit_message(view=self)

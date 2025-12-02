@@ -289,20 +289,45 @@ class LMStudioBot(discord.Client):
 
         new_bar_msg = None
 
-        # Optimization: If bar is already at bottom, don't move it, just merge check.
-        if move_bar and old_bar_id:
+        # Optimization: If bar is already at bottom
+        is_at_bottom = False
+        if old_bar_id:
             try:
                 async for last_msg in channel.history(limit=1):
                     if last_msg.id == old_bar_id:
-                        move_bar = False
-                        move_check = True # Force check merge
+                        is_at_bottom = True
                         break
             except: pass
 
-        # Fix: If moving check only (move_bar=False), and check is already merged on bar, do nothing.
-        if not move_bar and move_check:
-             if old_check_id and old_bar_id and old_check_id == old_bar_id:
-                  move_check = False
+        if is_at_bottom and move_bar:
+            # Already at bottom.
+            if move_check:
+                # Verify if checkmark is present
+                has_check = (old_bar_id == old_check_id)
+                if not has_check:
+                     # Try checking content just in case
+                     try:
+                         msg = await channel.fetch_message(old_bar_id)
+                         if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in msg.content:
+                             has_check = True
+                             self.active_bars[channel_id]["checkmark_message_id"] = old_bar_id # Fix DB
+                     except: pass
+                
+                if has_check:
+                    # OPTIMIZATION: Already at bottom AND has check. Do nothing.
+                    return 
+                else:
+                    # At bottom but missing check. Merge check.
+                    move_bar = False
+                    move_check = True
+            else:
+                # At bottom, drop bar requested (no check). 
+                # If we wanted to strip the check, we could edit. 
+                # But 'Drop Bar' usually implies moving to bottom. If at bottom, we are good.
+                # Unless the user wants to REMOVE the checkmark? 
+                # "leaves the check mark behind". If it's on the bar, we can't leave it behind without splitting.
+                # If we assume "Drop Bar" ensures "Bar without check at bottom", we might need to strip it.
+                pass
 
         # Reset Notification Flag on Drop
         if manual and channel_id in self.active_bars:
@@ -325,28 +350,45 @@ class LMStudioBot(discord.Client):
                         await old_msg.delete()
                 except: pass
             
+            # Prepare Content
+            content_to_send = content
+            if move_check:
+                # Append checkmark immediately to save API call
+                chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                content_to_send = f"{content} {chk}"
+                content_to_send = re.sub(r'>[ \t]+<', '><', content_to_send)
+                content_to_send = content_to_send.replace(f"\n{chk}", f" {chk}")
+
             # Send new bar
-            view = ui.StatusBarView(content, bar_data["user_id"], channel_id, bar_data["persisting"])
+            view = ui.StatusBarView(content_to_send, bar_data["user_id"], channel_id, bar_data["persisting"])
             try:
                 await services.service.limiter.wait_for_slot("send_message", channel_id)
-                new_bar_msg = await channel.send(content, view=view)
+                new_bar_msg = await channel.send(content_to_send, view=view)
                 
                 # Update State
                 self.active_bars[channel_id]["message_id"] = new_bar_msg.id
                 self._register_bar_message(channel_id, new_bar_msg.id, view)
+                
+                # If we included checkmark, update ID immediately and disable further move_check logic
+                if move_check:
+                    self.active_bars[channel_id]["checkmark_message_id"] = new_bar_msg.id
+                    move_check = False # Done
+                else:
+                     # Checkmark was left behind or didn't move.
+                     # If we split (left behind), check_final_id should be old_bar_id (which became checkmark)
+                     if old_bar_id == old_check_id:
+                         self.active_bars[channel_id]["checkmark_message_id"] = old_bar_id
             except Exception as e:
                 logger.error(f"Failed to send bar: {e}")
                 return
         else:
             # If not moving bar, we need the object to know where to put the check (if separate?)
-            # Actually, if check is separate, we just send it. 
-            # But if we want to link them, or if we need the ID for DB.
             if old_bar_id:
                 try:
                     new_bar_msg = await channel.fetch_message(old_bar_id)
                 except: pass
                 
-        # 2. Handle Checkmark Movement
+        # 2. Handle Checkmark Movement (Only if not handled above)
         if move_check:
             # Delete old check
             if old_check_id and old_check_id != old_bar_id: 
@@ -378,9 +420,9 @@ class LMStudioBot(discord.Client):
                 curr_content = target_msg.content
                 
                 if chk_content not in curr_content:
-                    new_content = f"{curr_content}{chk_content}"
+                    new_content = f"{curr_content} {chk_content}"
                     new_content = re.sub(r'>[ \t]+<', '><', new_content)
-                    new_content = new_content.replace(f"\n{chk_content}", f"{chk_content}")
+                    new_content = new_content.replace(f"\n{chk_content}", f" {chk_content}")
                     
                     try:
                         await services.service.limiter.wait_for_slot("edit_message", channel_id)
@@ -397,8 +439,6 @@ class LMStudioBot(discord.Client):
                     except Exception as e:
                          logger.error(f"Failed to merge check: {e}")
             else:
-                # Fallback: If no bar exists, we can't merge. 
-                # Logic dictates we should have dropped a bar if move_bar=True.
                 pass
 
         # Update DB
@@ -2311,8 +2351,8 @@ async def nukedatabase_command(interaction: discord.Interaction):
     else:
         await interaction.followup.send("❌ Database nuke failed. Check logs.", ephemeral=True)
 
-@client.tree.command(name="bar", description="Update the Master Bar content and propagate to all whitelisted channels.")
-async def bar_command(interaction: discord.Interaction, content: str):
+@client.tree.command(name="setbar", description="Update the Master Bar content and propagate to all whitelisted channels.")
+async def setbar_command(interaction: discord.Interaction, content: str):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
@@ -2329,6 +2369,26 @@ async def bar_command(interaction: discord.Interaction, content: str):
         except: pass
 
     await interaction.response.send_message(f"✅ Master Bar updated and propagated to {count} channels.", ephemeral=True, delete_after=2.0)
+
+@client.tree.command(name="bar", description="Drop the bar (leaves checkmark behind).")
+async def bar_command(interaction: discord.Interaction):
+    if interaction.channel_id not in client.active_bars:
+        await interaction.response.send_message("❌ No active bar.", ephemeral=True, delete_after=2.0)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=False)
+    await interaction.delete_original_response()
+
+@client.tree.command(name="dropall", description="Drop the bar AND the checkmark together.")
+async def dropall_command(interaction: discord.Interaction):
+    if interaction.channel_id not in client.active_bars:
+        await interaction.response.send_message("❌ No active bar.", ephemeral=True, delete_after=2.0)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=True)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="addbar", description="Summon a status bar to this channel.")
 async def addbar_command(interaction: discord.Interaction):
@@ -2481,15 +2541,15 @@ async def idle_command(interaction: discord.Interaction):
     count = await client.idle_all_bars()
     await interaction.followup.send(f"😶 Set ~{count} bars to Idle.", ephemeral=True)
 
-@client.tree.command(name="dropcheck", description="Drop just the checkmark to the current bar location.")
+@client.tree.command(name="dropcheck", description="Drop the checkmark onto the bar (drags bar down if needed).")
 async def dropcheck_command(interaction: discord.Interaction):
     if interaction.channel_id not in client.active_bars:
          await interaction.response.send_message("❌ No active bar.", ephemeral=True, delete_after=2.0)
          return
     
     await interaction.response.defer(ephemeral=True)
-    # Only move check, bar stays put
-    await client.drop_status_bar(interaction.channel_id, move_bar=False, move_check=True)
+    # User: "dragging it all the way down to the bottom". So move_bar=True.
+    await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=True)
     await interaction.delete_original_response()
 
 @client.tree.command(name="thinking", description="Set status to Thinking.")
@@ -2560,6 +2620,7 @@ async def drop_command(interaction: discord.Interaction):
         return
     
     await interaction.response.defer(ephemeral=True)
+    # Default drop behavior: Drop All
     await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=True)
     await interaction.delete_original_response()
 
@@ -2575,7 +2636,7 @@ async def help_command(interaction: discord.Interaction):
     
     embed.add_field(
         name="Bar Management", 
-        value="`/bar` - Create/Update bar in current channel.\n`/addbar` - Summon a persistent bar here.\n`/removebar` - Remove bar and un-whitelist channel.\n`/drop` - Drop/Refresh current bar.\n`/dropcheck` - Drop only the checkmark.\n`/linkcheck` - Get link to current checkmark.\n`/restore` - Restore last bar content.\n`/restore2` - Restore previous bar content (backup).\n`/cleanbars` - Wipe bar artifacts.\n`/syncbars` - Cleanup invalid/ghost bars.\n`/syncconsole` - Sync console list (slow).", 
+        value="`/bar` - Drop/Refresh bar (Checkmark stays behind).\n`/dropall` - Drop Bar + Checkmark.\n`/setbar` - Set Master Bar Content.\n`/addbar` - Summon a persistent bar here.\n`/removebar` - Remove bar and un-whitelist channel.\n`/dropcheck` - Drop only the checkmark.\n`/linkcheck` - Get link to current checkmark.\n`/restore` - Restore last bar content.\n`/restore2` - Restore previous bar content (backup).\n`/cleanbars` - Wipe bar artifacts.\n`/syncbars` - Cleanup invalid/ghost bars.\n`/syncconsole` - Sync console list (slow).", 
         inline=False
     )
     
@@ -2608,8 +2669,8 @@ async def c_command(interaction: discord.Interaction):
     await dropcheck_command.callback(interaction)
 
 @client.tree.command(name="b", description="Alias for /bar")
-async def b_command(interaction: discord.Interaction, content: str = None):
-    await bar_command.callback(interaction, content)
+async def b_command(interaction: discord.Interaction):
+    await bar_command.callback(interaction)
 
 @client.tree.command(name="global", description="Update text on all active bars.")
 async def global_command(interaction: discord.Interaction, text: str):
@@ -2743,11 +2804,13 @@ async def on_message(message):
         
         # Map of command name to (Slash Command Object, Argument Name or None)
         cmd_map = {
-            "bar": (bar_command, "content"),
-            "b": (bar_command, "content"),
+            "bar": (bar_command, None),
+            "b": (bar_command, None),
+            "setbar": (setbar_command, "content"),
             "addbar": (addbar_command, None),
             "removebar": (removebar_command, None),
             "drop": (drop_command, None),
+            "dropall": (dropall_command, None),
             "d": (drop_command, None),
             "dropcheck": (dropcheck_command, None),
             "c": (dropcheck_command, None),
