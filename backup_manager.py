@@ -2,6 +2,7 @@ import os
 import asyncio
 import subprocess
 import re
+import time
 import shutil
 import logging
 import dropbox
@@ -77,8 +78,16 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
     )
 
     # Monitor Real Output
-    progress_pattern = re.compile(r"\((\d+)/(\d+)\)")
+    # Regex to capture text before the progress numbers. 
+    # It usually looks like: "Exporting General... (5/100)" or just "(5/100)"
+    # We capture the text before '...' and the numbers.
+    progress_pattern = re.compile(r"(?:Exporting\s+(.+?)(?:\.{3})?\s*)?\((\d+)/(\d+)\)")
     
+    # Buffer for capturing output across chunks
+    output_buffer = ""
+    last_update_time = 0
+    last_percent = -1
+
     while True:
         # Check Cancellation
         if cancel_event and cancel_event.is_set():
@@ -86,29 +95,60 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
             return False, "🛑 Backup Cancelled by User."
 
         try:
-            line = await asyncio.wait_for(process.stdout.readline(), timeout=0.5)
+            # Read chunks instead of lines to handle \r correctly
+            chunk = await asyncio.wait_for(process.stdout.read(256), timeout=0.5)
         except asyncio.TimeoutError:
             if process.returncode is not None: break # Finished
             continue
 
-        if not line:
+        if not chunk:
             break
         
-        line_str = line.decode('utf-8').strip()
-        if not line_str:
-            continue
+        try:
+            chunk_str = chunk.decode('utf-8', errors='ignore')
+            output_buffer += chunk_str
             
-        match = progress_pattern.search(line_str)
-        if match:
-            try:
-                current = int(match.group(1))
-                total = int(match.group(2))
-                percent = int((current / total) * 100)
-                
-                if progress_callback:
-                     await progress_callback(percent, config.BACKUP_FLAVOR_TEXT.get("DOWNLOAD", "Downloading..."))
-            except ValueError:
-                pass
+            # Keep buffer manageable (last 500 chars is enough for progress context)
+            if len(output_buffer) > 500:
+                output_buffer = output_buffer[-500:]
+
+            # Search for the pattern
+            matches = list(progress_pattern.finditer(output_buffer))
+            if matches:
+                match = matches[-1] # Get the most recent match
+                try:
+                    filename_raw = match.group(1)
+                    current = int(match.group(2))
+                    total = int(match.group(3))
+                    
+                    percent = 0
+                    if total > 0:
+                        percent = int((current / total) * 100)
+                        
+                    now = time.time()
+                    # Update if:
+                    # 1. Percentage changed
+                    # 2. It's been 3 seconds since last update (to show filename activity)
+                    should_update = (percent != last_percent) or (now - last_update_time >= 3)
+                    
+                    if should_update:
+                        last_percent = percent
+                        last_update_time = now
+                        
+                        status_base = config.BACKUP_FLAVOR_TEXT.get("DOWNLOAD", "Downloading...")
+                        if filename_raw and filename_raw.strip():
+                            # Clean up filename (remove any trailing carriage returns or noise)
+                            clean_name = filename_raw.strip().split('\r')[-1]
+                            status_msg = f"{status_base}\n📄 `{clean_name}`"
+                        else:
+                            status_msg = status_base
+                            
+                        if progress_callback:
+                            await progress_callback(percent, status_msg)
+                except ValueError:
+                    pass
+        except Exception:
+            pass # Ignore decoding errors or regex fails
 
     await process.wait()
     

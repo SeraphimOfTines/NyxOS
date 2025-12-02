@@ -23,13 +23,13 @@ class TestBackupManager(unittest.TestCase):
         # Mock subprocess
         process_mock = MagicMock()
         
-        async def mock_readline():
-            return b""
+        async def mock_read(n):
+            return b"(50/100)"
             
         async def mock_wait():
             return None
             
-        process_mock.stdout.readline = mock_readline
+        process_mock.stdout.read = mock_read
         process_mock.wait = mock_wait
         process_mock.returncode = 0
         
@@ -50,7 +50,7 @@ class TestBackupManager(unittest.TestCase):
                     with patch("asyncio.create_subprocess_exec") as mock_exec:
                         # Setup the mock for the first call (DiscordChatExporter) and second (7z)
                         proc_export = MagicMock()
-                        proc_export.stdout.readline = mock_readline
+                        proc_export.stdout.read = mock_read
                         proc_export.wait = mock_wait
                         proc_export.returncode = 0
                         
