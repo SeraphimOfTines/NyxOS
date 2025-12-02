@@ -244,8 +244,8 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
                     logger.info(f"Still exporting {c_name}... ({duration}s elapsed)")
                     last_debug_log = time.time()
 
-                # Live UI Update (every 5s)
-                if time.time() - last_ui_update > 5:
+                # Live UI Update (every 3s)
+                if time.time() - last_ui_update > 3:
                     # Recalculate Time
                     now = time.time()
                     elapsed = int(now - start_time)

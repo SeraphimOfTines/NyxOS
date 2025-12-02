@@ -562,6 +562,7 @@ class LMStudioBot(discord.Client):
         if manual and channel_id in self.active_bars:
              self.active_bars[channel_id]["has_notification"] = False
              memory_manager.set_bar_notification(channel_id, False)
+             asyncio.create_task(self.update_console_status())
 
         # 1. Handle Bar Movement
         if move_bar:
@@ -1716,6 +1717,12 @@ class LMStudioBot(discord.Client):
         for cid_str in whitelist:
             try:
                 cid = int(cid_str)
+                
+                # SANITIZATION: Filter out invalid/test IDs (Discord Snowflakes are > 17 digits)
+                # 1000000000000000 is roughly early 2015.
+                if cid < 1000000000000000:
+                     # logger.warning(f"⚠️ Ignoring invalid/test channel ID in whitelist: {cid}")
+                     continue
                 
                 # We rely on active_bars (DB loaded) for the "link" info
                 bar_data = self.active_bars.get(cid)
