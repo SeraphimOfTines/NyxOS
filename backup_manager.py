@@ -63,7 +63,8 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
         "--include-threads", "All",
         "--parallel", "1",
         "--utc",
-        "--locale", "en-US"
+        "--locale", "en-US",
+        "--file-format", "%C [%i]"
     ]
     
     env = os.environ.copy()

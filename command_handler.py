@@ -8,6 +8,7 @@ import helpers
 import ui
 import memory_manager
 import services
+import backup_manager
 import logging
 
 logger = logging.getLogger("CommandHandler")
@@ -127,6 +128,51 @@ async def handle_prefix_command(client, message):
             chart_text += f"**{i}.** {user_data['username']} — **{user_data['count']}**\n"
         chart_text += f"\n**Total:** {total_good_bots} Good Bots 💙"
         await message.channel.send(chart_text)
+        return True
+
+    # &backup
+    if cmd == "&backup":
+        if not helpers.is_authorized(author_to_check):
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+            
+        args = message.content.split()
+        if len(args) < 2:
+             await message.channel.send("⚠️ Usage: `&backup [temple|wm]`")
+             return True
+             
+        target = args[1].lower()
+        guild_id = None
+        output_name = None
+        
+        if target == "temple":
+            guild_id = config.TEMPLE_GUILD_ID
+            output_name = "Temple"
+        elif target == "wm":
+            guild_id = config.WM_GUILD_ID
+            output_name = "WM"
+        else:
+             await message.channel.send("⚠️ Unknown target. Use `temple` or `wm`.")
+             return True
+             
+        if not guild_id:
+             await message.channel.send(f"❌ Guild ID for {output_name} is not configured.")
+             return True
+             
+        progress_msg = await message.channel.send(f"🚀 Initializing backup for **{output_name}**...")
+        
+        async def progress_callback(pct, status):
+            try:
+                await progress_msg.edit(content=f"**{output_name} Backup:** {pct}% - {status}")
+            except: pass
+            
+        success, result = await backup_manager.run_backup(guild_id, output_name, progress_callback=progress_callback)
+        
+        if success:
+             await progress_msg.edit(content=result)
+        else:
+             await progress_msg.edit(content=f"❌ **Backup Failed:** {result}")
+             
         return True
 
     # &synccommands

@@ -150,6 +150,13 @@ NOTIFICATION_EMOJI = "<a:SeraphExclamark:1317628268299554877>"
 if os.getenv("BAR_DEBOUNCE_SECONDS"): BAR_DEBOUNCE_SECONDS = float(os.getenv("BAR_DEBOUNCE_SECONDS"))
 if os.getenv("NOTIFICATION_EMOJI"): NOTIFICATION_EMOJI = os.getenv("NOTIFICATION_EMOJI")
 
+# Backup IDs
+TEMPLE_GUILD_ID = 0
+WM_GUILD_ID = 0
+
+if os.getenv("TEMPLE_GUILD_ID"): TEMPLE_GUILD_ID = int(os.getenv("TEMPLE_GUILD_ID"))
+if os.getenv("WM_GUILD_ID"): WM_GUILD_ID = int(os.getenv("WM_GUILD_ID"))
+
 # --- PLURALKIT API CONFIGURATION ---
 # Check for overrides from Environment
 if os.getenv("USE_LOCAL_PLURALKIT"):
