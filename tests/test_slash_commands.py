@@ -88,7 +88,7 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         with patch('helpers.is_authorized', return_value=False):
              await NyxOS.reboot_command.callback(interaction)
              
-             interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+             interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
              # Ensure no reboot
              with patch('NyxOS.client', new=AsyncMock()) as mock_client:
                  mock_client.perform_shutdown_sequence.assert_not_called()

@@ -154,6 +154,32 @@ class StatusBarView(discord.ui.View):
         self.channel_id = channel_id
         self.persisting = persisting
         
+        # 1. Drop All
+        btn_drop_all = discord.ui.Button(label=FLAVOR_TEXT["BAR_DROP_ALL"], style=discord.ButtonStyle.primary, custom_id="bar_drop_all_btn")
+        btn_drop_all.callback = self.drop_all_callback
+        self.add_item(btn_drop_all)
+
+        # 2. Drop Check
+        btn_drop_check = discord.ui.Button(label=FLAVOR_TEXT["BAR_DROP_CHECK"], style=discord.ButtonStyle.secondary, custom_id="bar_drop_check_btn")
+        btn_drop_check.callback = self.drop_check_callback
+        self.add_item(btn_drop_check)
+
+        # 3. Auto Mode
+        btn_persist = discord.ui.Button(label="Auto", style=discord.ButtonStyle.secondary, custom_id="bar_persist_btn")
+        btn_persist.callback = self.persist_callback
+        self.add_item(btn_persist)
+
+        # 4. Console Link
+        # Link to the Startup/Console channel (Defaulting to Temple Guild if not specified)
+        console_url = f"https://discord.com/channels/{config.TEMPLE_GUILD_ID}/{config.STARTUP_CHANNEL_ID}"
+        btn_console = discord.ui.Button(emoji="🖥️", url=console_url)
+        self.add_item(btn_console)
+
+        # 5. Delete
+        btn_delete = discord.ui.Button(label=FLAVOR_TEXT["BAR_DELETE"], style=discord.ButtonStyle.danger, custom_id="bar_delete_btn")
+        btn_delete.callback = self.delete_callback
+        self.add_item(btn_delete)
+
         # Update persist button state on init
         self.update_buttons()
 
@@ -180,8 +206,8 @@ class StatusBarView(discord.ui.View):
         except: pass
         return False
 
-    @discord.ui.button(label=FLAVOR_TEXT["BAR_DROP_ALL"], style=discord.ButtonStyle.primary, custom_id="bar_drop_all_btn")
-    async def drop_all_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def drop_all_callback(self, interaction: discord.Interaction):
+        button = discord.utils.get(self.children, custom_id="bar_drop_all_btn")
         if not await self.check_auth(interaction, button): return
         
         await interaction.response.defer()
@@ -195,23 +221,8 @@ class StatusBarView(discord.ui.View):
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 
-    @discord.ui.button(label="⬇", style=discord.ButtonStyle.secondary, custom_id="bar_drop_bar_btn")
-    async def drop_bar_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self.check_auth(interaction, button): return
-        
-        await interaction.response.defer()
-        
-        cid = interaction.channel_id
-        # Redundant touch removed (drop_status_bar handles it)
-
-        if hasattr(interaction.client, "drop_status_bar"):
-            # Drop Bar Only: Move Bar, Leave Check Behind (move_check=False)
-            await interaction.client.drop_status_bar(cid, move_bar=True, move_check=False)
-        else:
-            await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
-
-    @discord.ui.button(label=FLAVOR_TEXT["BAR_DROP_CHECK"], style=discord.ButtonStyle.secondary, custom_id="bar_drop_check_btn")
-    async def drop_check_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def drop_check_callback(self, interaction: discord.Interaction):
+        button = discord.utils.get(self.children, custom_id="bar_drop_check_btn")
         if not await self.check_auth(interaction, button): return
         
         await interaction.response.defer()
@@ -225,8 +236,8 @@ class StatusBarView(discord.ui.View):
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 
-    @discord.ui.button(label="Auto", style=discord.ButtonStyle.secondary, custom_id="bar_persist_btn")
-    async def persist_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def persist_callback(self, interaction: discord.Interaction):
+        button = discord.utils.get(self.children, custom_id="bar_persist_btn")
         if not await self.check_auth(interaction, button): return
         
         self.persisting = not self.persisting
@@ -274,8 +285,8 @@ class StatusBarView(discord.ui.View):
              self.update_buttons()
              await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label=FLAVOR_TEXT["BAR_DELETE"], style=discord.ButtonStyle.danger, custom_id="bar_delete_btn")
-    async def delete_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def delete_callback(self, interaction: discord.Interaction):
+        button = discord.utils.get(self.children, custom_id="bar_delete_btn")
         if not await self.check_auth(interaction, button): return
         
         # Remove from global state and DB

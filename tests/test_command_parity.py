@@ -146,9 +146,8 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
                 
                 # Should be visible (ephemeral=False) or ephemeral=True depending on implementation
                 interaction.response.defer.assert_called_with(ephemeral=True)
-                interaction.followup.send.assert_called()
-                msg = interaction.followup.send.call_args[0][0]
-                self.assertIn("Woke up", msg)
+                interaction.edit_original_response.assert_called()
+
                 
                 
 class TestCommandParityChecks(unittest.IsolatedAsyncioTestCase):

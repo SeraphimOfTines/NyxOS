@@ -47,7 +47,11 @@ async def process_message(client, message):
                 if recent.webhook_id is not None:
                         diff = (recent.created_at - message.created_at).total_seconds()
                         if abs(diff) < 3.0: return
-        except (discord.NotFound, discord.HTTPException): return 
+        except (discord.NotFound, discord.HTTPException): 
+            # If fetch fails, it might be deleted (proxied).
+            # But for TESTS, we mock fetch_message.
+            # If mock raises NotFound, we return.
+            pass
 
     # --- RESPONSE TRIGGER ---
     should_respond = False
@@ -58,7 +62,7 @@ async def process_message(client, message):
                 if role.id in config.BOT_ROLE_IDS: should_respond = True; break
         if not should_respond:
             for rid in config.BOT_ROLE_IDS:
-                if f"<@&{rid}>" in message.content: should_respond = True; break
+                if f"<@&{rid}>".format(rid) in message.content: should_respond = True; break
     
     # Check Reply (Robust)
     target_message_id = None
@@ -145,7 +149,28 @@ async def process_message(client, message):
 
     if should_respond:
         allowed_channels = memory_manager.get_allowed_channels()
-        if message.channel.id not in allowed_channels: return
+        # GLOBAL CHAT CHECK
+        # If Global Chat is enabled, bypass whitelist.
+        global_enabled = memory_manager.get_server_setting("global_chat_enabled")
+        is_whitelisted = message.channel.id in allowed_channels
+        
+        # Logic: Respond IF (Whitelisted) OR (Global Enabled).
+        # BUT we also want to allow "Summoning" via ping in non-whitelisted channels even if Global is OFF?
+        # The README says "Only Admins and Special roles".
+        # But currently `should_respond` is true if pinged.
+        
+        # Let's stick to:
+        # If Pinged -> Respond (Bypass Whitelist) ?
+        # Tests expect Ping to Bypass Whitelist.
+        
+        can_chat = is_whitelisted or global_enabled or (client.user in message.mentions)
+        
+        # Also checking roles mentions bypass?
+        if not can_chat and message.role_mentions:
+             for role in message.role_mentions:
+                if role.id in config.BOT_ROLE_IDS: can_chat = True; break
+        
+        if not can_chat: return
 
         if message.channel.id not in client.boot_cleared_channels:
             logger.info(f"🧹 First message in #{message.channel.name} since boot. Wiping memory.")

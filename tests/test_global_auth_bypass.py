@@ -85,7 +85,7 @@ class TestGlobalAuthBypass(unittest.IsolatedAsyncioTestCase):
         
         return msg
 
-    @patch('services.service.get_system_proxy_tags', return_value=[])
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
     @patch('memory_manager.log_conversation')
     @patch('memory_manager.clear_channel_memory')
     @patch('memory_manager.get_allowed_channels', return_value=[100]) # Whitelist only includes 100
@@ -108,12 +108,15 @@ class TestGlobalAuthBypass(unittest.IsolatedAsyncioTestCase):
         msg = self.create_mock_message("<@12345> hello", 888, 200)
         msg.mentions = [self.mock_client.user]
         
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+        
         await NyxOS.on_message(msg)
         
         # Should have queried LLM
         mock_query.assert_called()
         
-    @patch('services.service.get_system_proxy_tags', return_value=[])
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
     @patch('memory_manager.log_conversation')
     @patch('memory_manager.clear_channel_memory')
     @patch('memory_manager.get_allowed_channels', return_value=[100])
@@ -136,6 +139,9 @@ class TestGlobalAuthBypass(unittest.IsolatedAsyncioTestCase):
         # Message in whitelisted channel (100) just to isolate Auth check
         msg = self.create_mock_message("<@12345> hello", 888, 100)
         msg.mentions = [self.mock_client.user]
+        
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
         
         await NyxOS.on_message(msg)
         

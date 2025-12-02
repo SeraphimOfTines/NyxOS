@@ -51,6 +51,8 @@ class TestBarTouchHandler:
             interaction.channel_id = 100
             interaction.guild_id = 500
             interaction.response.defer = AsyncMock()
+            interaction.edit_original_response = AsyncMock()
+            interaction.delete_original_response = AsyncMock()
             interaction.followup.send = AsyncMock()
             
             # Mock Channel History (Simulation of existing bar)

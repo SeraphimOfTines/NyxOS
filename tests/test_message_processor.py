@@ -58,7 +58,11 @@ class TestMessageProcessor:
         mock_message.content = "<@8888> Hello"
         mock_message.mentions = [mock_client.user]
         
-        with patch('services.service.get_system_proxy_tags', return_value=[]), \
+        # Mock fetch_message for Ghost Check
+        mock_message.channel.fetch_message = AsyncMock(return_value=mock_message)
+        
+        with patch('asyncio.sleep'), \
+             patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]), \
              patch('services.service.query_lm_studio', new_callable=AsyncMock) as mock_query, \
              patch('memory_manager.get_allowed_channels', return_value=[777]), \
              patch('memory_manager.log_conversation'):
@@ -73,10 +77,14 @@ class TestMessageProcessor:
         
         # Setup Reference
         ref = MagicMock()
-        ref.resolved.author.id = mock_client.user.id # Reply to bot
-        mock_message.reference = ref
+        ref.resolved.author.id = mock_client.user.id # Reply to bot     
+        mock_message.reference = ref                                    
         
-        with patch('services.service.get_system_proxy_tags', return_value=[]), \
+        # Mock fetch_message for Ghost Check
+        mock_message.channel.fetch_message = AsyncMock(return_value=mock_message)
+        
+        with patch('asyncio.sleep'), \
+             patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]), \
              patch('services.service.query_lm_studio', new_callable=AsyncMock) as mock_query, \
              patch('memory_manager.get_allowed_channels', return_value=[777]), \
              patch('memory_manager.log_conversation'):
@@ -89,7 +97,8 @@ class TestMessageProcessor:
     async def test_no_trigger_random(self, mock_client, mock_message):
         mock_message.content = "Hello world"
         
-        with patch('services.service.get_system_proxy_tags', return_value=[]), \
+        with patch('asyncio.sleep'), \
+             patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]), \
              patch('services.service.query_lm_studio', new_callable=AsyncMock) as mock_query:
             
             await message_processor.process_message(mock_client, mock_message)
@@ -101,7 +110,8 @@ class TestMessageProcessor:
         mock_message.content = "Good bot"
         mock_message.mentions = [mock_client.user] # Ping to trigger check
         
-        with patch('services.service.get_system_proxy_tags', return_value=[]), \
+        with patch('asyncio.sleep'), \
+             patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]), \
              patch('memory_manager.increment_good_bot') as mock_inc, \
              patch('services.service.get_pk_message_data', new_callable=AsyncMock) as mock_pk:
             
@@ -122,7 +132,8 @@ class TestMessageProcessor:
         import time
         mock_client.good_bot_cooldowns[mock_message.author.id] = time.time() 
         
-        with patch('services.service.get_system_proxy_tags', return_value=[]), \
+        with patch('asyncio.sleep'), \
+             patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]), \
              patch('memory_manager.increment_good_bot') as mock_inc, \
              patch('services.service.get_pk_message_data', new_callable=AsyncMock) as mock_pk:
              
@@ -139,7 +150,8 @@ class TestMessageProcessor:
         
         tags = [{'prefix': 'Seraph:', 'suffix': ''}]
         
-        with patch('services.service.get_system_proxy_tags', return_value=tags), \
+        with patch('asyncio.sleep'), \
+             patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=tags), \
              patch('services.service.query_lm_studio', new_callable=AsyncMock) as mock_query:
             
             await message_processor.process_message(mock_client, mock_message)

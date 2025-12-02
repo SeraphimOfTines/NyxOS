@@ -184,5 +184,7 @@ def restore_hyperlinks(text):
     so this restores them for Discord display.
     """
     if not text: return ""
-    return re.sub(r'\((.+?)\)\((https?://[^\s)]+)\)', r'[\1](\2)', text)
+    # Allow optional space between (Text) and (URL)
+    # Allow ) inside URL (by using [^\s]+ instead of [^\s)] and relying on backtracking)
+    return re.sub(r'\((.+?)\)\s*\((https?://[^\s]+)\)', r'[\1](\2)', text)
     

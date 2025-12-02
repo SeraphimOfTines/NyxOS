@@ -7,46 +7,50 @@ import asyncio
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Mock config BEFORE importing NyxOS
-sys.modules['config'] = MagicMock()
-sys.modules['config'].LOGS_DIR = "logs"
-sys.modules['config'].SHUTDOWN_FLAG_FILE = "shutdown.flag"
-sys.modules['config'].RESTART_META_FILE = "restart_metadata.json"
-sys.modules['config'].HEARTBEAT_FILE = "heartbeat.txt"
-sys.modules['config'].COMMAND_STATE_FILE = "command_state.hash"
-sys.modules['config'].LM_STUDIO_URL = "http://localhost:1234"
-sys.modules['config'].STARTUP_CHANNEL_ID = 123456789
-sys.modules['config'].DATABASE_FILE = ":memory:" 
-
-# Mock discord
-sys.modules['discord'] = MagicMock()
-sys.modules['discord.app_commands'] = MagicMock()
-
-# Mock dropbox
-sys.modules['dropbox'] = MagicMock()
-sys.modules['dropbox.files'] = MagicMock()
-sys.modules['dropbox.exceptions'] = MagicMock()
-
-from NyxOS import LMStudioBot
+import NyxOS
 import discord
+import config
 
 class TestBarPersistence(unittest.IsolatedAsyncioTestCase):
+    
+    class MockBot(NyxOS.LMStudioBot):
+        def __init__(self):
+            self.tree = MagicMock()
+            self.startup_header_msg = None
+            self.startup_bar_msg = None
+            self.console_progress_msgs = []
+            self.active_bars = {}
+            self._connection = MagicMock()
+            self._connection.user = MagicMock()
+            self._connection.user.id = 123
+            self.loop = AsyncMock()
+            # Add any other attributes LMStudioBot needs
+            self.wait_until_ready = AsyncMock()
+
     async def asyncSetUp(self):
-        # Patch discord.Client.__init__ to do nothing so we can instantiate LMStudioBot safely
-        with patch('discord.Client.__init__', return_value=None):
-            self.bot = LMStudioBot()
-            
-            # Manually initialize needed attributes typically set by super().__init__ or in __init__
-            self.bot.user = MagicMock()
-            self.bot.user.id = 123
-            self.bot.active_bars = {}
-            self.bot.loop = asyncio.get_event_loop()
-            
-            # Mock the methods used in verify_and_restore_bars
-            self.bot.get_channel = MagicMock()
-            self.bot.fetch_channel = AsyncMock()
-            self.bot.add_view = MagicMock()
-            self.bot._register_view = MagicMock()
+        # Patch config attributes
+        self.config_patcher = patch.multiple('config', 
+            LOGS_DIR="logs",
+            SHUTDOWN_FLAG_FILE="shutdown.flag",
+            RESTART_META_FILE="restart_metadata.json",
+            HEARTBEAT_FILE="heartbeat.txt",
+            COMMAND_STATE_FILE="command_state.hash",
+            LM_STUDIO_URL="http://localhost:1234",
+            STARTUP_CHANNEL_ID=123456789,
+            DATABASE_FILE=":memory:"
+        )
+        self.config_patcher.start()
+        
+        self.bot = self.MockBot()
+        
+        # Mock the methods used in verify_and_restore_bars
+        self.bot.get_channel = MagicMock()
+        self.bot.fetch_channel = AsyncMock()
+        self.bot.add_view = MagicMock()
+        self.bot._register_view = MagicMock()
+        
+    async def asyncTearDown(self):
+        self.config_patcher.stop()
         
     async def test_network_error_preserves_bar(self):
         """Test that HTTP/Network errors do NOT delete the bar from DB."""

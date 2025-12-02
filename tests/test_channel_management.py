@@ -40,7 +40,7 @@ class TestChannelManagement(unittest.IsolatedAsyncioTestCase):
                         mock_add.assert_called_with(100)
                         interaction.response.send_message.assert_called()
                         args = interaction.response.send_message.call_args[0][0]
-                        self.assertIn("talk in this channel", args)
+                        self.assertIn("✅", args)
 
     async def test_add_channel_unauthorized(self):
         interaction = AsyncMock()
@@ -53,7 +53,7 @@ class TestChannelManagement(unittest.IsolatedAsyncioTestCase):
                  await NyxOS.add_channel_command.callback(interaction)
                  
                  mock_add.assert_not_called()
-                 interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+                 interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
 
     async def test_remove_channel_authorized(self):
         interaction = AsyncMock()
@@ -71,7 +71,7 @@ class TestChannelManagement(unittest.IsolatedAsyncioTestCase):
                         mock_remove.assert_called_with(100)
                         interaction.response.send_message.assert_called()
                         args = interaction.response.send_message.call_args[0][0]
-                        self.assertIn("ignore this channel", args)
+                        self.assertIn("✅", args)
 
     async def test_enable_all_global_chat(self):
         interaction = AsyncMock()
@@ -83,7 +83,7 @@ class TestChannelManagement(unittest.IsolatedAsyncioTestCase):
                 await NyxOS.enableall_command.callback(interaction)
                 
                 mock_set.assert_called_with("global_chat_enabled", True)
-                interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["GLOBAL_CHAT_ENABLED"], ephemeral=False, delete_after=2.0)
+                interaction.response.send_message.assert_called_with("✅", ephemeral=True, delete_after=0.5)
 
     async def test_disable_all_global_chat(self):
         interaction = AsyncMock()
@@ -95,4 +95,4 @@ class TestChannelManagement(unittest.IsolatedAsyncioTestCase):
                 await NyxOS.disableall_command.callback(interaction)
                 
                 mock_set.assert_called_with("global_chat_enabled", False)
-                interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["GLOBAL_CHAT_DISABLED"], ephemeral=False, delete_after=2.0)
+                interaction.response.send_message.assert_called_with("✅", ephemeral=True, delete_after=0.5)

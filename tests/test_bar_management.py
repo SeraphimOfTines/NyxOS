@@ -55,17 +55,23 @@ class TestBarManagement(unittest.IsolatedAsyncioTestCase):
         interaction = AsyncMock()
         interaction.user.id = 123
         interaction.channel_id = 100
+        interaction.response.defer = AsyncMock()
+        interaction.edit_original_response = AsyncMock()
+        interaction.delete_original_response = AsyncMock()
         
-        with patch('helpers.is_authorized', return_value=True):
-            with patch('memory_manager.remove_bar_whitelist') as mock_remove_wl:
+        with patch('helpers.is_authorized', return_value=True), \
+             patch('memory_manager.remove_bar_whitelist') as mock_remove_wl, \
+             patch('memory_manager.delete_bar') as mock_delete:
                 with patch('NyxOS.client', new=AsyncMock()) as mock_client:
+                    mock_client.active_bars = {}                        
+                                                                        
+                    await NyxOS.removebar_command.callback(interaction) 
                     
-                    await NyxOS.removebar_command.callback(interaction)
-                    
+                    # Verifications
+                    interaction.response.defer.assert_called_with(ephemeral=True)
                     mock_remove_wl.assert_called_with(100)
                     mock_client.wipe_channel_bars.assert_called_with(interaction.channel)
-                    interaction.response.send_message.assert_called()
-
+                    interaction.edit_original_response.assert_called_with(content="✅")
     async def test_drop_command_no_bar(self):
         interaction = AsyncMock()
         interaction.channel_id = 100

@@ -31,7 +31,8 @@ class TestPluralKitConfig(unittest.IsolatedAsyncioTestCase):
             del os.environ["USE_LOCAL_PLURALKIT"]
         
         # IGNORE config.txt by simulating it doesn't exist
-        with patch('builtins.open', side_effect=FileNotFoundError):
+        with patch('builtins.open', side_effect=FileNotFoundError), \
+             patch('dotenv.load_dotenv'):
             import config
             importlib.reload(config)
         

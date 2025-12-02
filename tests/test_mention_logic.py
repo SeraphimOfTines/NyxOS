@@ -80,7 +80,7 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
         
         return msg
 
-    @patch('services.service.get_system_proxy_tags', return_value=[])
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
     @patch('memory_manager.log_conversation')
     @patch('memory_manager.clear_channel_memory')
     @patch('memory_manager.get_allowed_channels', return_value=[100]) # Channel 100 is whitelisted
@@ -90,6 +90,9 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
         
         msg = self.create_mock_message("<@12345> hello", 888, 200)
         msg.mentions = [self.mock_client.user] # Tagged bot
+        
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
         
         # Mock services
         with patch('services.service.get_pk_user_data', return_value=None), \
@@ -104,7 +107,7 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
              # Verify query_lm_studio called
              mock_query.assert_called()
 
-    @patch('services.service.get_system_proxy_tags', return_value=[])
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
     @patch('memory_manager.log_conversation')
     @patch('memory_manager.clear_channel_memory')
     @patch('memory_manager.get_allowed_channels', return_value=[100])
@@ -120,6 +123,9 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
         role_mock.id = 555
         msg.role_mentions = [role_mock]
         
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+        
         # Mock services
         with patch('services.service.get_pk_user_data', return_value=None), \
              patch('services.service.get_pk_message_data', return_value=(None, None, None, None, None, None)), \
@@ -131,7 +137,7 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
              
              mock_query.assert_called()
 
-    @patch('services.service.get_system_proxy_tags', return_value=[])
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
     @patch('memory_manager.log_conversation')
     @patch('memory_manager.clear_channel_memory')
     @patch('memory_manager.get_allowed_channels', return_value=[100])

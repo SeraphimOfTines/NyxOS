@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
+from tests.mock_utils import AsyncIter
 import sys
 import os
 import NyxOS
@@ -23,29 +24,32 @@ class TestNewlineSanitization(unittest.IsolatedAsyncioTestCase):
         self.interaction.response.send_message = AsyncMock()
         self.interaction.response.defer = AsyncMock()
         self.interaction.delete_original_response = AsyncMock()
+        self.interaction.edit_original_response = AsyncMock()
         self.interaction.followup = MagicMock()
         self.interaction.followup.send = AsyncMock()
 
-    async def test_setbar_command_sanitization(self):
-        """Test that /setbar strips newlines from input."""
-        with patch('helpers.is_authorized', return_value=True), \
-             patch('memory_manager.set_master_bar') as mock_set_bar, \
-             patch('NyxOS.client', new=AsyncMock()) as mock_client:
+    async def test_global_command_sanitization(self):
+        """Test that global_update_bars strips newlines from input."""
+        with patch('memory_manager.set_master_bar') as mock_set_bar, \
+             patch('services.service.limiter.wait_for_slot', new=AsyncMock()):
             
-            # Setup client
-            mock_client.propagate_master_bar = AsyncMock(return_value=5)
+            # Use real bot instance (patched init via unittest patch if needed, but here we just instantiate)
+            # Since we are in IsolatedAsyncioTestCase, we can try instantiating.
+            # But LMStudioBot init connects. We should patch init if we instantiate.
+            # Or just mock the method on a MagicMock? No, we want to test the METHOD logic.
             
-            # Execute with malicious input
-            dirty_content = "My Cool Status\n"
-            await NyxOS.setbar_command.callback(self.interaction, content=dirty_content)
+            with patch('discord.Client.__init__', return_value=None), \
+                 patch('discord.app_commands.CommandTree'):
+                bot = NyxOS.LMStudioBot()
+                bot.active_bars = {100: {"user_id": 123, "message_id": 999, "persisting": False}}
+                bot.propagate_master_bar = AsyncMock(return_value=5)
+
+                dirty_content = "My Cool Status\n"
+                await bot.global_update_bars(dirty_content)
             
             # Verify set_master_bar was called with CLEAN content
             mock_set_bar.assert_called_once_with("My Cool Status")
-            
-            # Verify interaction response
-            self.interaction.response.send_message.assert_called_once()
-            args, _ = self.interaction.response.send_message.call_args
-            assert "updated" in args[0]
+
 
     async def test_addbar_command_sanitization(self):
         """Test that /addbar strips newlines from master bar content before using it."""
@@ -59,6 +63,9 @@ class TestNewlineSanitization(unittest.IsolatedAsyncioTestCase):
             mock_client._register_bar_message = MagicMock()
             mock_client.handle_bar_touch = AsyncMock()
             
+            # Mock history
+            self.interaction.channel.history = MagicMock(return_value=AsyncIter([]))
+
             # Execute
             await NyxOS.addbar_command.callback(self.interaction)
             

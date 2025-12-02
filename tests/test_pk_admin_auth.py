@@ -41,12 +41,22 @@ class TestPKAdminAuth(unittest.IsolatedAsyncioTestCase):
         
         # Mock the http session to avoid real calls
         services.service.http_session = MagicMock()
-        services.service.http_session.get.return_value.__aenter__.return_value.status = 200
-        services.service.http_session.get.return_value.__aenter__.return_value.json = AsyncMock(return_value={
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json.return_value = {
             "member": {"name": "Name", "display_name": "Name", "description": "Desc"},
             "system": {"id": "SysID", "name": "SysName", "tag": "SysTag"},
             "sender": 123456789
-        })
+        }
+        
+        # Setup Async Context Manager
+        class MockContext:
+            async def __aenter__(self):
+                return mock_response
+            async def __aexit__(self, exc_type, exc, tb):
+                pass
+        
+        services.service.http_session.get.return_value = MockContext()
         
         # 1. First Call (Miss) - Should hit API
         res1 = await services.service.get_pk_message_data(1001)

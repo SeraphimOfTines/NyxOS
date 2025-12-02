@@ -19,19 +19,22 @@ class AsyncIter:
 
 class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
     
+    class MockBot(NyxOS.LMStudioBot):
+        def __init__(self):
+            self.tree = MagicMock()
+            self.startup_header_msg = None
+            self.startup_bar_msg = None
+            self.console_progress_msgs = []
+            self.active_bars = {}
+            self._connection = MagicMock()
+            self._connection.user = MagicMock()
+            self._connection.user.id = 12345
+            self.loop = AsyncMock()
+            # Add any other attributes LMStudioBot needs
+            self.wait_until_ready = AsyncMock()
+
     def setUp(self):
-        self.patcher = patch('discord.Client.__init__')
-        self.mock_init = self.patcher.start()
-        self.mock_init.return_value = None
-        
-        # Need to mock app_commands.CommandTree because LMStudioBot inits it
-        with patch('discord.app_commands.CommandTree'):
-             from NyxOS import LMStudioBot
-             self.mock_client = LMStudioBot()
-             
-        self.mock_client._connection = MagicMock()
-        self.mock_client._connection.user = MagicMock()
-        self.mock_client._connection.user.id = 12345
+        self.mock_client = self.MockBot()
         self.mock_client.close = AsyncMock()
         
         # Mock Channel
@@ -48,7 +51,6 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
             os.remove(config.SHUTDOWN_FLAG_FILE)
 
     def tearDown(self):
-        self.patcher.stop()
         if os.path.exists(config.RESTART_META_FILE):
             os.remove(config.RESTART_META_FILE)
         if os.path.exists(config.SHUTDOWN_FLAG_FILE):

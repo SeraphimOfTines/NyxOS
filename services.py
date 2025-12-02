@@ -475,7 +475,8 @@ class APIService:
                 data = await resp.json()
                 content = data['choices'][0]['message']['content']
                 # Strip ALL '#' characters as requested to prevent markdown header issues
-                return content.replace('#', '')
+                # REMOVED: This breaks URL anchors. Handled in helpers.sanitize_llm_response instead.
+                return content
             else:
                 error_text = await resp.text()
                 logger.error(f"LM Studio Error ({resp.status}): {error_text}")
