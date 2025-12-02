@@ -81,12 +81,17 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
     # Regex to capture text before the progress numbers. 
     # It usually looks like: "Exporting General... (5/100)" or just "(5/100)"
     # We capture the text before '...' and the numbers.
-    progress_pattern = re.compile(r"(?:Exporting\s+(.+?)(?:\.{3})?\s*)?\((\d+)/(\d+)\)")
+    filename_pattern = re.compile(r"Exporting\s+(.+?)\.{3}")
+    progress_pattern = re.compile(r"\((\d+)/(\d+)\)")
     
     # Buffer for capturing output across chunks
     output_buffer = ""
     last_update_time = 0
     last_percent = -1
+    current_filename = "Initializing..."
+    last_filename = ""
+    
+    start_time = time.time()
 
     while True:
         # Check Cancellation
@@ -108,45 +113,58 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
             chunk_str = chunk.decode('utf-8', errors='ignore')
             output_buffer += chunk_str
             
-            # Keep buffer manageable (last 500 chars is enough for progress context)
-            if len(output_buffer) > 500:
-                output_buffer = output_buffer[-500:]
+            # Keep buffer manageable (last 1000 chars is enough for progress context)
+            if len(output_buffer) > 1000:
+                output_buffer = output_buffer[-1000:]
 
-            # Search for the pattern
-            matches = list(progress_pattern.finditer(output_buffer))
-            if matches:
-                match = matches[-1] # Get the most recent match
+            # Check for Filename Update
+            file_match = list(filename_pattern.finditer(output_buffer))
+            if file_match:
+                raw_name = file_match[-1].group(1)
+                if raw_name and raw_name.strip():
+                     # Clean up filename (remove any trailing carriage returns or noise)
+                    current_filename = raw_name.strip().split('\r')[-1]
+
+            # Check for Progress Update
+            prog_match = list(progress_pattern.finditer(output_buffer))
+            
+            percent = last_percent
+            if prog_match:
+                match = prog_match[-1]
                 try:
-                    filename_raw = match.group(1)
-                    current = int(match.group(2))
-                    total = int(match.group(3))
-                    
-                    percent = 0
+                    current = int(match.group(1))
+                    total = int(match.group(2))
                     if total > 0:
                         percent = int((current / total) * 100)
-                        
-                    now = time.time()
-                    # Update if:
-                    # 1. Percentage changed
-                    # 2. It's been 3 seconds since last update (to show filename activity)
-                    should_update = (percent != last_percent) or (now - last_update_time >= 3)
-                    
-                    if should_update:
-                        last_percent = percent
-                        last_update_time = now
-                        
-                        status_base = config.BACKUP_FLAVOR_TEXT.get("DOWNLOAD", "Downloading...")
-                        if filename_raw and filename_raw.strip():
-                            # Clean up filename (remove any trailing carriage returns or noise)
-                            clean_name = filename_raw.strip().split('\r')[-1]
-                            status_msg = f"{status_base}\n📄 `{clean_name}`"
-                        else:
-                            status_msg = status_base
-                            
-                        if progress_callback:
-                            await progress_callback(percent, status_msg)
                 except ValueError:
                     pass
+            else:
+                # If no progress numbers yet, assume 0% but still run loop to show filename
+                percent = max(0, last_percent)
+
+            now = time.time()
+            elapsed = int(now - start_time)
+            elapsed_str = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
+
+            # Update if:
+            # 1. Percentage changed
+            # 2. It's been 3 seconds since last update (to show filename activity/time)
+            # 3. Filename changed
+            should_update = (percent != last_percent) or \
+                            (now - last_update_time >= 3) or \
+                            (current_filename != last_filename)
+            
+            if should_update:
+                last_percent = percent
+                last_update_time = now
+                last_filename = current_filename
+                
+                status_base = config.BACKUP_FLAVOR_TEXT.get("DOWNLOAD", "Downloading...")
+                status_msg = f"{status_base}\n⏳ **Time Elapsed:** `{elapsed_str}`\n📄 **Processing:** `{current_filename}`"
+                    
+                if progress_callback:
+                    await progress_callback(percent, status_msg)
+                    
         except Exception:
             pass # Ignore decoding errors or regex fails
 
