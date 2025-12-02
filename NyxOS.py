@@ -1239,6 +1239,13 @@ class LMStudioBot(discord.Client):
         logger.info('#       https://temple.HyperSystem.xyz')    
         logger.info('# ==========================================')
         logger.info(f'Logged in as {client.user} (ID: {client.user.id})')
+        
+        # Debug: List commands in tree
+        cmds = [c.name for c in self.tree.get_commands()]
+        logger.info(f"DEBUG: Registered Slash Commands: {cmds}")
+        if "nukedatabase" not in cmds:
+            logger.error("CRITICAL: 'nukedatabase' command NOT found in tree!")
+        
         logger.info(f'Targeting LM Studio at: {config.LM_STUDIO_URL}')
         
         # Load Active Bars from DB (Internal state mostly, but we override content via scan)
@@ -1427,6 +1434,8 @@ class LMStudioBot(discord.Client):
         """Checks if commands have changed since last boot and syncs if needed."""
         current_hash = self.get_tree_hash()
         stored_hash = None
+        
+        logger.info("Checking command tree sync status...")
         
         if os.path.exists(config.COMMAND_STATE_FILE):
             try:
