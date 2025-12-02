@@ -381,6 +381,46 @@ class LMStudioBot(discord.Client):
                 pass
         except: pass
 
+    async def cleanup_recent_artifacts(self, channel, exclude_msg_id=None):
+        """
+        Scans the last 5 messages and deletes any bar artifacts or checkmarks.
+        Used when dropping/moving bars to clear clutter.
+        """
+        try:
+            async for msg in channel.history(limit=5):
+                if msg.id == exclude_msg_id: continue
+                
+                should_delete = False
+                if msg.author.id == self.user.id:
+                    # Check Components (Buttons)
+                    if msg.components:
+                        for row in msg.components:
+                            for child in row.children:
+                                if getattr(child, "custom_id", "").startswith("bar_"):
+                                    should_delete = True
+                                    break
+                            if should_delete: break
+                    
+                    # Check Content Prefix
+                    if not should_delete and msg.content:
+                        for emoji in ui.BAR_PREFIX_EMOJIS:
+                            if msg.content.strip().startswith(emoji):
+                                should_delete = True
+                                break
+                    
+                    # Check Checkmark
+                    if not should_delete and msg.content:
+                        if msg.content.strip() == ui.FLAVOR_TEXT['CHECKMARK_EMOJI']:
+                            should_delete = True
+                
+                if should_delete:
+                    try: 
+                        await services.service.limiter.wait_for_slot("delete_message", channel.id)
+                        await msg.delete()
+                    except: pass
+        except Exception as e:
+            logger.warning(f"Recent artifact cleanup failed: {e}")
+
     async def drop_status_bar(self, channel_id, move_bar=True, move_check=True, manual=True):
         # Attempt recovery if missing
         if channel_id not in self.active_bars:
@@ -422,7 +462,10 @@ class LMStudioBot(discord.Client):
             try: channel = await self.fetch_channel(channel_id)
             except: return
 
+        # Clean up recent artifacts (duplicates/checkmarks) before proceeding
         old_bar_id = bar_data.get("message_id")
+        await self.cleanup_recent_artifacts(channel, exclude_msg_id=old_bar_id)
+
         old_check_id = bar_data.get("checkmark_message_id")
         
         # Clean content (Remove checkmark if present in string for the bar)
@@ -449,33 +492,66 @@ class LMStudioBot(discord.Client):
 
         if is_at_bottom and move_bar:
             # Already at bottom.
-            if move_check:
-                # Verify if checkmark is present
-                has_check = (old_bar_id == old_check_id)
-                if not has_check:
-                     # Try checking content just in case
-                     try:
-                         msg = await channel.fetch_message(old_bar_id)
-                         if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in msg.content:
-                             has_check = True
-                             self.active_bars[channel_id]["checkmark_message_id"] = old_bar_id # Fix DB
-                     except: pass
-                
-                if has_check:
-                    # OPTIMIZATION: Already at bottom AND has check. Do nothing.
-                    return 
-                else:
-                    # At bottom but missing check. Merge check.
-                    move_bar = False
-                    move_check = True
+            # IMPROVEMENT: Instead of just returning, ensure content/check is synced via Edit.
+            # This prevents "deletes and re-adds" by doing a safe in-place update.
+            
+            # 1. Determine desired content
+            final_content = content
+            if move_check: # User wants checkmark on bar
+                chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                if chk not in final_content:
+                    final_content = f"{content} {chk}"
+                    final_content = re.sub(r'>[ \t]+<', '><', final_content)
+                    final_content = final_content.replace(f"\n{chk}", f" {chk}")
             else:
-                # At bottom, drop bar requested (no check). 
-                # If we wanted to strip the check, we could edit. 
-                # But 'Drop Bar' usually implies moving to bottom. If at bottom, we are good.
-                # Unless the user wants to REMOVE the checkmark? 
-                # "leaves the check mark behind". If it's on the bar, we can't leave it behind without splitting.
-                # If we assume "Drop Bar" ensures "Bar without check at bottom", we might need to strip it.
+                # User wants bar only (maybe check left behind?)
+                # But if we are at bottom, we can't leave check "behind" (above).
+                # So we enforce checkmark if it was already there, or strip if strictly requested?
+                # "Drop All" -> move_check=True.
+                # "Drop Bar" -> move_check=False.
+                # If Drop Bar and at bottom, we keep it as is.
                 pass
+
+            # 2. Update Message if needed
+            try:
+                current_msg = await channel.fetch_message(old_bar_id)
+                
+                # Check if we need to edit
+                # (Content diff OR View diff/refresh)
+                # We always edit to refresh the View timeout/state just in case
+                should_edit = (current_msg.content != final_content) or True 
+                
+                if should_edit:
+                    view = ui.StatusBarView(final_content, bar_data["user_id"], channel_id, bar_data["persisting"])
+                    await services.service.limiter.wait_for_slot("edit_message", channel_id)
+                    await current_msg.edit(content=final_content, view=view)
+                    
+                    # Update DB state if checkmark merged
+                    if move_check:
+                         self.active_bars[channel_id]["checkmark_message_id"] = old_bar_id
+                         # Clear old checkmark if it was separate?
+                         if old_check_id and old_check_id != old_bar_id:
+                             try:
+                                 old_chk = await channel.fetch_message(old_check_id)
+                                 await old_chk.delete()
+                             except: pass
+
+                    # Sync DB
+                    memory_manager.save_bar(
+                        channel_id, 
+                        channel.guild.id if channel.guild else None,
+                        old_bar_id,
+                        bar_data["user_id"],
+                        final_content,
+                        bar_data["persisting"],
+                        current_prefix=bar_data.get("current_prefix"),
+                        has_notification=False,
+                        checkmark_message_id=self.active_bars[channel_id]["checkmark_message_id"]
+                    )
+            except Exception as e:
+                logger.warning(f"Failed in-place update at bottom: {e}")
+            
+            return # Stop here, don't drop/re-add
 
         # Fix: If moving check only (move_bar=False), and check is already merged on bar, do nothing.
         if not move_bar and move_check:
@@ -1371,7 +1447,8 @@ class LMStudioBot(discord.Client):
     async def verify_and_restore_bars(self):
         """
         Verifies existence of active bars via API and restores their views.
-        Removes invalid (deleted) bars from the database.
+        Only removes invalid entries if the message is definitely deleted (NotFound).
+        Tolerates network/permission errors by keeping the bar in DB/Memory.
         """
         logger.info("🔄 Verifying and restoring status bar views...")
         count = 0
@@ -1381,43 +1458,121 @@ class LMStudioBot(discord.Client):
         for channel_id, bar_data in list(self.active_bars.items()):
             msg_id = bar_data.get("message_id")
             if not msg_id:
+                # No message ID -> Cannot restore
                 to_remove.append(channel_id)
                 continue
             
+            # Try to restore view first (optimistic)
             try:
-                # 1. Verify Channel
-                channel = self.get_channel(channel_id)
-                if not channel:
-                    try: channel = await self.fetch_channel(channel_id)
-                    except: pass
-                
-                if not channel:
-                    logger.warning(f"⚠️ Channel {channel_id} inaccessible. Skipping restore.")
-                    continue
-
-                # 2. Verify Message
-                # We fetch the message to ensure it still exists.
-                try:
-                    await channel.fetch_message(msg_id)
-                except discord.NotFound:
-                    logger.warning(f"🗑️ Bar message {msg_id} in {channel_id} not found. Removing.")
-                    to_remove.append(channel_id)
-                    continue
-                except discord.Forbidden:
-                    logger.warning(f"🚫 No access to message {msg_id} in {channel_id}. Skipping.")
-                    continue
-
-                # 3. Restore View
                 view = ui.StatusBarView(
                     bar_data.get("content", ""),
                     bar_data.get("user_id", self.user.id),
                     channel_id,
                     bar_data.get("persisting", False)
                 )
-                self.add_view(view, message_id=msg_id)
-                self._register_view(msg_id, view)
-                count += 1
                 
+                # We attempt to fetch message to verify existence
+                channel = self.get_channel(channel_id)
+                if not channel:
+                    try: channel = await self.fetch_channel(channel_id)
+                    except: pass
+                
+                if channel:
+                    try:
+                        msg = await channel.fetch_message(msg_id)
+                        # Valid -> Register
+                        self.add_view(view, message_id=msg_id)
+                        self._register_view(msg_id, view)
+                        
+                        # --- SYNC FIX: Update DB from Live Message ---
+                        # If the message on Discord has a different prefix than DB, update DB.
+                        if msg.content:
+                            found_prefix = None
+                            clean_cont = msg.content.strip()
+                            for emoji in ui.BAR_PREFIX_EMOJIS:
+                                if clean_cont.startswith(emoji):
+                                    found_prefix = emoji
+                                    break
+                            
+                            if found_prefix and found_prefix != bar_data.get("current_prefix"):
+                                logger.info(f"🔄 Syncing Bar {channel_id} from Live Message: {found_prefix}")
+                                self.active_bars[channel_id]["current_prefix"] = found_prefix
+                                self.active_bars[channel_id]["content"] = clean_cont
+                                
+                                memory_manager.save_bar(
+                                    channel_id,
+                                    msg.guild.id,
+                                    msg.id,
+                                    bar_data["user_id"],
+                                    clean_cont,
+                                    bar_data.get("persisting", False),
+                                    current_prefix=found_prefix,
+                                    has_notification=bar_data.get("has_notification", False),
+                                    checkmark_message_id=bar_data.get("checkmark_message_id")
+                                )
+                        # ---------------------------------------------
+
+                        count += 1
+                    except discord.NotFound:
+                        # Message is GONE -> Attempt Auto-Recovery
+                        logger.warning(f"🗑️ Bar message {msg_id} in {channel_id} not found. Attempting recovery...")
+                        found_replacement = False
+                        
+                        # Scan recent history for a valid bar
+                        try:
+                            async for hist_msg in channel.history(limit=10):
+                                if hist_msg.author.id == self.user.id:
+                                    # Simple check: components?
+                                    # Or just content prefix?
+                                    is_bar = False
+                                    if hist_msg.components:
+                                         for row in hist_msg.components:
+                                             for child in row.children:
+                                                 if getattr(child, "custom_id", "").startswith("bar_"):
+                                                     is_bar = True; break
+                                    
+                                    if is_bar:
+                                        # Found one! Adopt it.
+                                        logger.info(f"♻️ Recovered bar in {channel_id}: {hist_msg.id}")
+                                        self.active_bars[channel_id]["message_id"] = hist_msg.id
+                                        self.active_bars[channel_id]["checkmark_message_id"] = hist_msg.id
+                                        # Update DB
+                                        memory_manager.update_bar_message_id(channel_id, hist_msg.id)
+                                        
+                                        # Register
+                                        self.add_view(view, message_id=hist_msg.id)
+                                        self._register_view(hist_msg.id, view)
+                                        count += 1
+                                        found_replacement = True
+                                        break
+                        except Exception as ex:
+                             logger.error(f"Recovery failed: {ex}")
+
+                        if not found_replacement:
+                            logger.warning(f"❌ Recovery failed for {channel_id}. Removing bar.")
+                            to_remove.append(channel_id)
+                    except discord.Forbidden:
+                        # Permission issue -> Keep in DB, maybe permissions come back?
+                        logger.warning(f"🚫 No access to message {msg_id} in {channel_id}. Keeping in DB.")
+                        # Still register view in case we gain access? (Can't without message obj usually, but add_view needs ID)
+                        self.add_view(view, message_id=msg_id)
+                        self._register_view(msg_id, view)
+                        count += 1
+                    except discord.HTTPException as e:
+                        # Network/Server Error -> Keep in DB!
+                        logger.warning(f"⚠️ HTTP Error checking bar {msg_id} in {channel_id}: {e}. Keeping in DB.")
+                        # Register blindly hoping it exists
+                        self.add_view(view, message_id=msg_id)
+                        self._register_view(msg_id, view)
+                        count += 1
+                else:
+                    # Channel not found/accessible -> Keep in DB (might be temporary outage)
+                    logger.warning(f"⚠️ Channel {channel_id} inaccessible. Keeping bar in DB.")
+                    # Can't register view without knowing if channel exists really, but let's try
+                    self.add_view(view, message_id=msg_id)
+                    self._register_view(msg_id, view)
+                    count += 1
+                    
             except Exception as e:
                 logger.error(f"Failed to verify/restore view for {channel_id}: {e}")
 
@@ -1509,10 +1664,6 @@ class LMStudioBot(discord.Client):
                 os.remove(config.RESTART_META_FILE)
             except: pass
 
-        # Wait for cache/connection stability
-        logger.info("⏳ Waiting 1s before waking bars...")
-        await asyncio.sleep(1.0)
-        
         # Load Whitelist EARLY to avoid UnboundLocalError
         bar_whitelist = memory_manager.get_bar_whitelist()
         allowed_channels = memory_manager.get_allowed_channels()
@@ -1654,12 +1805,19 @@ class LMStudioBot(discord.Client):
                          await msg.edit(view=view)
                          
                     new_msg_list.append(msg)
-                except (discord.NotFound, discord.HTTPException):
-                    # Lost message, recreate
+                except discord.NotFound:
+                    # Lost message -> Recreate
                     try:
                         m = await channel.send(content, view=view)
                         new_msg_list.append(m)
                     except: pass
+                except discord.HTTPException as e:
+                    # Network/Server Error (Transient) -> Keep Original, Don't Dupe
+                    logger.warning(f"⚠️ HTTP Error editing console msg {msg.id}: {e}. Keeping original.")
+                    new_msg_list.append(msg)
+                except Exception as e:
+                    logger.error(f"❌ Error editing console msg {msg.id}: {e}")
+                    new_msg_list.append(msg)
             else:
                 # New message
                 try:
@@ -2245,62 +2403,7 @@ client = LMStudioBot()
 # SLASH COMMANDS
 # ==========================================
 
-@client.tree.command(name="syncbars", description="Fast cleanup: Removes bars that are missing from the server.")
-async def syncbars_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
-         return
-    
-    await interaction.response.defer(ephemeral=True)
-    
-    removed_count = await client.sync_bars()
-    
-    await interaction.followup.send(f"🧹 Cleanup complete. Removed {removed_count} invalid bars.", ephemeral=True)
 
-@client.tree.command(name="syncconsole", description="Check uplinks one-by-one (3s delay). Removes lost bars.")
-async def syncconsole_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
-         return
-    
-    await interaction.response.defer(ephemeral=True)
-    
-    bar_whitelist = memory_manager.get_bar_whitelist()
-    removed_count = 0
-    verified_count = 0
-    
-    for cid_str in bar_whitelist:
-        cid = int(cid_str)
-        # Respect rate limits (3s delay)
-        await asyncio.sleep(3.0)
-        
-        try:
-            # Get Location
-            stored_bar_id, _ = memory_manager.get_channel_location(cid)
-            if not stored_bar_id:
-                # No ID known, assume lost
-                raise discord.NotFound(None, "No ID stored")
-
-            # Check Channel
-            ch = client.get_channel(cid) or await client.fetch_channel(cid)
-            
-            # Check Message
-            await ch.fetch_message(stored_bar_id)
-            verified_count += 1
-            
-        except (discord.NotFound, discord.HTTPException, discord.Forbidden):
-            # Bar lost or inaccessible -> Remove from system
-            if cid in client.active_bars: del client.active_bars[cid]
-            memory_manager.remove_bar_whitelist(cid)
-            memory_manager.delete_bar(cid)
-            removed_count += 1
-        except Exception as e:
-            logger.warning(f"Sync check failed for {cid}: {e}")
-
-    # Update Console
-    await client.update_console_status()
-    
-    await interaction.followup.send(f"✅ Sync complete.\nVerified: {verified_count}\nRemoved: {removed_count}", ephemeral=True)
 
 @client.tree.command(name="addchannel", description="Add the current channel to the bot's whitelist.")
 async def add_channel_command(interaction: discord.Interaction):
@@ -2624,24 +2727,7 @@ async def backup_command(interaction: discord.Interaction, target: app_commands.
     else:
         await msg.edit(content=f"❌ Backup Failed/Cancelled.\n{result}", view=None)
 
-@client.tree.command(name="setbar", description="Update the Master Bar content and propagate to all whitelisted channels.")
-async def setbar_command(interaction: discord.Interaction, content: str):
-    if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
-        return
-    
-    # Sanitize: Strip and remove newlines to prevent formatting breakages
-    clean_content = content.strip().replace('\n', ' ')
-    
-    memory_manager.set_master_bar(clean_content)
-    count = await client.propagate_master_bar()
-    
-    # Update Console/Startup Bar Message
-    if hasattr(client, "startup_bar_msg") and client.startup_bar_msg:
-        try: await client.startup_bar_msg.edit(content=clean_content)
-        except: pass
 
-    await interaction.response.send_message(f"✅ Master Bar updated and propagated to {count} channels.", ephemeral=True, delete_after=2.0)
 
 @client.tree.command(name="bar", description="Drop the bar (leaves checkmark behind).")
 async def bar_command(interaction: discord.Interaction):
@@ -2766,23 +2852,7 @@ async def removebar_command(interaction: discord.Interaction):
     await client.wipe_channel_bars(interaction.channel)
     await interaction.response.send_message("✅ Bar removed and channel un-whitelisted.", ephemeral=True, delete_after=2.0)
 
-@client.tree.command(name="restore", description="Restore the last Uplink Bar content from history.")
-async def restore_command(interaction: discord.Interaction):
-    content = memory_manager.get_bar_history(interaction.channel_id, 0) # 0 = Latest
-    if not content:
-        await interaction.response.send_message("❌ No history found for this channel.", ephemeral=True, delete_after=2.0)
-        return
-    
-    await client.replace_bar_content(interaction, content)
 
-@client.tree.command(name="restore2", description="Restore the BACKUP Uplink Bar content (previous).")
-async def restore2_command(interaction: discord.Interaction):
-    content = memory_manager.get_bar_history(interaction.channel_id, 1) # 1 = Previous
-    if not content:
-        await interaction.response.send_message("❌ No backup history found (restore2).", ephemeral=True, delete_after=2.0)
-        return
-    
-    await client.replace_bar_content(interaction, content)
 
 @client.tree.command(name="cleanbars", description="Wipe all Uplink Bar artifacts and checkmarks from the channel.")
 async def cleanbars_command(interaction: discord.Interaction):
@@ -2869,22 +2939,7 @@ async def speed1_command(interaction: discord.Interaction):
 async def speed2_command(interaction: discord.Interaction):
     await client.update_bar_prefix(interaction, "<a:WatchingClosely:1301838354832425010>")
 
-@client.tree.command(name="linkcheck", description="Get a link to the current checkmark message.")
-async def linkcheck_command(interaction: discord.Interaction):
-    channel_id = interaction.channel_id
-    if channel_id not in client.active_bars:
-        await interaction.response.send_message("❌ No active bar.", ephemeral=True, delete_after=2.0)
-        return
 
-    check_msg_id = client.active_bars[channel_id].get("checkmark_message_id")
-    if not check_msg_id:
-        await interaction.response.send_message("❌ No checkmark found.", ephemeral=True, delete_after=2.0)
-        return
-
-    guild_id = interaction.guild_id if interaction.guild else "@me"
-    link = f"https://discord.com/channels/{guild_id}/{channel_id}/{check_msg_id}"
-    
-    await interaction.response.send_message(f"[Jump to Checkmark]({link})", ephemeral=True, delete_after=2.0)
 
 @client.tree.command(name="drop", description="Drop (refresh) the current Uplink Bar.")
 async def drop_command(interaction: discord.Interaction):
@@ -2963,35 +3018,7 @@ async def awake_command(interaction: discord.Interaction):
     count = await client.awake_all_bars()
     await interaction.followup.send(f"🌅 Woke up ~{count} bars.", ephemeral=True)
 
-@client.tree.command(name="speedall0", description="Set all bars to Speed 0 (Not Watching).")
-async def speedall0_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
-         return
-    
-    await interaction.response.defer(ephemeral=True)
-    count = await client.set_speed_all_bars("<a:NotWatching:1301840196966285322>")
-    await interaction.followup.send(f"🚀 Updated speed on {count} bars.", ephemeral=True)
 
-@client.tree.command(name="speedall1", description="Set all bars to Speed 1 (Watching Occasionally).")
-async def speedall1_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
-         return
-    
-    await interaction.response.defer(ephemeral=True)
-    count = await client.set_speed_all_bars("<a:WatchingOccasionally:1301837550159269888>")
-    await interaction.followup.send(f"🚀 Updated speed on {count} bars.", ephemeral=True)
-
-@client.tree.command(name="speedall2", description="Set all bars to Speed 2 (Watching Closely).")
-async def speedall2_command(interaction: discord.Interaction):
-    if not helpers.is_authorized(interaction.user):
-         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
-         return
-    
-    await interaction.response.defer(ephemeral=True)
-    count = await client.set_speed_all_bars("<a:WatchingClosely:1301838354832425010>")
-    await interaction.followup.send(f"🚀 Updated speed on {count} bars.", ephemeral=True)
 
 @client.tree.command(name="darkangel", description="Set status to Dark Angel.")
 async def darkangel_command(interaction: discord.Interaction):
@@ -3079,7 +3106,6 @@ async def on_message(message):
         cmd_map = {
             "bar": (bar_command, None),
             "b": (bar_command, None),
-            "setbar": (setbar_command, "content"),
             "addbar": (addbar_command, None),
             "removebar": (removebar_command, None),
             "drop": (drop_command, None),
@@ -3087,25 +3113,17 @@ async def on_message(message):
             "d": (drop_command, None),
             "dropcheck": (dropcheck_command, None),
             "c": (dropcheck_command, None),
-            "linkcheck": (linkcheck_command, None),
-            "restore": (restore_command, None),
-            "restore2": (restore2_command, None),
             "cleanbars": (cleanbars_command, None),
             "sleep": (sleep_command, None),
             "idle": (idle_command, None),
             "global": (global_command, "text"),
             "awake": (awake_command, None),
-            "speedall0": (speedall0_command, None),
-            "speedall1": (speedall1_command, None),
-            "speedall2": (speedall2_command, None),
             "addchannel": (add_channel_command, None),
             "removechannel": (remove_channel_command, None),
             "enableall": (enableall_command, None),
             "disableall": (disableall_command, None),
             "reboot": (reboot_command, None),
             "shutdown": (shutdown_command, None),
-            "syncbars": (syncbars_command, None),
-            "syncconsole": (syncconsole_command, None),
             "clearmemory": (clearmemory_command, None),
             "reportbug": (reportbug_command, None),
             "goodbot": (good_bot_leaderboard, None),

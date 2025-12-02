@@ -187,8 +187,7 @@ class StatusBarView(discord.ui.View):
         await interaction.response.defer()
         
         cid = interaction.channel_id
-        if hasattr(interaction.client, "handle_bar_touch"):
-             await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
+        # Redundant touch removed (drop_status_bar handles it)
 
         if hasattr(interaction.client, "drop_status_bar"):
             # Drop All: Move Bar + Move Check
@@ -203,8 +202,7 @@ class StatusBarView(discord.ui.View):
         await interaction.response.defer()
         
         cid = interaction.channel_id
-        if hasattr(interaction.client, "handle_bar_touch"):
-             await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
+        # Redundant touch removed (drop_status_bar handles it)
 
         if hasattr(interaction.client, "drop_status_bar"):
             # Drop Bar Only: Move Bar, Leave Check Behind (move_check=False)
@@ -219,8 +217,7 @@ class StatusBarView(discord.ui.View):
         await interaction.response.defer()
 
         cid = interaction.channel_id
-        if hasattr(interaction.client, "handle_bar_touch"):
-             await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
+        # Redundant touch removed (drop_status_bar handles it)
 
         if hasattr(interaction.client, "drop_status_bar"):
             # Drop Check: Moves Check to Bar (and drags bar to bottom if needed per request)
@@ -235,9 +232,10 @@ class StatusBarView(discord.ui.View):
         self.persisting = not self.persisting
         cid = interaction.channel_id
         
-        # Register touch first to ensure it exists in active_bars
-        if hasattr(interaction.client, "handle_bar_touch"):
-             await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
+        # Ensure existence (Adopt straggler if needed)
+        if hasattr(interaction.client, "handle_bar_touch") and hasattr(interaction.client, "active_bars"):
+             if cid not in interaction.client.active_bars:
+                 await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
         
         # Update global state
         if hasattr(interaction.client, "active_bars") and cid in interaction.client.active_bars:
@@ -358,18 +356,6 @@ class ConsoleControlView(discord.ui.View):
         if hasattr(interaction.client, "sleep_all_bars"):
              await interaction.response.defer()
              await interaction.client.sleep_all_bars()
-        else:
-             await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
-
-    @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.primary, custom_id="console_sync_btn", row=0)
-    async def sync_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_authorized(interaction.user):
-             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
-             return
-        if hasattr(interaction.client, "sync_bars"):
-             await interaction.response.defer()
-             count = await interaction.client.sync_bars()
-             await interaction.followup.send(f"✅ Synced! Removed {count} invalid bars.", ephemeral=True)
         else:
              await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 

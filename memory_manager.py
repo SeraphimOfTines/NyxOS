@@ -59,7 +59,19 @@ def get_bar_whitelist():
 # --- Active Bars (DB Facade) ---
 
 def save_bar(channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None, has_notification=False, checkmark_message_id=None):
-    db.save_bar(channel_id, guild_id, message_id, user_id, content, persisting, current_prefix, has_notification, checkmark_message_id)
+    # Strict Sanitization
+    try:
+        cid = str(int(channel_id))
+        gid = str(int(guild_id)) if guild_id else None
+        mid = str(int(message_id)) if message_id else None
+        uid = str(int(user_id)) if user_id else None
+        cmid = str(int(checkmark_message_id)) if checkmark_message_id else mid
+        
+        safe_content = str(content) if content else ""
+        
+        db.save_bar(cid, gid, mid, uid, safe_content, persisting, current_prefix, has_notification, cmid)
+    except (ValueError, TypeError) as e:
+        logger.error(f"❌ Failed to save bar due to bad data: {e}")
 
 def set_bar_notification(channel_id, has_notification):
     db.set_bar_notification(channel_id, has_notification)

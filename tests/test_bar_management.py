@@ -92,25 +92,4 @@ class TestBarManagement(unittest.IsolatedAsyncioTestCase):
             mock_client.drop_status_bar.assert_called_with(100, move_bar=True, move_check=True)
             interaction.delete_original_response.assert_called()
 
-    async def test_restore_command_found(self):
-        interaction = AsyncMock()
-        interaction.channel_id = 100
-        
-        with patch('memory_manager.get_bar_history', return_value="Old Content"):
-             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
-                 
-                 await NyxOS.restore_command.callback(interaction)
-                 
-                 mock_client.replace_bar_content.assert_called_with(interaction, "Old Content")
 
-    async def test_restore_command_not_found(self):
-        interaction = AsyncMock()
-        interaction.channel_id = 100
-        
-        with patch('memory_manager.get_bar_history', return_value=None):
-             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
-                 
-                 await NyxOS.restore_command.callback(interaction)
-                 
-                 mock_client.replace_bar_content.assert_not_called()
-                 interaction.response.send_message.assert_called()

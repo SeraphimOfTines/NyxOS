@@ -346,43 +346,87 @@ class Database:
             logger.error(f"Failed to delete bar: {e}")
 
     def get_all_bars(self):
+        """
+        Returns a dict {channel_id: {data...}} for all active bars.
+        Includes robust error handling for corrupted data.
+        """
         try:
             with self._get_conn() as conn:
                 c = conn.cursor()
-                c.execute("""
-                    SELECT channel_id, guild_id, message_id, user_id, content, 
-                           original_prefix, current_prefix, is_sleeping, persisting, 
-                           has_notification, previous_state, timestamp, checkmark_message_id 
-                    FROM active_bars
-                """)
+                c.execute("""SELECT 
+                    channel_id, guild_id, message_id, user_id, content, 
+                    persisting, current_prefix, has_notification, checkmark_message_id 
+                    FROM active_bars""")
                 rows = c.fetchall()
-                bars = {}
+                
+                data = {}
+                corrupted_ids = []
+                
                 for row in rows:
-                    bars[int(row[0])] = {
-                        "channel_id": int(row[0]),
-                        "guild_id": int(row[1]) if row[1] else None,
-                        "message_id": int(row[2]),
-                        "user_id": int(row[3]),
-                        "content": row[4],
-                        "original_prefix": row[5],
-                        "current_prefix": row[6],
-                        "is_sleeping": bool(row[7]),
-                        "persisting": bool(row[8]),
-                        "has_notification": bool(row[9]),
-                        "previous_state": None,
-                        "timestamp": row[11],
-                        "checkmark_message_id": int(row[12]) if row[12] else int(row[2])
-                    }
                     try:
-                        if row[10]:
-                            bars[int(row[0])]["previous_state"] = json.loads(row[10])
-                    except json.JSONDecodeError:
-                        logger.warning(f"Corrupt JSON in active_bars for channel {row[0]}")
+                        cid = int(row[0])
                         
-                return bars
+                        # Safe conversion for other IDs
+                        gid = int(row[1]) if row[1] and row[1].isdigit() else None
+                        mid = int(row[2]) if row[2] and row[2].isdigit() else None
+                        uid = int(row[3]) if row[3] and row[3].isdigit() else None
+                        cmid = int(row[8]) if row[8] and row[8].isdigit() else mid
+
+                        data[cid] = {
+                            "guild_id": gid,
+                            "message_id": mid,
+                            "user_id": uid,
+                            "content": row[4],
+                            "persisting": bool(row[5]),
+                            "current_prefix": row[6],
+                            "has_notification": bool(row[7]),
+                            "checkmark_message_id": cmid
+                        }
+                    except ValueError as ve:
+                        # This catches the 'invalid literal for int()'
+                        logger.warning(f"⚠️ skipped corrupted bar record {row[0]}: {ve}")
+                        corrupted_ids.append(row[0])
+                        continue
+                
+                # Auto-Clean corrupted entries
+                if corrupted_ids:
+                    logger.info(f"🧹 Cleaning {len(corrupted_ids)} corrupted entries from active_bars...")
+                    for bad_id in corrupted_ids:
+                        try:
+                            c.execute("DELETE FROM active_bars WHERE channel_id = ?", (bad_id,))
+                        except: pass
+                    conn.commit()
+                    
+                return data
         except Exception as e:
             logger.error(f"Failed to get all bars: {e}")
             return {}
+
+    def fix_corrupted_db(self):
+        """Sanitizes the database by removing rows with non-integer IDs."""
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                # Find bad rows using SQL logic if possible, or just fetch/clean like above.
+                # Simple approach: Delete where channel_id is not an integer
+                # SQLite 'GLOB' or 'LIKE' or regex is tricky.
+                # We'll rely on the auto-clean inside get_all_bars() which is called on startup.
+                # But we can also clean whitelist.
+                
+                c.execute("SELECT channel_id FROM bar_whitelist")
+                rows = c.fetchall()
+                bad_wl = []
+                for row in rows:
+                    if not str(row[0]).isdigit():
+                        bad_wl.append(row[0])
+                
+                for bad in bad_wl:
+                     logger.info(f"🧹 Removing corrupted whitelist entry: {bad}")
+                     c.execute("DELETE FROM bar_whitelist WHERE channel_id = ?", (bad,))
+                
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to run DB fix: {e}")
 
     def update_bar_content(self, channel_id, content):
         try:

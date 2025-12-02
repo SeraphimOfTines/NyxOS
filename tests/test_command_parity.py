@@ -150,17 +150,7 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
                 msg = interaction.followup.send.call_args[0][0]
                 self.assertIn("Woke up", msg)
                 
-                # Reset mocks
-                interaction.reset_mock()
                 
-                # Test /speedall0
-                await NyxOS.speedall0_command.callback(interaction)
-                
-                interaction.response.defer.assert_called_with(ephemeral=True)
-                interaction.followup.send.assert_called()
-                msg = interaction.followup.send.call_args[0][0]
-                self.assertIn("Updated speed", msg)
-
 class TestCommandParityChecks(unittest.IsolatedAsyncioTestCase):
     """New Parity Tests verifying correct argument passing in MockInteraction"""
     async def test_mock_interaction_structure(self):
