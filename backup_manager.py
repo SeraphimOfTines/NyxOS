@@ -153,19 +153,35 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
             fs_check_needed = (now - last_update_time >= 3)
             
             if fs_check_needed:
-                # Check File System for latest HTML file
+                # Check File System for latest HTML file or Directory
                 try:
-                    # Scan for .html files in backup_dir
+                    # Scan for .html files or directories in backup_dir
                     with os.scandir(backup_dir) as it:
-                        entries = [e for e in it if e.is_file() and e.name.endswith('.html')]
+                        entries = [e for e in it if e.is_file() and e.name.endswith('.html') or e.is_dir()]
                         if entries:
                             # Find latest modified
                             latest_entry = max(entries, key=lambda e: e.stat().st_mtime)
-                            # Truncate name if too long
                             raw_name = latest_entry.name
-                            if len(raw_name) > 30:
-                                raw_name = raw_name[:27] + "..."
-                            current_filename = raw_name
+                            
+                            # 1. Remove Suffixes
+                            if raw_name.endswith("_Files"):
+                                raw_name = raw_name[:-6]
+                            if raw_name.endswith(".html"):
+                                raw_name = raw_name[:-5]
+                                
+                            # 2. Remove ID [1234...] at end
+                            # Match space + [digits] + end
+                            raw_name = re.sub(r'\s\[\d+\]$', '', raw_name)
+                            
+                            # 3. Extract Channel Name (Last part after ' - ')
+                            # Format: Guild - Category - Channel [ID]
+                            # Or: Guild - Channel [ID]
+                            parts = raw_name.split(' - ')
+                            if parts:
+                                current_filename = parts[-1].strip()
+                            else:
+                                current_filename = raw_name.strip()
+
                 except OSError:
                     pass # Ignore FS errors
 
