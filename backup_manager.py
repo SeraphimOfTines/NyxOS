@@ -81,8 +81,12 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
     # Regex to capture text before the progress numbers. 
     # It usually looks like: "Exporting General... (5/100)" or just "(5/100)"
     # We capture the text before '...' and the numbers.
-    filename_pattern = re.compile(r"Exporting\s+(.+?)\.{3}")
+    
+    # More flexible filename pattern:
+    # Matches "Exporting [Name]..." OR "Exporting [Name] ("
+    filename_pattern = re.compile(r"Exporting\s+(.+?)(?:\.{3}|\s+\()")
     progress_pattern = re.compile(r"\((\d+)/(\d+)\)")
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-9:;<=>?]*[ -/]*[@-~])')
     
     # Buffer for capturing output across chunks
     output_buffer = ""
@@ -114,6 +118,8 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
         
         try:
             chunk_str = chunk.decode('utf-8', errors='ignore')
+            # Clean ANSI codes immediately
+            chunk_str = ansi_escape.sub('', chunk_str)
             output_buffer += chunk_str
             
             # Keep buffer manageable (last 1000 chars is enough for progress context)
@@ -155,10 +161,10 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
 
             # Update if:
             # 1. Percentage changed
-            # 2. It's been 5 seconds since last update (throttled)
+            # 2. It's been 3 seconds since last update (throttled)
             # 3. Filename changed
             should_update = (percent != last_percent) or \
-                            (now - last_update_time >= 5) or \
+                            (now - last_update_time >= 3) or \
                             (current_filename != last_filename)
             
             if should_update:
