@@ -52,19 +52,22 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
         await progress_callback(0, config.BACKUP_FLAVOR_TEXT.get("START", "Starting..."))
 
     # 2. Construct Command
+    # Note: We append the file format template to the output directory path
+    # Tokens: %c = Channel Name, %C = Channel ID
+    output_path = os.path.join(backup_dir, "%c [%C].html") 
+    
     cmd = [
         EXPORTER_CLI_PATH,
         "exportguild",
         "-g", str(guild_id),
-        "--output", backup_dir,
+        "--output", output_path,
         "--format", "HtmlDark",
         "--media",
         "--reuse-media",
         "--include-threads", "All",
         "--parallel", "1",
         "--utc",
-        "--locale", "en-US",
-        "--file-format", "%C [%i]"
+        "--locale", "en-US"
     ]
     
     env = os.environ.copy()

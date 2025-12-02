@@ -2611,7 +2611,7 @@ async def backup_command(interaction: discord.Interaction, target: app_commands.
             bar = "█" * filled + "░" * (bar_length - filled)
             
             # Status text already has info, avoid redundant percent if possible or just keep it clean
-            content = f"**Backup Progress: {server_alias}**\n`[{bar}]` {percent}%\n{status_text}"
+            content = f"# **Backup Progress: {server_alias}**\n`[{bar}]` {percent}%\n{status_text}"
             await msg.edit(content=content, view=view)
         except:
             pass
