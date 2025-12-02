@@ -329,6 +329,11 @@ class LMStudioBot(discord.Client):
                 # If we assume "Drop Bar" ensures "Bar without check at bottom", we might need to strip it.
                 pass
 
+        # Fix: If moving check only (move_bar=False), and check is already merged on bar, do nothing.
+        if not move_bar and move_check:
+             if old_check_id and old_bar_id and old_check_id == old_bar_id:
+                  move_check = False
+
         # Reset Notification Flag on Drop
         if manual and channel_id in self.active_bars:
              self.active_bars[channel_id]["has_notification"] = False
@@ -1200,18 +1205,46 @@ class LMStudioBot(discord.Client):
         results = await asyncio.gather(*tasks)
         return sum(1 for r in results if r)
 
-    def restore_status_bar_views(self):
+    async def verify_and_restore_bars(self):
         """
-        Restores StatusBarViews for all loaded active bars.
-        Crucial for button persistence after reboot.
+        Verifies existence of active bars via API and restores their views.
+        Removes invalid (deleted) bars from the database.
         """
-        logger.info("🔄 Restoring status bar views...")
+        logger.info("🔄 Verifying and restoring status bar views...")
         count = 0
-        for channel_id, bar_data in self.active_bars.items():
+        to_remove = []
+        
+        # Iterate over a copy since we might modify the dict
+        for channel_id, bar_data in list(self.active_bars.items()):
             msg_id = bar_data.get("message_id")
-            if not msg_id: continue
+            if not msg_id:
+                to_remove.append(channel_id)
+                continue
             
             try:
+                # 1. Verify Channel
+                channel = self.get_channel(channel_id)
+                if not channel:
+                    try: channel = await self.fetch_channel(channel_id)
+                    except: pass
+                
+                if not channel:
+                    logger.warning(f"⚠️ Channel {channel_id} inaccessible. Skipping restore.")
+                    continue
+
+                # 2. Verify Message
+                # We fetch the message to ensure it still exists.
+                try:
+                    await channel.fetch_message(msg_id)
+                except discord.NotFound:
+                    logger.warning(f"🗑️ Bar message {msg_id} in {channel_id} not found. Removing.")
+                    to_remove.append(channel_id)
+                    continue
+                except discord.Forbidden:
+                    logger.warning(f"🚫 No access to message {msg_id} in {channel_id}. Skipping.")
+                    continue
+
+                # 3. Restore View
                 view = ui.StatusBarView(
                     bar_data.get("content", ""),
                     bar_data.get("user_id", self.user.id),
@@ -1221,9 +1254,18 @@ class LMStudioBot(discord.Client):
                 self.add_view(view, message_id=msg_id)
                 self._register_view(msg_id, view)
                 count += 1
+                
             except Exception as e:
-                logger.error(f"Failed to restore view for {channel_id}: {e}")
-        logger.info(f"✅ Restored {count} status bar views.")
+                logger.error(f"Failed to verify/restore view for {channel_id}: {e}")
+
+        # Cleanup Invalid Bars
+        for cid in to_remove:
+            if cid in self.active_bars:
+                del self.active_bars[cid]
+                memory_manager.delete_bar(cid)
+                memory_manager.remove_bar_whitelist(cid)
+                
+        logger.info(f"✅ Verified and Restored {count} status bar views.")
 
     async def initialize_console_channel(self, t_ch):
         """Initializes or updates the 3 console messages (Header, Master Bar, Uplinks List)."""
@@ -1293,7 +1335,7 @@ class LMStudioBot(discord.Client):
         logger.info(f"Active Bars loaded (DB): {len(self.active_bars)}")
         
         # Restore Views for Persistence
-        self.restore_status_bar_views()
+        await self.verify_and_restore_bars()
         
         # Check for restart metadata
         restart_data = None

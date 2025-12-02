@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 import sys
 import os
 
@@ -15,7 +15,7 @@ class TestWindowPersistence:
         """
         Simulates a reboot scenario:
         1. 'DB' returns active bars.
-        2. Bot runs restore_status_bar_views().
+        2. Bot runs verify_and_restore_bars().
         3. Verify views are re-attached to specific message IDs.
         """
         with patch('discord.Client.__init__'), \
@@ -26,7 +26,6 @@ class TestWindowPersistence:
             bot = LMStudioBot()
             
             # Mock Active Bars (as if loaded from DB)
-            # Note: The 'active_bars' dict structure now includes checkmark_message_id
             bot.active_bars = {
                 1001: {
                     "channel_id": 1001,
@@ -54,28 +53,42 @@ class TestWindowPersistence:
             # Mock methods
             bot.add_view = MagicMock()
             bot._register_view = MagicMock()
+            bot.get_channel = MagicMock()
             
-            # Execute Restore
-            bot.restore_status_bar_views()
+            # Mock Channel/Message Fetch
+            mock_channel = AsyncMock()
+            mock_message = AsyncMock()
+            mock_channel.fetch_message.return_value = mock_message
+            bot.get_channel.return_value = mock_channel
+            
+            # Execute Restore (Async now)
+            await bot.verify_and_restore_bars()
             
             # Verify
             assert bot.add_view.call_count == 2
             
             # Check Call 1 (Channel 1001)
-            # Note: Python dicts are ordered since 3.7, so 1001 should be first.
-            args1, kwargs1 = bot.add_view.call_args_list[0]
-            view1 = args1[0]
+            # Order isn't guaranteed in dict iteration usually, but often consistent in Py3.7+
+            # Let's find them by ID
+            calls = bot.add_view.call_args_list
             
+            # Helper to find call by message_id
+            def find_call(msg_id):
+                for args, kwargs in calls:
+                    if kwargs['message_id'] == msg_id:
+                        return args[0], kwargs
+                return None, None
+
+            view1, kwargs1 = find_call(5001)
+            assert view1 is not None
             assert isinstance(view1, ui.StatusBarView)
-            assert kwargs1['message_id'] == 5001 # Crucial: Attached to correct message
+            assert kwargs1['message_id'] == 5001 
             assert view1.channel_id == 1001
             assert view1.persisting is True
             assert view1.original_user_id == 999
             
-            # Check Call 2 (Channel 1002)
-            args2, kwargs2 = bot.add_view.call_args_list[1]
-            view2 = args2[0]
-            
+            view2, kwargs2 = find_call(6001)
+            assert view2 is not None
             assert isinstance(view2, ui.StatusBarView)
             assert kwargs2['message_id'] == 6001
             assert view2.channel_id == 1002
