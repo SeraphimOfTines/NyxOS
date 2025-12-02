@@ -165,7 +165,9 @@ class StatusBarView(discord.ui.View):
 
     async def check_auth(self, interaction, button):
         # Only Original User or Admin
-        if interaction.user.id == self.original_user_id or helpers.is_authorized(interaction.user):
+        # If original_user_id is None (Straggler/Generic View), allow Admin only (or anyone? prefer Admin/Owner)
+        is_original = (self.original_user_id and interaction.user.id == self.original_user_id)
+        if is_original or helpers.is_authorized(interaction.user):
             return True
         
         # Unauthorized Animation
@@ -183,9 +185,14 @@ class StatusBarView(discord.ui.View):
         if not await self.check_auth(interaction, button): return
         
         await interaction.response.defer()
+        
+        cid = interaction.channel_id
+        if hasattr(interaction.client, "handle_bar_touch"):
+             await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
+
         if hasattr(interaction.client, "drop_status_bar"):
             # Drop All: Move Bar + Move Check
-            await interaction.client.drop_status_bar(self.channel_id, move_bar=True, move_check=True)
+            await interaction.client.drop_status_bar(cid, move_bar=True, move_check=True)
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 
@@ -194,9 +201,14 @@ class StatusBarView(discord.ui.View):
         if not await self.check_auth(interaction, button): return
         
         await interaction.response.defer()
+        
+        cid = interaction.channel_id
+        if hasattr(interaction.client, "handle_bar_touch"):
+             await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
+
         if hasattr(interaction.client, "drop_status_bar"):
             # Drop Bar Only: Move Bar, Leave Check Behind (move_check=False)
-            await interaction.client.drop_status_bar(self.channel_id, move_bar=True, move_check=False)
+            await interaction.client.drop_status_bar(cid, move_bar=True, move_check=False)
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 
@@ -205,9 +217,14 @@ class StatusBarView(discord.ui.View):
         if not await self.check_auth(interaction, button): return
         
         await interaction.response.defer()
+
+        cid = interaction.channel_id
+        if hasattr(interaction.client, "handle_bar_touch"):
+             await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
+
         if hasattr(interaction.client, "drop_status_bar"):
             # Drop Check: Moves Check to Bar (and drags bar to bottom if needed per request)
-            await interaction.client.drop_status_bar(self.channel_id, move_bar=True, move_check=True)
+            await interaction.client.drop_status_bar(cid, move_bar=True, move_check=True)
         else:
             await interaction.followup.send("❌ Error: Functionality not found.", ephemeral=True)
 
@@ -216,15 +233,20 @@ class StatusBarView(discord.ui.View):
         if not await self.check_auth(interaction, button): return
         
         self.persisting = not self.persisting
+        cid = interaction.channel_id
+        
+        # Register touch first to ensure it exists in active_bars
+        if hasattr(interaction.client, "handle_bar_touch"):
+             await interaction.client.handle_bar_touch(cid, interaction.message, user_id=interaction.user.id)
         
         # Update global state
-        if hasattr(interaction.client, "active_bars") and self.channel_id in interaction.client.active_bars:
-            interaction.client.active_bars[self.channel_id]['persisting'] = self.persisting
+        if hasattr(interaction.client, "active_bars") and cid in interaction.client.active_bars:
+            interaction.client.active_bars[cid]['persisting'] = self.persisting
             
             # Sync to DB
-            bar_data = interaction.client.active_bars[self.channel_id]
+            bar_data = interaction.client.active_bars[cid]
             memory_manager.save_bar(
-                self.channel_id,
+                cid,
                 interaction.guild_id,
                 bar_data["message_id"],
                 bar_data["user_id"],
@@ -249,7 +271,7 @@ class StatusBarView(discord.ui.View):
              await interaction.response.defer()
              if hasattr(interaction.client, "drop_status_bar"):
                  # When auto-dropping for persistence, we likely want to keep the checkmark if it's there.
-                 await interaction.client.drop_status_bar(self.channel_id, move_bar=True, move_check=True)
+                 await interaction.client.drop_status_bar(cid, move_bar=True, move_check=True)
         else:
              self.update_buttons()
              await interaction.response.edit_message(view=self)

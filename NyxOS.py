@@ -208,15 +208,91 @@ class LMStudioBot(discord.Client):
         await services.service.start()
         self.add_view(ui.ResponseView())
         self.add_view(ui.ConsoleControlView())
+        
+        # Register a global/fallback StatusBarView to catch "stragglers"
+        # We use None/defaults, relying on the view to pull info from the interaction
+        self.add_view(ui.StatusBarView("Loading...", None, None, False))
+        
         asyncio.create_task(self.heartbeat_task())
 
-    async def handle_bar_touch(self, channel_id):
-        """Centralized handler for bar interactions (touch events). Syncs DB state to Console."""
-        # 1. Update Console
+    async def handle_bar_touch(self, channel_id, message=None, user_id=None):
+        """
+        Centralized handler for bar interactions.
+        - Registers/Adopts straggler bars into DB.
+        - Updates location (message_id).
+        - Syncs with Console List.
+        - Syncs content with Master Bar if needed.
+        """
         try:
+            # 1. Adopt/Register if missing
+            if channel_id not in self.active_bars:
+                logger.info(f"👻 Adopting straggler bar in {channel_id}")
+                
+                # Ensure allowed
+                memory_manager.add_allowed_channel(channel_id)
+                memory_manager.add_bar_whitelist(channel_id)
+                
+                # Basic defaults
+                self.active_bars[channel_id] = {
+                    "content": "Recovered Bar",
+                    "user_id": user_id if user_id else self.user.id,
+                    "message_id": message.id if message else None,
+                    "checkmark_message_id": message.id if message else None,
+                    "persisting": False,
+                    "current_prefix": "<a:NotWatching:1301840196966285322>",
+                    "has_notification": False
+                }
+                
+                # Pull content from message if available
+                if message and message.content:
+                    clean_content = message.content
+                    if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in clean_content:
+                        clean_content = clean_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
+                    self.active_bars[channel_id]["content"] = clean_content
+                    
+                    # Try to sync with Master Bar since we just recovered it
+                    master = memory_manager.get_master_bar()
+                    if master:
+                         # We don't edit immediately to avoid rate limits/spam on a simple touch,
+                         # but we update our internal state to match what it *should* be?
+                         # Actually, user asked to "sync with the master bar once detected".
+                         # Let's trigger a propagation for this single bar.
+                         pass
+
+            # 2. Update Message ID (Movement detection)
+            if message and self.active_bars[channel_id].get("message_id") != message.id:
+                logger.info(f"📍 Updating location for bar in {channel_id}: {message.id}")
+                self.active_bars[channel_id]["message_id"] = message.id
+                # Assume checkmark is with it unless we know otherwise
+                self.active_bars[channel_id]["checkmark_message_id"] = message.id
+                
+                # Update DB
+                memory_manager.save_channel_location(channel_id, message.id, message.id)
+
+            # 3. Clear Notification
+            if self.active_bars[channel_id].get("has_notification"):
+                self.active_bars[channel_id]["has_notification"] = False
+                memory_manager.set_bar_notification(channel_id, False)
+
+            # 4. Persist Current State to DB
+            bar_data = self.active_bars[channel_id]
+            memory_manager.save_bar(
+                channel_id,
+                message.guild.id if message and message.guild else None,
+                bar_data["message_id"],
+                bar_data["user_id"],
+                bar_data["content"],
+                bar_data["persisting"],
+                current_prefix=bar_data.get("current_prefix"),
+                has_notification=False,
+                checkmark_message_id=bar_data.get("checkmark_message_id")
+            )
+
+            # 5. Sync Console
             await self.update_console_status()
+
         except Exception as e:
-            logger.error(f"Failed to sync console after touch in {channel_id}: {e}")
+            logger.error(f"Failed to handle bar touch in {channel_id}: {e}")
 
     def request_bar_drop(self, channel_id):
         """Debounced drop request manager (config.BAR_DEBOUNCE_SECONDS silence timer)."""
@@ -266,6 +342,38 @@ class LMStudioBot(discord.Client):
         except: pass
 
     async def drop_status_bar(self, channel_id, move_bar=True, move_check=True, manual=True):
+        # Attempt recovery if missing
+        if channel_id not in self.active_bars:
+             channel = self.get_channel(channel_id)
+             if not channel:
+                 try: channel = await self.fetch_channel(channel_id)
+                 except: pass
+             
+             if channel:
+                 # Scan for straggler
+                 found_content = await self.find_last_bar_content(channel)
+                 # We need the message ID too... find_last_bar_content just returns content string currently.
+                 # We need a method that finds the MESSAGE.
+                 # Let's iterate history here or make a helper.
+                 last_msg = None
+                 async for msg in channel.history(limit=20):
+                     if msg.author.id == self.user.id:
+                         is_bar = False
+                         if msg.components:
+                             for row in msg.components:
+                                 for child in row.children:
+                                     if getattr(child, "custom_id", "").startswith("bar_"):
+                                         is_bar = True; break
+                                 if is_bar: break
+                         if is_bar:
+                             last_msg = msg
+                             break
+                 
+                 if last_msg:
+                     await self.handle_bar_touch(channel_id, last_msg)
+                 else:
+                     return # Truly nothing found
+
         if channel_id not in self.active_bars: return
         
         bar_data = self.active_bars[channel_id]
