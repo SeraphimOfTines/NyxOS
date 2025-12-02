@@ -802,7 +802,7 @@ class LMStudioBot(discord.Client):
         Does NOT move the bar (edits in place).
         """
         # 1. Update Master Bar in Database (Source of Truth)
-        clean_suffix = new_text_suffix.strip()
+        clean_suffix = new_text_suffix.strip().replace('\n', ' ')
         clean_suffix = re.sub(r'>[ \t]+<', '><', clean_suffix)
         memory_manager.set_master_bar(clean_suffix)
 
@@ -1085,7 +1085,7 @@ class LMStudioBot(discord.Client):
             logger.warning("Propagate called but no Master Bar set.")
             return 0
         
-        master_content = master_content.strip()
+        master_content = master_content.strip().replace('\n', ' ')
 
         whitelist = set(map(str, memory_manager.get_bar_whitelist()))
         targets = [cid for cid in self.active_bars if str(cid) in whitelist]
@@ -1630,7 +1630,7 @@ class LMStudioBot(discord.Client):
             if chk in content:
                 content = content.replace(chk, "").strip()
             
-            content = content.strip()
+            content = content.strip().replace('\n', ' ')
             for emoji in ui.BAR_PREFIX_EMOJIS:
                 if content.startswith(emoji):
                     content = content[len(emoji):].strip()
@@ -1761,7 +1761,7 @@ class LMStudioBot(discord.Client):
         # Cleanup old
         await self.cleanup_old_bars(interaction.channel)
         
-        new_content = new_content.strip()
+        new_content = new_content.strip().replace('\n', ' ')
         # Strip spaces between emojis
         new_content = re.sub(r'>[ \t]+<', '><', new_content)
         
@@ -2317,12 +2317,15 @@ async def bar_command(interaction: discord.Interaction, content: str):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
     
-    memory_manager.set_master_bar(content)
+    # Sanitize: Strip and remove newlines to prevent formatting breakages
+    clean_content = content.strip().replace('\n', ' ')
+    
+    memory_manager.set_master_bar(clean_content)
     count = await client.propagate_master_bar()
     
     # Update Console/Startup Bar Message
     if hasattr(client, "startup_bar_msg") and client.startup_bar_msg:
-        try: await client.startup_bar_msg.edit(content=content.strip())
+        try: await client.startup_bar_msg.edit(content=clean_content)
         except: pass
 
     await interaction.response.send_message(f"✅ Master Bar updated and propagated to {count} channels.", ephemeral=True, delete_after=2.0)
@@ -2376,6 +2379,8 @@ async def addbar_command(interaction: discord.Interaction):
 
     # 3. Build Content
     master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
+    master_content = master_content.strip().replace('\n', ' ')
+    
     content = f"{prefix} {master_content} {ui.FLAVOR_TEXT['CHECKMARK_EMOJI']}"
     content = re.sub(r'>[ \t]+<', '><', content)
     
