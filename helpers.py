@@ -92,6 +92,29 @@ def get_identity_suffix(user_obj, system_id, member_name=None, my_system_members
     # 4. Default
     return config.DEFAULT_TITLE
 
+def is_admin(user_obj):
+    """Checks if a user is an Admin."""
+    # Handle raw IDs gracefully
+    if isinstance(user_obj, (int, str)):
+        try:
+            uid = int(user_obj)
+            if uid in config.ADMIN_USER_IDS: return True
+            if uid in config.ADMIN_ROLE_IDS: return True
+        except: pass
+        return False
+
+    # Check object ID
+    if hasattr(user_obj, "id"):
+        if user_obj.id in config.ADMIN_USER_IDS: return True
+        if user_obj.id in config.ADMIN_ROLE_IDS: return True
+
+    # Check Roles
+    if hasattr(user_obj, "roles"):
+        role_ids = [r.id for r in user_obj.roles]
+        if any(rid in config.ADMIN_ROLE_IDS for rid in role_ids): return True
+    
+    return False
+
 def is_authorized(user_obj):
     """Checks if a user is authorized (Admin/Special)."""
     # Handle raw IDs gracefully

@@ -88,6 +88,7 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
     last_percent = -1
     current_filename = "Initializing..."
     last_filename = ""
+    current_file_size_str = "0 B"
     
     current_channel_idx = 0
     total_channels = 0
@@ -123,7 +124,7 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
             # Check for Progress Update from Stdout
             prog_match = list(progress_pattern.finditer(output_buffer))
             
-            percent = last_percent
+            real_percent = 0
             if prog_match:
                 match = prog_match[-1]
                 try:
@@ -134,12 +135,56 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
                     total_channels = total
                     
                     if total > 0:
-                        percent = int((current / total) * 100)
+                        # Calculate actual percentage
+                        real_percent = int((current / total) * 100)
                 except ValueError:
                     pass
+            
+            # Logic: 
+            # If we are actively processing (current_channel_idx > 0), we want to show movement.
+            # We'll increment 'percent' by 1 every update loop, but cap it at 'real_percent' OR
+            # if real_percent hasn't moved, we cap it at (real_percent + some buffer? No, that's lying).
+            # Wait, the user said "go up by 1% increments for the percentage but not the bar".
+            # The bar is derived from the percent passed to callback. 
+            # So if I pass 5%, bar shows 1 block. If I pass 6%, bar still shows 1 block (until 10%).
+            # So I can just smoothly increment 'last_percent' towards 'real_percent'.
+            
+            # Actually, simpler interpretation: 
+            # If 'real_percent' jumps from 5% to 10%, we want to animate 6, 7, 8, 9, 10.
+            # But we only update every 3 seconds. 
+            # So maybe just Ensure we don't jump?
+            
+            # OR, did they mean: "Even if real percent is stuck at 1%, show 2%, 3%...?" 
+            # "Can we update the percentage by 1% increments as the display refreshes?"
+            # This implies fake progress. 
+            # Let's assume they want to "fill in the gaps" between the 3s intervals if real percent > last percent.
+            
+            # Let's try this: 
+            # We will increment the displayed percent by 1 every cycle, provided it doesn't exceed 
+            # the real calculated percent + a small buffer (e.g. 1-2%) to show "activity".
+            # BUT, we can't exceed 100%.
+            
+            # Actually, simplest interpretation of "update by 1% increments":
+            # If we are actively backing up, just add 1% to the displayed value every 3s, 
+            # UNLESS we are way ahead of the real value (e.g. > 5% ahead).
+            # This keeps it "moving" even if a channel is huge.
+            
+            target_percent = real_percent
+            if current_channel_idx > 0:
+                # Allow drifting ahead of real percent by up to 3% to show "work is happening"
+                # But snap back if real percent jumps ahead.
+                
+                # If we are behind real percent, catch up by 1.
+                if last_percent < target_percent:
+                    percent = last_percent + 1
+                # If we are equal or ahead (stalled), creep forward slowly (fake progress),
+                # but cap at real_percent + 4 to prevent being totally wrong.
+                elif last_percent < (target_percent + 4) and last_percent < 99:
+                    percent = last_percent + 1
+                else:
+                    percent = last_percent # Cap hit
             else:
-                # If no progress numbers yet, assume 0% but still run loop to show filename
-                percent = max(0, last_percent)
+                percent = 0
 
             now = time.time()
             elapsed = int(now - start_time)
@@ -181,6 +226,15 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
                                 current_filename = parts[-1].strip()
                             else:
                                 current_filename = raw_name.strip()
+                                
+                            # 4. Calculate Total Directory Size (Fast)
+                            # We use 'du' because recursive python walk is slow for large backups
+                            try:
+                                du_res = subprocess.check_output(['du', '-sb', backup_dir], stderr=subprocess.DEVNULL)
+                                total_bytes = int(du_res.split()[0])
+                                current_file_size_str = get_human_readable_size(total_bytes)
+                            except:
+                                current_file_size_str = "Calculating..."
 
                 except OSError:
                     pass # Ignore FS errors
@@ -195,12 +249,15 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
                 last_filename = current_filename
                 
                 status_base = config.BACKUP_FLAVOR_TEXT.get("DOWNLOAD", "Downloading...")
+                time_label = config.BACKUP_FLAVOR_TEXT.get("TIME_LABEL", "⏳ **Time Elapsed:**")
+                processing_label = config.BACKUP_FLAVOR_TEXT.get("PROCESSING_LABEL", "📂 **Processing:**")
                 
                 channel_info = ""
                 if total_channels > 0:
                     channel_info = f" (Channel {current_channel_idx}/{total_channels})"
                     
-                status_msg = f"{status_base}\n⏳ **Time Elapsed:** `{elapsed_str}`\n📂 **Processing:** `{current_filename}`{channel_info}"
+                # Update display to show Total Size next to Time
+                status_msg = f"{status_base}\n{time_label} `{elapsed_str}` (`{current_file_size_str}`)\n{processing_label} `{current_filename}`{channel_info}"
                     
                 if progress_callback:
                     await progress_callback(percent, status_msg)
@@ -370,8 +427,14 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
     # Get Admin Ping
     admin_ping = config.ADMIN_PINGS.get(output_name, "")
 
+    # Get Template based on target
+    if isinstance(config.BACKUP_COMPLETION_TEMPLATE, dict):
+        template = config.BACKUP_COMPLETION_TEMPLATE.get(output_name, config.BACKUP_COMPLETION_TEMPLATE.get("Default"))
+    else:
+        template = config.BACKUP_COMPLETION_TEMPLATE # Fallback if still string
+
     # Format Template
-    final_message = config.BACKUP_COMPLETION_TEMPLATE.format(
+    final_message = template.format(
         size=readable_size,
         password="1234",
         next_due=next_due_date,

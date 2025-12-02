@@ -106,7 +106,9 @@ BACKUP_FLAVOR_TEXT = {
     "DOWNLOAD": "📥 Downloading...",
     "ARCHIVE": "📦 Archiving files...",
     "UPLOAD": "☁️ Uploading to Dropbox...",
-    "FINISH": "✨ Generating final report..."
+    "FINISH": "✨ Generating final report...",
+    "TIME_LABEL": "⏳ **Time Elapsed:**",
+    "PROCESSING_LABEL": "📂 **Processing:**"
 }
 
 # Backup Messaging Defaults

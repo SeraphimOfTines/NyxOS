@@ -651,8 +651,8 @@ class BackupControlView(discord.ui.View):
     @discord.ui.button(label="🛑 Cancel Backup", style=discord.ButtonStyle.danger, custom_id="backup_cancel_btn")
     async def cancel_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Only authorized users can cancel
-        if not helpers.is_authorized(interaction.user):
-            await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        if not helpers.is_admin(interaction.user):
+            await interaction.response.send_message("Lol no.", ephemeral=True)
             return
         
         if self.cancelled:
