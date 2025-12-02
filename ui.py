@@ -118,7 +118,7 @@ class BugReportModal(discord.ui.Modal, title="Report a Bug"):
             embed.add_field(name="Source Message", value=link_val)
             
             await thread.send(embed=embed)
-            await interaction.response.send_message(FLAVOR_TEXT["BUG_REPORT_THANKS"], ephemeral=True)
+            await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
             
             # Update button on original message if IDs were passed
             if self.original_message_id and self.channel_id:

@@ -2086,7 +2086,7 @@ class LMStudioBot(discord.Client):
                     has_notification=False,
                     checkmark_message_id=active_msg.id
                 )
-                try: await interaction.response.send_message("Updated.", ephemeral=True, delete_after=2.0)
+                try: await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
                 except: pass
                 
                 # Sync Console (Touch Event)
@@ -2154,10 +2154,11 @@ class LMStudioBot(discord.Client):
         # Sync Console (Touch Event)
         await self.handle_bar_touch(interaction.channel_id)
         
-        try: await interaction.delete_original_response()
+        try: 
+            await interaction.edit_original_response(content="✅")
+            await asyncio.sleep(0.5)
+            await interaction.delete_original_response()
         except: pass
-        
-        await interaction.delete_original_response()
 
     async def replace_bar_content(self, interaction, new_content):
         """Replaces the entire bar content (preserving checkmark) and drops it."""
@@ -2207,6 +2208,8 @@ class LMStudioBot(discord.Client):
         # Touch Event
         await self.handle_bar_touch(interaction.channel_id)
         
+        await interaction.edit_original_response(content="✅")
+        await asyncio.sleep(0.5)
         await interaction.delete_original_response()
 
     async def sync_bars(self):
@@ -2417,16 +2420,16 @@ async def add_channel_command(interaction: discord.Interaction):
     if not member_obj: member_obj = interaction.user
 
     if not helpers.is_authorized(member_obj):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
     
     allowed_ids = memory_manager.get_allowed_channels()
     if interaction.channel_id in allowed_ids:
-        await interaction.response.send_message("✅ Channel already whitelisted.", ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
     else:
         memory_manager.add_allowed_channel(interaction.channel_id)
         await client.update_console_status()
-        await interaction.response.send_message(f"😄 I'll talk in this channel!", ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="removechannel", description="Remove the current channel from the bot's whitelist.")
 async def remove_channel_command(interaction: discord.Interaction):
@@ -2440,52 +2443,83 @@ async def remove_channel_command(interaction: discord.Interaction):
     if not member_obj: member_obj = interaction.user
 
     if not helpers.is_authorized(member_obj):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
         
     allowed_ids = memory_manager.get_allowed_channels()
     if interaction.channel_id in allowed_ids:
         memory_manager.remove_allowed_channel(interaction.channel_id)
         await client.update_console_status()
-        await interaction.response.send_message(f"🤐 I'll ignore this channel!", ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
     else:
-        await interaction.response.send_message("⚠️ Channel not in whitelist.", ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="enableall", description="Enable Global Chat Mode (Talk in ALL channels).")
 async def enableall_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
     memory_manager.set_server_setting("global_chat_enabled", True)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_ENABLED"], ephemeral=False, delete_after=2.0)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="disableall", description="Disable Global Chat Mode (Talk in whitelist only).")
 async def disableall_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
     memory_manager.set_server_setting("global_chat_enabled", False)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_CHAT_DISABLED"], ephemeral=False, delete_after=2.0)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="reboot", description="Full restart of the bot process.")
 async def reboot_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=False, delete_after=2.0)
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
+    
+    # Construct Console Link
+    guild_id = interaction.guild_id if interaction.guild else "@me"
+    target_ch = config.STARTUP_CHANNEL_ID
+    msg_id = client.startup_header_msg.id if hasattr(client, 'startup_header_msg') and client.startup_header_msg else None
+    
+    url = f"https://discord.com/channels/{guild_id}/{target_ch}"
+    if msg_id: url += f"/{msg_id}"
+    
+    if not target_ch: url = "https://discord.com/channels/@me" # Fallback
+
+    await interaction.response.send_message(f"[Jump to Console]({url})", ephemeral=True, delete_after=2.0)
     await client.perform_shutdown_sequence(interaction, restart=True)
+
+@client.tree.command(name="console", description="Get a link to the console channel.")
+async def console_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        return
+
+    # Construct Console Link
+    guild_id = interaction.guild_id if interaction.guild else "@me"
+    target_ch = config.STARTUP_CHANNEL_ID
+    msg_id = client.startup_header_msg.id if hasattr(client, 'startup_header_msg') and client.startup_header_msg else None
+    
+    url = f"https://discord.com/channels/{guild_id}/{target_ch}"
+    if msg_id: url += f"/{msg_id}"
+    
+    if not target_ch: url = "https://discord.com/channels/@me"
+
+    await interaction.response.send_message(f"[Jump to Console]({url})", ephemeral=True, delete_after=2.0)
 
 @client.tree.command(name="shutdown", description="Gracefully shut down the bot.")
 async def shutdown_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
+    # Shutdown sequence triggers UI changes, so we give a brief checkmark before it takes over/closes
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
     await client.perform_shutdown_sequence(interaction, restart=False)
 
 @client.tree.command(name="killmyembeds", description="Toggle auto-suppression of hyperlink embeds for your messages.")
 async def killmyembeds_command(interaction: discord.Interaction):
-    is_enabled = memory_manager.toggle_suppressed_user(interaction.user.id)
-    msg = ui.FLAVOR_TEXT["EMBED_SUPPRESSION_ENABLED"] if is_enabled else ui.FLAVOR_TEXT["EMBED_SUPPRESSION_DISABLED"]
-    await interaction.response.send_message(msg, ephemeral=True, delete_after=2.0)
+    memory_manager.toggle_suppressed_user(interaction.user.id)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="suppressembedson", description="Enable the server-wide embed suppression feature.")
 async def suppressembedson_command(interaction: discord.Interaction):
@@ -2493,7 +2527,7 @@ async def suppressembedson_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
     memory_manager.set_server_setting("embed_suppression", True)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_SUPPRESSION_ON"], ephemeral=True, delete_after=2.0)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="suppressembedsoff", description="Disable the server-wide embed suppression feature.")
 async def suppressembedsoff_command(interaction: discord.Interaction):
@@ -2501,7 +2535,7 @@ async def suppressembedsoff_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
     memory_manager.set_server_setting("embed_suppression", False)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["GLOBAL_SUPPRESSION_OFF"], ephemeral=True, delete_after=2.0)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="clearmemory", description="Clear the bot's memory for this channel.")
 async def clearmemory_command(interaction: discord.Interaction):
@@ -2513,7 +2547,7 @@ async def clearmemory_command(interaction: discord.Interaction):
     client._update_lru_cache(client.channel_cutoff_times, interaction.channel_id, interaction.created_at, limit=500)
     
     memory_manager.clear_channel_memory(interaction.channel_id, interaction.channel.name)
-    await interaction.response.send_message(ui.FLAVOR_TEXT["CLEAR_MEMORY_DONE"], ephemeral=True, delete_after=2.0)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="reportbug", description="Submit a bug report.")
 async def reportbug_command(interaction: discord.Interaction):
@@ -2540,16 +2574,15 @@ async def synccommands_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
     try:
         await client.tree.sync()
         # Update hash
         new_hash = client.get_tree_hash()
         with open(config.COMMAND_STATE_FILE, "w") as f:
             f.write(new_hash)
-        await interaction.followup.send("✅ Commands force-synced and state updated.", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"❌ Error syncing: {e}", ephemeral=True)
+        logger.error(f"Sync failed: {e}")
 
 @client.tree.command(name="debug", description="Toggle Debug Mode (Admin Only).")
 async def debug_command(interaction: discord.Interaction):
@@ -2559,8 +2592,7 @@ async def debug_command(interaction: discord.Interaction):
     current = memory_manager.get_server_setting("debug_mode", False)
     new_mode = not current
     memory_manager.set_server_setting("debug_mode", new_mode)
-    msg = ui.FLAVOR_TEXT["DEBUG_MODE_ON"] if new_mode else ui.FLAVOR_TEXT["DEBUG_MODE_OFF"]
-    await interaction.response.send_message(msg, ephemeral=True, delete_after=2.0)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="testmessage", description="Send a test message (Admin/Debug Only).")
 async def testmessage_command(interaction: discord.Interaction):
@@ -2592,7 +2624,7 @@ async def clearallmemory_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
     memory_manager.wipe_all_memories()
-    await interaction.response.send_message(ui.FLAVOR_TEXT["MEMORY_WIPED"], ephemeral=True, delete_after=2.0)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="wipelogs", description="Wipe ALL logs (Admin/Debug Only).")
 async def wipelogs_command(interaction: discord.Interaction):
@@ -2600,7 +2632,7 @@ async def wipelogs_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
     memory_manager.wipe_all_logs()
-    await interaction.response.send_message(ui.FLAVOR_TEXT["LOGS_WIPED"], ephemeral=True, delete_after=2.0)
+    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
 @client.tree.command(name="debugtest", description="Run unit tests and report results (Admin Only).")
 async def debugtest_command(interaction: discord.Interaction):
@@ -2608,42 +2640,35 @@ async def debugtest_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
 
-    await interaction.response.defer(ephemeral=True)
+    # 1. Send Thinking Emoji
+    # We use send_message instead of defer to show the custom emoji
+    await interaction.response.send_message("<a:Thinking:1322962569300017214>", ephemeral=True)
     
     import io
     import pytest
     import contextlib
     
-    # Capture stdout/stderr
     log_capture = io.StringIO()
     
     def run_tests():
-        # Redirect stdout and stderr to our capture buffer
         with contextlib.redirect_stdout(log_capture), contextlib.redirect_stderr(log_capture):
-            # Run pytest
             return pytest.main(["-v", "--color=no", "tests/"])
             
-    # Run in a separate thread to avoid event loop conflicts
     start_time = time.time()
     exit_code = await asyncio.to_thread(run_tests)
     duration = time.time() - start_time
     output = log_capture.getvalue()
     
-    # Log to console/file
     logger.info(f"Debug Test Output:\n{output}")
     
-    # Send to Discord
-    if exit_code == 0:
-        status = "✅ PASSED"
-    elif exit_code == 1:
-        status = "❌ FAILED"
-    else:
-        status = f"⚠️ ERROR (Code: {exit_code})"
-
-    msg = f"**Unit Test Results:** {status}\nDuration: {duration:.3f}s."
+    # 2. Determine Result Emoji
+    result_emoji = "✅" if exit_code == 0 else "<a:SeraphCryHandsSnap:1297004800117837906>"
     
+    msg = f"{result_emoji} **Unit Test Results** ({duration:.3f}s)"
     file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
-    await interaction.followup.send(msg, file=file)
+    
+    # 3. Edit Original Message
+    await interaction.edit_original_response(content=msg, attachments=[file])
 
 @client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
 async def nukedatabase_command(interaction: discord.Interaction):
@@ -2704,7 +2729,7 @@ async def backup_command(interaction: discord.Interaction, target: app_commands.
     cancel_event = asyncio.Event()
     view = ui.BackupControlView(cancel_event)
 
-    await interaction.response.send_message(f"⏳ Initializing backup for **{server_alias}**...", ephemeral=False, view=view)
+    await interaction.response.send_message(f"⏳ Initializing backup for **{server_alias}**...", ephemeral=True, view=view)
     msg = await interaction.original_response()
 
     async def progress_update(percent, status_text):
@@ -2737,6 +2762,8 @@ async def bar_command(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=False)
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
     await interaction.delete_original_response()
 
 @client.tree.command(name="dropall", description="Drop the bar AND the checkmark together.")
@@ -2747,6 +2774,8 @@ async def dropall_command(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=True)
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
     await interaction.delete_original_response()
 
 @client.tree.command(name="addbar", description="Summon a status bar to this channel.")
@@ -2840,7 +2869,10 @@ async def addbar_command(interaction: discord.Interaction):
     # 6. Touch Event (Sync Console)
     await client.handle_bar_touch(interaction.channel_id)
     
-    await interaction.followup.send("✅ Bar summoned.", ephemeral=True)
+    # Confirmation
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="removebar", description="Remove bar and un-whitelist channel.")
 async def removebar_command(interaction: discord.Interaction):
@@ -2848,11 +2880,13 @@ async def removebar_command(interaction: discord.Interaction):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
 
+    await interaction.response.defer(ephemeral=True)
     memory_manager.remove_bar_whitelist(interaction.channel_id)
     await client.wipe_channel_bars(interaction.channel)
-    await interaction.response.send_message("✅ Bar removed and channel un-whitelisted.", ephemeral=True, delete_after=2.0)
-
-
+    
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="cleanbars", description="Wipe all Uplink Bar artifacts and checkmarks from the channel.")
 async def cleanbars_command(interaction: discord.Interaction):
@@ -2862,7 +2896,10 @@ async def cleanbars_command(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     count = await client.wipe_channel_bars(interaction.channel)
-    await interaction.followup.send(f"🧹 Wiped {count} Uplink Bar artifacts.", ephemeral=True)
+    
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="sleep", description="Put all bars to sleep.")
 async def sleep_command(interaction: discord.Interaction):
@@ -2872,7 +2909,10 @@ async def sleep_command(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     count = await client.sleep_all_bars()
-    await interaction.followup.send(f"😴 Put ~{count} bars to sleep.", ephemeral=True)
+    
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="idle", description="Set all bars to Idle (Not Watching).")
 async def idle_command(interaction: discord.Interaction):
@@ -2882,7 +2922,10 @@ async def idle_command(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     count = await client.idle_all_bars()
-    await interaction.followup.send(f"😶 Set ~{count} bars to Idle.", ephemeral=True)
+    
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="dropcheck", description="Drop the checkmark onto the bar (drags bar down if needed).")
 async def dropcheck_command(interaction: discord.Interaction):
@@ -2893,6 +2936,8 @@ async def dropcheck_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     # User: "dragging it all the way down to the bottom". So move_bar=True.
     await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=True)
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
     await interaction.delete_original_response()
 
 @client.tree.command(name="thinking", description="Set status to Thinking.")
@@ -2950,6 +2995,8 @@ async def drop_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     # Default drop behavior: Drop All
     await client.drop_status_bar(interaction.channel_id, move_bar=True, move_check=True)
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
     await interaction.delete_original_response()
 
 @client.tree.command(name="help", description="Show the help index.")
@@ -2964,13 +3011,13 @@ async def help_command(interaction: discord.Interaction):
     
     embed.add_field(
         name="Bar Management", 
-        value="`/bar` - Drop/Refresh bar (Checkmark stays behind).\n`/dropall` - Drop Bar + Checkmark.\n`/setbar` - Set Master Bar Content.\n`/addbar` - Summon a persistent bar here.\n`/removebar` - Remove bar and un-whitelist channel.\n`/dropcheck` - Drop only the checkmark.\n`/linkcheck` - Get link to current checkmark.\n`/restore` - Restore last bar content.\n`/restore2` - Restore previous bar content (backup).\n`/cleanbars` - Wipe bar artifacts.\n`/syncbars` - Cleanup invalid/ghost bars.\n`/syncconsole` - Sync console list (slow).", 
+        value="`/bar` - Drop/Refresh bar (Checkmark stays behind).\n`/dropall` - Drop Bar + Checkmark.\n`/addbar` - Summon a persistent bar here.\n`/removebar` - Remove bar and un-whitelist channel.\n`/dropcheck` - Drop only the checkmark.\n`/cleanbars` - Wipe bar artifacts.", 
         inline=False
     )
     
     embed.add_field(
         name="Status Control (Global)", 
-        value="`/global` - Update text on ALL bars.\n`/sleep` - Put all bars to sleep.\n`/idle` - Set all bars to Idle (Not Watching).\n`/awake` - Wake up all bars.\n`/speedall0` - Set all to Not Watching.\n`/speedall1` - Set all to Watching Occasionally.\n`/speedall2` - Set all to Watching Closely.", 
+        value="`/global` - Update text on ALL bars.\n`/sleep` - Put all bars to sleep.\n`/idle` - Set all bars to Idle (Not Watching).\n`/awake` - Wake up all bars.", 
         inline=False
     )
     
@@ -2982,7 +3029,7 @@ async def help_command(interaction: discord.Interaction):
     
     embed.add_field(
         name="System / Admin", 
-        value="`/addchannel` - Whitelist current channel.\n`/removechannel` - Blacklist current channel.\n`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/clearmemory` - Clear channel memory.\n`/clearallmemory` - Wipe ALL memories.\n`/wipelogs` - Wipe ALL logs.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test message.\n`/synccommands` - Force sync slash commands.\n`/suppressembedson/off` - Global embed suppression.", 
+        value="`/console` - Jump to Console.\n`/addchannel` - Whitelist current channel.\n`/removechannel` - Blacklist current channel.\n`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/clearmemory` - Clear channel memory.\n`/clearallmemory` - Wipe ALL memories.\n`/wipelogs` - Wipe ALL logs.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test message.\n`/synccommands` - Force sync slash commands.\n`/suppressembedson/off` - Global embed suppression.", 
         inline=False
     )
     
@@ -3005,8 +3052,12 @@ async def global_command(interaction: discord.Interaction, text: str):
     if not helpers.is_authorized(interaction.user):
          await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
          return
+    await interaction.response.defer(ephemeral=True)
     count = await client.global_update_bars(text)
-    await interaction.response.send_message(f"🌐 Updated text for ~{count} bars.", ephemeral=True, delete_after=2.0)
+    
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
+    await interaction.delete_original_response()
 
 @client.tree.command(name="awake", description="Wake up all bars (restore from idle/sleep).")
 async def awake_command(interaction: discord.Interaction):
@@ -3016,7 +3067,10 @@ async def awake_command(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     count = await client.awake_all_bars()
-    await interaction.followup.send(f"🌅 Woke up ~{count} bars.", ephemeral=True)
+    
+    await interaction.edit_original_response(content="✅")
+    await asyncio.sleep(0.5)
+    await interaction.delete_original_response()
 
 
 
