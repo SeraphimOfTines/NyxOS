@@ -636,3 +636,33 @@ class ResponseView(discord.ui.View):
             return
         memory_manager.wipe_all_logs()
         await interaction.response.send_message(FLAVOR_TEXT["LOGS_WIPED"], ephemeral=True)
+
+
+# ==========================================
+# BACKUP CONTROL VIEW
+# ==========================================
+
+class BackupControlView(discord.ui.View):
+    def __init__(self, cancel_event):
+        super().__init__(timeout=None)
+        self.cancel_event = cancel_event
+        self.cancelled = False
+
+    @discord.ui.button(label="🛑 Cancel Backup", style=discord.ButtonStyle.danger, custom_id="backup_cancel_btn")
+    async def cancel_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Only authorized users can cancel
+        if not helpers.is_authorized(interaction.user):
+            await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+            return
+        
+        if self.cancelled:
+            await interaction.response.send_message("⚠️ Cancellation already in progress...", ephemeral=True)
+            return
+
+        self.cancelled = True
+        self.cancel_event.set()
+        
+        button.label = "Cancelling..."
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send("🛑 Cancellation signal sent. Waiting for safe stop...", ephemeral=True)

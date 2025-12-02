@@ -9,10 +9,13 @@ logger = logging.getLogger("Helpers")
 def get_safe_mime_type(attachment):
     filename = attachment.filename.lower()
     
-    # 1. Priority: Check Extension
+    # 1. Priority: Check Extension (Explicit mapping for consistency)
     if filename.endswith('.png'): return 'image/png'
     if filename.endswith(('.jpg', '.jpeg')): return 'image/jpeg'
     if filename.endswith('.webp'): return 'image/webp'
+    if filename.endswith('.gif'): return 'image/gif'
+    if filename.endswith('.bmp'): return 'image/bmp'
+    if filename.endswith(('.tif', '.tiff')): return 'image/tiff'
     
     # 2. Trust Discord
     if attachment.content_type and attachment.content_type.startswith('image/'):

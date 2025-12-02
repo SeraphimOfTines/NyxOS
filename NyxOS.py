@@ -75,6 +75,7 @@ import helpers
 import services
 import memory_manager
 import ui
+import backup_manager
 
 # ==========================================
 # BOT SETUP
@@ -760,11 +761,16 @@ class LMStudioBot(discord.Client):
 
                 # Construct New Content
                 clean_middle = current_content
+                found_prefix = None
                 for emoji in ui.BAR_PREFIX_EMOJIS:
                     if clean_middle.startswith(emoji):
+                        found_prefix = emoji
                         clean_middle = clean_middle[len(emoji):].strip()
                         break
                 
+                # Set DB Sleep State (Persist original prefix)
+                memory_manager.set_bar_sleeping(cid, True, original_prefix=found_prefix)
+
                 new_base_content = f"{sleeping_emoji}{clean_middle.strip()}"
                 new_base_content = re.sub(r'>[ \t]+<', '><', new_base_content)
 
@@ -804,7 +810,17 @@ class LMStudioBot(discord.Client):
                             "has_notification": False
                         }
                         self._register_bar_message(cid, msg.id, view)
-                        memory_manager.save_bar(cid, ch.guild.id, msg.id, bar_data["user_id"], new_base_content, persisting, current_prefix=sleeping_emoji, has_notification=False, checkmark_message_id=msg.id)
+                        memory_manager.save_bar(
+                            cid, 
+                            ch.guild.id, 
+                            msg.id, 
+                            bar_data["user_id"], 
+                            new_base_content, 
+                            persisting, 
+                            current_prefix=sleeping_emoji, 
+                            has_notification=False, 
+                            checkmark_message_id=msg.id
+                        )
                         return True
                     except Exception as e:
                         logger.warning(f"Sleep edit failed in {cid}, falling back to wipe/send: {e}")
@@ -2198,13 +2214,14 @@ class MockInteraction:
     class MockResponse:
         def __init__(self, channel):
             self.channel = channel
+            self.last_message = None
             
         async def send_message(self, content=None, **kwargs):
             kwargs.pop('ephemeral', None)
             if content:
-                await self.channel.send(content, **kwargs)
+                self.last_message = await self.channel.send(content, **kwargs)
             else:
-                await self.channel.send(**kwargs)
+                self.last_message = await self.channel.send(**kwargs)
         
         # Alias for followup.send
         async def send(self, content=None, **kwargs):
@@ -2215,6 +2232,12 @@ class MockInteraction:
         def is_done(self): return False
         
         async def delete_original_response(self): pass
+    
+    async def original_response(self):
+        """Simulate getting the original response message."""
+        if self.response.last_message:
+            return self.response.last_message
+        return None # Should ideally raise or return a dummy that logs a warning if nothing sent yet
 
 client = LMStudioBot()
 
@@ -2539,6 +2562,67 @@ async def nukedatabase_command(interaction: discord.Interaction):
         await client.perform_shutdown_sequence(interaction, restart=True)
     else:
         await interaction.followup.send("❌ Database nuke failed. Check logs.", ephemeral=True)
+
+@client.tree.command(name="backup", description="Initiate a full server backup (Admin Only).")
+@app_commands.describe(target="The server alias to backup.")
+@app_commands.choices(target=[
+    app_commands.Choice(name="WM", value="WM"),
+    app_commands.Choice(name="Temple", value="Temple"),
+    app_commands.Choice(name="Shrine (Test)", value="Shrine")
+])
+async def backup_command(interaction: discord.Interaction, target: app_commands.Choice[str]):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        return
+
+    # Handle both Slash Command (Choice object) and Prefix Command (String)
+    server_alias = target.value if hasattr(target, 'value') else target
+    
+    # Basic validation for prefix usage
+    if isinstance(target, str) and target not in config.BACKUP_TARGETS:
+        # Try to find a match case-insensitively or loosely
+        found = None
+        for k in config.BACKUP_TARGETS.keys():
+            if k.lower() == target.lower():
+                server_alias = k
+                found = True
+                break
+        if not found:
+            await interaction.response.send_message(f"❌ Invalid target '{target}'. Available: {', '.join(config.BACKUP_TARGETS.keys())}", ephemeral=True)
+            return
+
+    guild_id = config.BACKUP_TARGETS.get(server_alias)
+    
+    if not guild_id:
+        await interaction.response.send_message(f"❌ Configuration Error: No ID found for target '{server_alias}'. Check config.txt.", ephemeral=True)
+        return
+
+    # Setup Cancellation
+    cancel_event = asyncio.Event()
+    view = ui.BackupControlView(cancel_event)
+
+    await interaction.response.send_message(f"⏳ Initializing backup for **{server_alias}**...", ephemeral=False, view=view)
+    msg = await interaction.original_response()
+
+    async def progress_update(percent, status_text):
+        try:
+            bar_length = 20
+            filled = int(bar_length * percent / 100)
+            bar = "█" * filled + "░" * (bar_length - filled)
+            
+            # Status text already has info, avoid redundant percent if possible or just keep it clean
+            content = f"**Backup Progress: {server_alias}**\n`[{bar}]` {percent}%\n{status_text}"
+            await msg.edit(content=content, view=view)
+        except:
+            pass
+
+    success, result = await backup_manager.run_backup(guild_id, server_alias, progress_update, cancel_event)
+    
+    # Final Update (Remove Buttons)
+    if success:
+        await msg.edit(content=result, view=None)
+    else:
+        await msg.edit(content=f"❌ Backup Failed/Cancelled.\n{result}", view=None)
 
 @client.tree.command(name="setbar", description="Update the Master Bar content and propagate to all whitelisted channels.")
 async def setbar_command(interaction: discord.Interaction, content: str):
@@ -3031,6 +3115,7 @@ async def on_message(message):
             "clearallmemory": (clearallmemory_command, None),
             "wipelogs": (wipelogs_command, None),
             "nukedatabase": (nukedatabase_command, None),
+            "backup": (backup_command, "target"),
             "debugtest": (debugtest_command, None),
             "help": (help_command, None),
             "killmyembeds": (killmyembeds_command, None),

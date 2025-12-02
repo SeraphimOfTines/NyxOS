@@ -3,4 +3,5 @@ aiohttp
 python-dotenv
 PyNaCl
 asyncpg
+dropbox
 pytest

@@ -434,7 +434,7 @@ class APIService:
             return await self._send_payload(merged_messages)
         except Exception as e:
             if "400" in str(e) or "base64" in str(e).lower():
-                logger.error(f"Vision Payload Failed ({e}). Retrying text-only...")
+                logger.error(f"Vision Payload Failed. Error: {e}. Retrying request without images...")
                 text_only_messages = self._strip_images(merged_messages)
                 return await self._send_payload(text_only_messages)
             raise e
@@ -494,6 +494,13 @@ class APIService:
             else:
                 clean_messages.append(msg)
         return clean_messages
+
+    async def get_chat_response(self, messages):
+        """
+        Simplified wrapper for direct chat completions (e.g., used by Backup Manager).
+        Allows passing a raw list of messages directly to the configured LLM.
+        """
+        return await self._send_payload(messages)
 
 # Global Instance
 service = APIService()

@@ -89,6 +89,31 @@ MSG_CRASH_HEADER = "# <a:SeraphBurningFuck:1304766240648204298> I just crashed! 
 MSG_CRASH_SUB = "-# unexpected shutdown detected"
 MSG_ACTIVE_UPLINKS_HEADER = "# Active Uplinks"
 
+# Dropbox Configuration Defaults
+DROPBOX_APP_KEY = None
+DROPBOX_APP_SECRET = None
+DROPBOX_REFRESH_TOKEN = None
+
+# Backup Targets Defaults
+BACKUP_TARGETS = {}
+
+# Backup Pings Defaults
+ADMIN_PINGS = {}
+
+# Backup Flavor Text Defaults
+BACKUP_FLAVOR_TEXT = {
+    "START": "🚀 Starting backup process...",
+    "DOWNLOAD": "📥 Downloading...",
+    "ARCHIVE": "📦 Archiving files...",
+    "UPLOAD": "☁️ Uploading to Dropbox...",
+    "FINISH": "✨ Generating final report..."
+}
+
+# Backup Messaging Defaults
+BACKUP_COMPLETION_TEMPLATE = "**Backup Complete:** {size} | [Download]({link})"
+TEMPLE_BACKUP_PROMPT = "Say something nice about the backup."
+WM_BACKUP_PROMPT = "Be snarky about the backup."
+
 try:
     with open(get_path("config.txt"), "r") as f:
         # Be careful with exec. It executes in the current scope.
