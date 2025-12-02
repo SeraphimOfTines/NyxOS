@@ -181,18 +181,31 @@ async def handle_prefix_command(client, message):
 
         progress_msg = await message.channel.send(f"🚀 Initializing backup for **{output_name}** ({target_type.capitalize()})...")
         
+        # Create Cancel Event & View
+        cancel_event = asyncio.Event()
+        view = ui.BackupControlView(cancel_event)
+        await progress_msg.edit(view=view)
+
         async def progress_callback(pct, status):
             try:
                 bar = helpers.generate_progress_bar(pct)
-                await progress_msg.edit(content=f"**{output_name} Backup**\n{bar} {pct}%\n{status}")
+                await progress_msg.edit(content=f"**{output_name} Backup**\n{bar} {pct}%\n{status}", view=view)
             except: pass
             
-        success, result = await backup_manager.run_backup(target_id, output_name, target_type=target_type, progress_callback=progress_callback, estimated_total_channels=estimated_total)
+        success, result = await backup_manager.run_backup(
+            target_id, 
+            output_name, 
+            target_type=target_type, 
+            progress_callback=progress_callback, 
+            estimated_total_channels=estimated_total,
+            cancel_event=cancel_event
+        )
         
+        # Remove View on Finish
         if success:
-             await progress_msg.edit(content=result)
+             await progress_msg.edit(content=result, view=None)
         else:
-             await progress_msg.edit(content=f"❌ **Backup Failed:** {result}")
+             await progress_msg.edit(content=f"❌ **Backup Failed:** {result}", view=None)
              
         return True
 

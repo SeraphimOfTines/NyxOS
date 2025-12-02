@@ -102,7 +102,8 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
         cmd_list = [
             EXPORTER_CLI_PATH,
             "channels",
-            "-g", str(target_id)
+            "-g", str(target_id),
+            "--include-threads", "All"
         ]
         
         try:
@@ -134,9 +135,15 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
         for line in lines:
             if "|" in line:
                 parts = line.split("|", 1)
-                c_id = parts[0].strip()
+                
+                # Sanitize ID: Remove any markers like '*', spaces, etc.
+                raw_id = parts[0].strip()
+                c_id = "".join(filter(str.isdigit, raw_id))
+                
                 c_name = parts[1].strip()
-                channels_to_export.append((c_id, c_name))
+                
+                if c_id:
+                    channels_to_export.append((c_id, c_name))
             
     total_channels = len(channels_to_export)
     logger.info(f"Found {total_channels} channels to export.")
@@ -150,6 +157,10 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
             return False, "🛑 Backup Cancelled by User."
 
         current_idx = i + 1
+        
+        # Debug Log: Start of Channel
+        logger.info(f"Processing {current_idx}/{total_channels}: {c_name} ({c_id})")
+
         percent = int((current_idx / total_channels) * 90) # Map to 0-90% range (reserve 10% for archive/upload)
         
         # Calculate Time
@@ -204,8 +215,68 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
                 stderr=asyncio.subprocess.PIPE,
                 env=env
             )
-            # Wait for it to finish
-            _, stderr_data = await export_proc.communicate()
+            
+            # Create a task to handle communication (drains pipes to prevent deadlock)
+            communicate_task = asyncio.create_task(export_proc.communicate())
+            
+            # Wait for completion or cancellation
+            task_start_time = time.time()
+            last_debug_log = task_start_time
+            last_ui_update = task_start_time
+            
+            while not communicate_task.done():
+                if cancel_event and cancel_event.is_set():
+                    export_proc.terminate()
+                    try:
+                        await asyncio.wait_for(export_proc.wait(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        export_proc.kill()
+                    
+                    communicate_task.cancel()
+                    try: await communicate_task
+                    except: pass
+                    
+                    return False, "🛑 Backup Cancelled by User."
+                
+                # Debug Heartbeat (every 30s)
+                if time.time() - last_debug_log > 30:
+                    duration = int(time.time() - task_start_time)
+                    logger.info(f"Still exporting {c_name}... ({duration}s elapsed)")
+                    last_debug_log = time.time()
+
+                # Live UI Update (every 5s)
+                if time.time() - last_ui_update > 5:
+                    # Recalculate Time
+                    now = time.time()
+                    elapsed = int(now - start_time)
+                    hours, rem = divmod(elapsed, 3600)
+                    minutes, seconds = divmod(rem, 60)
+                    elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                    
+                    # Recalculate Size
+                    try:
+                        du_res = subprocess.check_output(['du', '-sb', backup_dir], stderr=subprocess.DEVNULL)
+                        total_bytes = int(du_res.split()[0])
+                        current_file_size_str = get_human_readable_size(total_bytes)
+                    except:
+                        current_file_size_str = "Calculating..."
+
+                    # Re-construct Status Msg
+                    status_msg = f"{status_base}\n{time_label} `{elapsed_str}` (`{current_file_size_str}`)\n{processing_label} `{c_name}` ({current_idx}/{total_channels})"
+                    
+                    if progress_callback:
+                        try: await progress_callback(percent, status_msg)
+                        except: pass
+                    
+                    last_ui_update = time.time()
+
+                # Wait briefly for task completion
+                done, pending = await asyncio.wait([communicate_task], timeout=1.0)
+                if done:
+                    break
+
+            # Get result
+            _, stderr_data = await communicate_task
             
             if export_proc.returncode != 0:
                 err_msg = stderr_data.decode('utf-8')
@@ -216,6 +287,8 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
                     logger.warning(f"Access denied or missing: {c_name}. Skipping.")
                 else:
                     logger.warning(f"Export failed for {c_name}: {err_msg[:100]}")
+            else:
+                logger.info(f"Finished export for {c_name}")
                     
         except Exception as e:
             logger.error(f"Export exception for {c_name}: {e}")

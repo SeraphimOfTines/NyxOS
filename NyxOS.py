@@ -2739,18 +2739,32 @@ async def backup_command(interaction: discord.Interaction, target: str):
     await interaction.response.send_message(f"🚀 Initializing backup for **{output_name}** ({target_type.capitalize()})...", ephemeral=False)
     progress_msg = await interaction.original_response()
     
+    # Create Cancel Event & View
+    cancel_event = asyncio.Event()
+    view = ui.BackupControlView(cancel_event)
+    await progress_msg.edit(view=view)
+    
     async def progress_callback(pct, status):
         try:
             bar = helpers.generate_progress_bar(pct)
-            await progress_msg.edit(content=f"**{output_name} Backup**\n{bar} {pct}%\n{status}")
+            # Update view as well to keep button active? No, view persists.
+            await progress_msg.edit(content=f"**{output_name} Backup**\n{bar} {pct}%\n{status}", view=view)
         except: pass
         
-    success, result = await backup_manager.run_backup(target_id, output_name, target_type=target_type, progress_callback=progress_callback, estimated_total_channels=estimated_total)
+    success, result = await backup_manager.run_backup(
+        target_id, 
+        output_name, 
+        target_type=target_type, 
+        progress_callback=progress_callback, 
+        estimated_total_channels=estimated_total,
+        cancel_event=cancel_event
+    )
     
+    # Remove View on Finish
     if success:
-         await progress_msg.edit(content=result)
+         await progress_msg.edit(content=result, view=None)
     else:
-         await progress_msg.edit(content=f"❌ **Backup Failed:** {result}")
+         await progress_msg.edit(content=f"❌ **Backup Failed:** {result}", view=None)
 
 
 
