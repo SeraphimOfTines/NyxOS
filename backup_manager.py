@@ -91,6 +91,9 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
     current_filename = "Initializing..."
     last_filename = ""
     
+    current_channel_idx = 0
+    total_channels = 0
+    
     start_time = time.time()
 
     while True:
@@ -134,6 +137,10 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
                 try:
                     current = int(match.group(1))
                     total = int(match.group(2))
+                    
+                    current_channel_idx = current
+                    total_channels = total
+                    
                     if total > 0:
                         percent = int((current / total) * 100)
                 except ValueError:
@@ -148,10 +155,10 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
 
             # Update if:
             # 1. Percentage changed
-            # 2. It's been 3 seconds since last update (to show filename activity/time)
+            # 2. It's been 5 seconds since last update (throttled)
             # 3. Filename changed
             should_update = (percent != last_percent) or \
-                            (now - last_update_time >= 3) or \
+                            (now - last_update_time >= 5) or \
                             (current_filename != last_filename)
             
             if should_update:
@@ -160,7 +167,12 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
                 last_filename = current_filename
                 
                 status_base = config.BACKUP_FLAVOR_TEXT.get("DOWNLOAD", "Downloading...")
-                status_msg = f"{status_base}\n⏳ **Time Elapsed:** `{elapsed_str}`\n📄 **Processing:** `{current_filename}`"
+                
+                channel_info = ""
+                if total_channels > 0:
+                    channel_info = f" (Channel {current_channel_idx}/{total_channels})"
+                    
+                status_msg = f"{status_base}\n⏳ **Time Elapsed:** `{elapsed_str}`\n📂 **Processing:** `{current_filename}`{channel_info}"
                     
                 if progress_callback:
                     await progress_callback(percent, status_msg)
