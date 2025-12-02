@@ -56,10 +56,11 @@ def get_human_readable_size(size_in_bytes):
         size_in_bytes /= 1024.0
     return f"{size_in_bytes:.2f} PB"
 
-async def run_backup(guild_id, output_name, progress_callback=None, cancel_event=None, estimated_total_channels=0):
+async def run_backup(target_id, output_name, target_type="guild", progress_callback=None, cancel_event=None, estimated_total_channels=0):
     """
-    Runs a full backup of the specified guild by exporting channels one by one
-    to avoid rate limits. Zips and uploads to Dropbox.
+    Runs a full backup of the specified guild OR channel.
+    If target_type is 'channel', target_id is treated as a Channel ID.
+    If target_type is 'guild', target_id is treated as a Guild ID.
     """
     
     if not config.BOT_TOKEN:
@@ -76,49 +77,66 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
     if not os.path.exists(backup_dir):
         os.makedirs(backup_dir)
 
-    logger.info(f"Starting backup for Guild {guild_id} to {backup_dir}")
+    logger.info(f"Starting backup for {target_type} {target_id} to {backup_dir}")
     if progress_callback:
         await progress_callback(0, config.BACKUP_FLAVOR_TEXT.get("START", "Starting..."))
 
-    # 2. Fetch Channel List
-    # We use the CLI to get the list of channels first
+    # 2. Determine Channels to Export
     env = os.environ.copy()
-    env["DISCORD_TOKEN"] = config.BOT_TOKEN
-    
-    cmd_list = [
-        EXPORTER_CLI_PATH,
-        "channels",
-        "-g", str(guild_id)
-    ]
-    
-    try:
-        list_proc = await asyncio.create_subprocess_exec(
-            *cmd_list,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env
-        )
-        stdout, stderr = await list_proc.communicate()
-        
-        if list_proc.returncode != 0:
-            err_msg = stderr.decode('utf-8')
-            logger.error(f"Failed to list channels: {err_msg}")
-            return False, f"❌ Channel list failed: {err_msg[:100]}"
-            
-    except Exception as e:
-         logger.error(f"Failed to execute channel list command: {e}")
-         return False, f"❌ Channel list command failed: {e}"
+    token_to_use = config.BACKUP_TOKEN if config.BACKUP_TOKEN else config.BOT_TOKEN
+    if not token_to_use:
+        return False, "❌ No valid token found for backup (BACKUP_TOKEN or BOT_TOKEN)."
 
-    # Parse Channels
-    # Output format: ID | Name
+    env["DISCORD_TOKEN"] = token_to_use
     channels_to_export = []
-    lines = stdout.decode('utf-8').strip().split('\n')
-    for line in lines:
-        if "|" in line:
-            parts = line.split("|", 1)
-            c_id = parts[0].strip()
-            c_name = parts[1].strip()
-            channels_to_export.append((c_id, c_name))
+
+    if target_type == "channel":
+        # Single Channel Mode
+        # We use the output_name as the channel name for display purposes mostly, 
+        # or we could try to fetch it, but let's just use the ID/Name provided.
+        # Actually, the Exporter handles the naming mostly, but for our list we need a name.
+        channels_to_export.append((str(target_id), output_name))
+    
+    else:
+        # Guild Mode: Fetch Channel List
+        cmd_list = [
+            EXPORTER_CLI_PATH,
+            "channels",
+            "-g", str(target_id)
+        ]
+        
+        try:
+            list_proc = await asyncio.create_subprocess_exec(
+                *cmd_list,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env
+            )
+            stdout, stderr = await list_proc.communicate()
+            
+            if list_proc.returncode != 0:
+                err_msg = stderr.decode('utf-8')
+                logger.error(f"Failed to list channels: {err_msg}")
+                
+                if "not found" in err_msg.lower():
+                    return False, f"❌ Guild {target_id} not found. Is the bot/user in the server?"
+                elif "401" in err_msg or "Unauthorized" in err_msg:
+                    return False, "❌ Backup Token/Bot Token is invalid or unauthorized."
+                
+                return False, f"❌ Channel list failed: {err_msg[:100]}"
+                
+        except Exception as e:
+             logger.error(f"Failed to execute channel list command: {e}")
+             return False, f"❌ Channel list command failed: {e}"
+
+        # Parse Channels
+        lines = stdout.decode('utf-8').strip().split('\n')
+        for line in lines:
+            if "|" in line:
+                parts = line.split("|", 1)
+                c_id = parts[0].strip()
+                c_name = parts[1].strip()
+                channels_to_export.append((c_id, c_name))
             
     total_channels = len(channels_to_export)
     logger.info(f"Found {total_channels} channels to export.")
@@ -328,7 +346,9 @@ async def run_backup(guild_id, output_name, progress_callback=None, cancel_event
         await progress_callback(99, config.BACKUP_FLAVOR_TEXT.get("FINISH", "Finishing..."))
 
     # Calculate Next Due (6 Months)
-    next_due_date = (datetime.now(timezone.utc) + timedelta(days=30*6)).strftime("%B %d, %Y")
+    future_date = datetime.now(timezone.utc) + timedelta(days=30*6)
+    next_due_timestamp = int(future_date.timestamp())
+    next_due_date = f"<t:{next_due_timestamp}:R>"
     
     # Get LLM Message
     llm_message = "Backup complete!"

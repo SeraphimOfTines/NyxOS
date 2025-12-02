@@ -37,6 +37,7 @@ PLURALKIT_DB_URI = "postgresql://postgres:postgres@localhost:5432/postgres"
 # Secrets are loaded from .env or config.txt
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+BACKUP_TOKEN = os.getenv("BACKUP_TOKEN")
 KAGI_API_TOKEN = os.getenv("KAGI_API_TOKEN")
 
 # --- PROMPTS ---
@@ -155,11 +156,13 @@ if os.getenv("BAR_DEBOUNCE_SECONDS"): BAR_DEBOUNCE_SECONDS = float(os.getenv("BA
 if os.getenv("NOTIFICATION_EMOJI"): NOTIFICATION_EMOJI = os.getenv("NOTIFICATION_EMOJI")
 
 # Backup IDs
-TEMPLE_GUILD_ID = 0
-WM_GUILD_ID = 0
+TEMPLE_GUILD_ID = 411597692037496833
+WM_GUILD_ID = 455914046688985091
+SHRINE_CHANNEL_ID = 1367453553865785384
 
 if os.getenv("TEMPLE_GUILD_ID"): TEMPLE_GUILD_ID = int(os.getenv("TEMPLE_GUILD_ID"))
 if os.getenv("WM_GUILD_ID"): WM_GUILD_ID = int(os.getenv("WM_GUILD_ID"))
+if os.getenv("SHRINE_CHANNEL_ID"): SHRINE_CHANNEL_ID = int(os.getenv("SHRINE_CHANNEL_ID"))
 
 # --- PLURALKIT API CONFIGURATION ---
 # Check for overrides from Environment

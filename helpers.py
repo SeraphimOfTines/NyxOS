@@ -6,6 +6,13 @@ import config
 
 logger = logging.getLogger("Helpers")
 
+def generate_progress_bar(percent, length=15):
+    """Generates a text-based progress bar."""
+    percent = max(0, min(100, percent))
+    filled_length = int(length * percent // 100)
+    bar = "█" * filled_length + "-" * (length - filled_length)
+    return f"[{bar}]"
+
 def get_safe_mime_type(attachment):
     filename = attachment.filename.lower()
     

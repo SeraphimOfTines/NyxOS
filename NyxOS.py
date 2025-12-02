@@ -2691,66 +2691,66 @@ async def nukedatabase_command(interaction: discord.Interaction):
     else:
         await interaction.followup.send("❌ Database nuke failed. Check logs.", ephemeral=True)
 
-@client.tree.command(name="backup", description="Initiate a full server backup (Admin Only).")
-@app_commands.describe(target="The server alias to backup.")
-@app_commands.choices(target=[
-    app_commands.Choice(name="WM", value="WM"),
-    app_commands.Choice(name="Temple", value="Temple"),
-    app_commands.Choice(name="Shrine (Test)", value="Shrine")
-])
-async def backup_command(interaction: discord.Interaction, target: app_commands.Choice[str]):
+@client.tree.command(name="backup", description="Run a backup for the specified target (Temple, WM, or Shrine).")
+@app_commands.describe(target="Target: 'temple', 'wm', or 'shrine'")
+async def backup_command(interaction: discord.Interaction, target: str):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
 
-    # Handle both Slash Command (Choice object) and Prefix Command (String)
-    server_alias = target.value if hasattr(target, 'value') else target
+    target = target.lower()
+    target_id = None
+    output_name = None
+    target_type = "guild"
     
-    # Basic validation for prefix usage
-    if isinstance(target, str) and target not in config.BACKUP_TARGETS:
-        # Try to find a match case-insensitively or loosely
-        found = None
-        for k in config.BACKUP_TARGETS.keys():
-            if k.lower() == target.lower():
-                server_alias = k
-                found = True
-                break
-        if not found:
-            await interaction.response.send_message(f"❌ Invalid target '{target}'. Available: {', '.join(config.BACKUP_TARGETS.keys())}", ephemeral=True)
-            return
-
-    guild_id = config.BACKUP_TARGETS.get(server_alias)
-    
-    if not guild_id:
-        await interaction.response.send_message(f"❌ Configuration Error: No ID found for target '{server_alias}'. Check config.txt.", ephemeral=True)
-        return
-
-    # Setup Cancellation
-    cancel_event = asyncio.Event()
-    view = ui.BackupControlView(cancel_event)
-
-    await interaction.response.send_message(f"⏳ Initializing backup for **{server_alias}**...", ephemeral=True, view=view)
-    msg = await interaction.original_response()
-
-    async def progress_update(percent, status_text):
-        try:
-            bar_length = 20
-            filled = int(bar_length * percent / 100)
-            bar = "█" * filled + "░" * (bar_length - filled)
-            
-            # Status text already has info, avoid redundant percent if possible or just keep it clean
-            content = f"# **Backup Progress: {server_alias}**\n`[{bar}]` {percent}%\n{status_text}"
-            await msg.edit(content=content, view=view)
-        except:
-            pass
-
-    success, result = await backup_manager.run_backup(guild_id, server_alias, progress_update, cancel_event)
-    
-    # Final Update (Remove Buttons)
-    if success:
-        await msg.edit(content=result, view=None)
+    if target == "temple":
+        target_id = config.TEMPLE_GUILD_ID
+        output_name = "Temple"
+    elif target == "wm":
+        target_id = config.WM_GUILD_ID
+        output_name = "WM"
+    elif target == "shrine":
+        target_id = config.SHRINE_CHANNEL_ID
+        output_name = "Shrine"
+        target_type = "channel"
     else:
-        await msg.edit(content=f"❌ Backup Failed/Cancelled.\n{result}", view=None)
+         await interaction.response.send_message("⚠️ Unknown target. Use `temple`, `wm`, or `shrine`.", ephemeral=True)
+         return
+         
+    if not target_id:
+         await interaction.response.send_message(f"❌ ID for {output_name} is not configured.", ephemeral=True)
+         return
+
+    # Estimate Total Channels
+    estimated_total = 0
+    if target_type == "guild":
+        try:
+            guild = client.get_guild(target_id)
+            if not guild:
+                guild = await client.fetch_guild(target_id)
+            if guild:
+                 channels = await guild.fetch_channels()
+                 estimated_total = len(channels)
+        except Exception as e:
+             logger.warning(f"Failed to fetch estimated channel count: {e}")
+    else:
+        estimated_total = 1
+
+    await interaction.response.send_message(f"🚀 Initializing backup for **{output_name}** ({target_type.capitalize()})...", ephemeral=False)
+    progress_msg = await interaction.original_response()
+    
+    async def progress_callback(pct, status):
+        try:
+            bar = helpers.generate_progress_bar(pct)
+            await progress_msg.edit(content=f"**{output_name} Backup**\n{bar} {pct}%\n{status}")
+        except: pass
+        
+    success, result = await backup_manager.run_backup(target_id, output_name, target_type=target_type, progress_callback=progress_callback, estimated_total_channels=estimated_total)
+    
+    if success:
+         await progress_msg.edit(content=result)
+    else:
+         await progress_msg.edit(content=f"❌ **Backup Failed:** {result}")
 
 
 

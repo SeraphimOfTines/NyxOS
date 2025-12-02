@@ -39,9 +39,10 @@ USE_LOCAL_PLURALKIT = False
 LOCAL_PLURALKIT_API_URL = "http://localhost:5000/v2"
 PLURALKIT_DB_URI = "postgresql://postgres:postgres@localhost:5432/postgres"
 
-# Secrets
-BOT_TOKEN = "your_discord_bot_token_here"
-KAGI_API_TOKEN = "your_kagi_api_token_here"
+# Discord & Kagi
+BOT_TOKEN="YOUR_BOT_TOKEN_HERE"
+BACKUP_TOKEN="OPTIONAL_USER_TOKEN_FOR_BACKUPS"
+KAGI_API_TOKEN="YOUR_KAGI_TOKEN_HERE"
 
 # Prompts
 SYSTEM_PROMPT = """You are a cyborg girl who is here to party and clown around."""
