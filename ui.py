@@ -264,6 +264,13 @@ class StatusBarView(discord.ui.View):
                 del interaction.client.active_bars[self.channel_id]
                 memory_manager.delete_bar(self.channel_id)
         
+        # NEW: Remove from whitelist to clear from console
+        memory_manager.remove_bar_whitelist(self.channel_id)
+
+        # Trigger console update
+        if hasattr(interaction.client, "update_console_status"):
+            asyncio.create_task(interaction.client.update_console_status())
+        
         await services.service.limiter.wait_for_slot("delete_message", interaction.channel_id)
         await interaction.message.delete()
 

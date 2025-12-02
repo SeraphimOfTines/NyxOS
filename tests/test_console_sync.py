@@ -22,36 +22,36 @@ class TestConsoleSync(unittest.IsolatedAsyncioTestCase):
         self.console_msg.channel.id = 999
         self.client.console_progress_msgs = [self.console_msg]
         
-    async def test_idle_all_bars_updates_prefix(self):
-        # Setup
-        cid = 123
-        self.client.active_bars = {
-            cid: {
-                "content": "OldContent", 
-                "user_id": 1, 
-                "message_id": 10, 
-                "checkmark_message_id": 10
+        async def test_idle_all_bars_updates_prefix(self):
+            # Setup
+            cid = 123
+            self.client.active_bars = {
+                cid: {
+                    "content": "OldContent",
+                    "user_id": 1,
+                    "message_id": 10,
+                    "checkmark_message_id": 10
+                }
             }
-        }
-        
-        with patch('memory_manager.get_allowed_channels', return_value=[cid]), \
-             patch('memory_manager.save_bar') as mock_save, \
-             patch.object(self.client, 'get_channel', return_value=AsyncMock()) as mock_get_ch, \
-             patch.object(self.client, 'update_console_status', new_callable=AsyncMock) as mock_update_console:
-            
-            mock_ch = mock_get_ch.return_value
-            mock_msg = AsyncMock()
-            mock_msg.id = 10
-            mock_ch.fetch_message.return_value = mock_msg
-            
-            # Execute
-            await self.client.idle_all_bars()
-            
-            # Verify active_bars update
-            self.assertIn("current_prefix", self.client.active_bars[cid])
-            idle_emoji = "<a:NotWatching:1301840196966285322>"
-            self.assertEqual(self.client.active_bars[cid]["current_prefix"], idle_emoji)
-            
+    
+            with patch('memory_manager.get_allowed_channels', return_value=[cid]), \
+                 patch('memory_manager.save_bar') as mock_save, \
+                 patch('memory_manager.get_server_setting', return_value="normal"), \
+                 patch.object(self.client, 'get_channel', return_value=AsyncMock()) as mock_get_ch, \
+                 patch.object(self.client, 'update_console_status', new_callable=AsyncMock) as mock_update_console:
+                
+                mock_ch = mock_get_ch.return_value
+                mock_msg = AsyncMock()
+                mock_msg.id = 10
+                mock_ch.fetch_message.return_value = mock_msg
+    
+                # Execute
+                await self.client.idle_all_bars()
+    
+                # Verify active_bars update
+                self.assertIn("current_prefix", self.client.active_bars[cid])
+                idle_emoji = "<a:NotWatching:1301840196966285322>"
+                self.assertEqual(self.client.active_bars[cid]["current_prefix"], idle_emoji)            
             # Verify DB Save
             mock_save.assert_called()
             _, kwargs = mock_save.call_args

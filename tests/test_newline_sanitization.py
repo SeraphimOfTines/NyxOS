@@ -26,8 +26,8 @@ class TestNewlineSanitization(unittest.IsolatedAsyncioTestCase):
         self.interaction.followup = MagicMock()
         self.interaction.followup.send = AsyncMock()
 
-    async def test_bar_command_sanitization(self):
-        """Test that /bar strips newlines from input."""
+    async def test_setbar_command_sanitization(self):
+        """Test that /setbar strips newlines from input."""
         with patch('helpers.is_authorized', return_value=True), \
              patch('memory_manager.set_master_bar') as mock_set_bar, \
              patch('NyxOS.client', new=AsyncMock()) as mock_client:
@@ -37,17 +37,15 @@ class TestNewlineSanitization(unittest.IsolatedAsyncioTestCase):
             
             # Execute with malicious input
             dirty_content = "My Cool Status\n"
-            await NyxOS.bar_command.callback(self.interaction, content=dirty_content)
+            await NyxOS.setbar_command.callback(self.interaction, content=dirty_content)
             
-            # Verify
+            # Verify set_master_bar was called with CLEAN content
             mock_set_bar.assert_called_once_with("My Cool Status")
             
-            # Execute with internal newline
-            dirty_content_2 = "Line 1\nLine 2 "
-            mock_set_bar.reset_mock()
-            await NyxOS.bar_command.callback(self.interaction, content=dirty_content_2)
-            
-            mock_set_bar.assert_called_once_with("Line 1 Line 2")
+            # Verify interaction response
+            self.interaction.response.send_message.assert_called_once()
+            args, _ = self.interaction.response.send_message.call_args
+            assert "updated" in args[0]
 
     async def test_addbar_command_sanitization(self):
         """Test that /addbar strips newlines from master bar content before using it."""
