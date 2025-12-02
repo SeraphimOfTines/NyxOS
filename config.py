@@ -90,9 +90,9 @@ MSG_CRASH_SUB = "-# unexpected shutdown detected"
 MSG_ACTIVE_UPLINKS_HEADER = "# Active Uplinks"
 
 # Dropbox Configuration Defaults
-DROPBOX_APP_KEY = None
-DROPBOX_APP_SECRET = None
-DROPBOX_REFRESH_TOKEN = None
+DROPBOX_APP_KEY = os.getenv("DROPBOX_APP_KEY")
+DROPBOX_APP_SECRET = os.getenv("DROPBOX_APP_SECRET")
+DROPBOX_REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN")
 
 # Backup Targets Defaults
 BACKUP_TARGETS = {}
@@ -115,6 +115,10 @@ BACKUP_FLAVOR_TEXT = {
 BACKUP_COMPLETION_TEMPLATE = "**Backup Complete:** {size} | [Download]({link})"
 TEMPLE_BACKUP_PROMPT = "Say something nice about the backup."
 WM_BACKUP_PROMPT = "Be snarky about the backup."
+
+# Archive Password
+TEMPLE_BACKUP_PASSWORD = os.getenv("TEMPLE_BACKUP_PASSWORD")
+WM_BACKUP_PASSWORD = os.getenv("WM_BACKUP_PASSWORD")
 
 try:
     with open(get_path("config.txt"), "r") as f:

@@ -158,15 +158,31 @@ async def handle_prefix_command(client, message):
         if not guild_id:
              await message.channel.send(f"❌ Guild ID for {output_name} is not configured.")
              return True
-             
-        progress_msg = await message.channel.send(f"🚀 Initializing backup for **{output_name}**...")
+
+        # Estimate Total Channels
+        estimated_total = 0
+        try:
+            guild = client.get_guild(guild_id)
+            if not guild:
+                guild = await client.fetch_guild(guild_id)
+                
+            # Note: fetch_guild usually doesn't return full channel list unless cached or specific methods used.
+            # get_guild relies on cache.
+            # The most reliable way is fetch_channels()
+            if guild:
+                 channels = await guild.fetch_channels()
+                 estimated_total = len(channels)
+        except Exception as e:
+             logger.warning(f"Failed to fetch estimated channel count: {e}")
+
+        progress_msg = await message.channel.send(f"🚀 Initializing backup for **{output_name}** (Estimated Channels: {estimated_total})...")
         
         async def progress_callback(pct, status):
             try:
                 await progress_msg.edit(content=f"**{output_name} Backup:** {pct}% - {status}")
             except: pass
             
-        success, result = await backup_manager.run_backup(guild_id, output_name, progress_callback=progress_callback)
+        success, result = await backup_manager.run_backup(guild_id, output_name, progress_callback=progress_callback, estimated_total_channels=estimated_total)
         
         if success:
              await progress_msg.edit(content=result)
