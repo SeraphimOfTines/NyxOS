@@ -30,3 +30,4 @@ status_state.json
 logs/nyxos.log
 logs/nyxos_cli.log
 *.gemini/
+/DiscordImporter
