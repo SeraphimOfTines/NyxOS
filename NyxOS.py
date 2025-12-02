@@ -225,6 +225,13 @@ class LMStudioBot(discord.Client):
         - Syncs content with Master Bar if needed.
         """
         try:
+            # --- REBOOT GUARD ---
+            # Ignore touch events if the message is in "Rebooting" state (visual only).
+            # This prevents the DB from being overwritten with the temporary reboot emoji.
+            if message and ui.FLAVOR_TEXT['REBOOT_EMOJI'] in message.content:
+                return
+            # --------------------
+
             # 1. Adopt/Register if missing
             if channel_id not in self.active_bars:
                 logger.info(f"👻 Adopting straggler bar in {channel_id}")
@@ -1496,21 +1503,46 @@ class LMStudioBot(discord.Client):
                                     break
                             
                             if found_prefix and found_prefix != bar_data.get("current_prefix"):
-                                logger.info(f"🔄 Syncing Bar {channel_id} from Live Message: {found_prefix}")
-                                self.active_bars[channel_id]["current_prefix"] = found_prefix
-                                self.active_bars[channel_id]["content"] = clean_cont
+                                if found_prefix == ui.FLAVOR_TEXT['REBOOT_EMOJI']:
+                                    # RECOVERY: Discord is in "Reboot Mode" (Visual), but DB has the "True" state.
+                                    # RESTORE Discord message to match DB.
+                                    logger.info(f"🔄 Restoring Bar {channel_id} from Reboot state...")
+                                    
+                                    true_content = bar_data.get("content", "Loading...")
+                                    # Ensure checkmark if needed
+                                    check_id = bar_data.get("checkmark_message_id")
+                                    has_merged_check = (check_id == msg.id)
+                                    
+                                    content_to_send = true_content
+                                    if has_merged_check:
+                                        chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                                        if chk not in content_to_send:
+                                            content_to_send = f"{content_to_send} {chk}"
+                                            content_to_send = re.sub(r'>[ \t]+<', '><', content_to_send)
+                                    
+                                    try:
+                                        # Re-apply View (Buttons)
+                                        await msg.edit(content=content_to_send, view=view)
+                                    except Exception as e:
+                                        logger.warning(f"Failed to restore bar {channel_id}: {e}")
                                 
-                                memory_manager.save_bar(
-                                    channel_id,
-                                    msg.guild.id,
-                                    msg.id,
-                                    bar_data["user_id"],
-                                    clean_cont,
-                                    bar_data.get("persisting", False),
-                                    current_prefix=found_prefix,
-                                    has_notification=bar_data.get("has_notification", False),
-                                    checkmark_message_id=bar_data.get("checkmark_message_id")
-                                )
+                                else:
+                                    # Normal Sync: Discord is newer/correct, update DB
+                                    logger.info(f"🔄 Syncing Bar {channel_id} from Live Message: {found_prefix}")
+                                    self.active_bars[channel_id]["current_prefix"] = found_prefix
+                                    self.active_bars[channel_id]["content"] = clean_cont
+                                    
+                                    memory_manager.save_bar(
+                                        channel_id,
+                                        msg.guild.id,
+                                        msg.id,
+                                        bar_data["user_id"],
+                                        clean_cont,
+                                        bar_data.get("persisting", False),
+                                        current_prefix=found_prefix,
+                                        has_notification=bar_data.get("has_notification", False),
+                                        checkmark_message_id=bar_data.get("checkmark_message_id")
+                                    )
                         # ---------------------------------------------
 
                         count += 1
@@ -2265,6 +2297,63 @@ class LMStudioBot(discord.Client):
         await self.update_console_status()
         return removed_count
 
+    async def set_reboot_mode(self):
+        """
+        Sets all active bars to 'Rebooting' mode visually.
+        Does NOT update the database content, ensuring the previous state is preserved for restoration.
+        Removes interactive views (buttons) during reboot.
+        """
+        logger.info("🔄 Setting system to Reboot Mode...")
+        reboot_emoji = ui.FLAVOR_TEXT['REBOOT_EMOJI']
+        
+        tasks = []
+        
+        async def update_bar(cid, bar_data):
+            try:
+                msg_id = bar_data.get("message_id")
+                if not msg_id: return
+                
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: return
+                
+                msg = await ch.fetch_message(msg_id)
+                
+                # Determine current content without prefix
+                current_content = bar_data.get("content", "")
+                
+                # Strip existing prefix
+                for emoji in ui.BAR_PREFIX_EMOJIS:
+                    if current_content.startswith(emoji):
+                        current_content = current_content[len(emoji):].strip()
+                        break
+                
+                # Construct Reboot Content
+                new_content = f"{reboot_emoji} {current_content}"
+                new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                
+                # Handle Checkmark
+                check_id = bar_data.get("checkmark_message_id")
+                has_merged_check = (check_id == msg_id)
+                
+                if has_merged_check:
+                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                    if chk not in new_content:
+                        new_content = f"{new_content} {chk}"
+                        new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                
+                # Edit Message (No View/Buttons)
+                await services.service.limiter.wait_for_slot("edit_message", cid)
+                await msg.edit(content=new_content, view=None)
+                
+            except Exception as e:
+                logger.warning(f"Failed to set reboot mode for {cid}: {e}")
+
+        for cid, bar_data in list(self.active_bars.items()):
+            tasks.append(update_bar(cid, bar_data))
+            
+        if tasks:
+            await asyncio.gather(*tasks)
+
     async def perform_shutdown_sequence(self, interaction, restart=True):
         # 1. Setup
         memory_manager.set_server_setting("global_chat_enabled", False)
@@ -2336,6 +2425,9 @@ class LMStudioBot(discord.Client):
 
         # 5. Meta Write (Only for Reboot)
         if restart:
+            # Set visuals to Reboot Mode (Preserves DB state)
+            await self.set_reboot_mode()
+
             meta = {
                 "channel_id": console_channel.id if console_channel else None,
                 "header_msg_id": h_msg.id if h_msg else None,
