@@ -653,3 +653,38 @@ class Database:
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to set setting {key}: {e}")
+
+    # --- Maintenance Methods ---
+
+    def nuke_database(self):
+        """
+        NUCLEAR OPTION: Drops ALL tables and re-initializes the database.
+        Use only in case of severe corruption or when a hard reset is required.
+        """
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                # Get all table names
+                c.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = c.fetchall()
+                
+                # Drop each table
+                for table in tables:
+                    table_name = table[0]
+                    # sqlite_sequence is internal, usually don't drop it manually but for a nuke... 
+                    # Dropping tables with AUTOINCREMENT usually handles it, but let's be safe and skip internal ones if needed.
+                    # Actually, dropping everything is fine, init_db will recreate.
+                    if table_name != "sqlite_sequence":
+                        c.execute(f"DROP TABLE IF EXISTS {table_name}")
+                
+                # If we want to be thorough about autoincrement counters:
+                c.execute("DELETE FROM sqlite_sequence")
+                
+                conn.commit()
+            
+            logger.warning("⚠️ DATABASE NUKED! All tables dropped. Re-initializing...")
+            self._init_db()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to nuke database: {e}")
+            return False

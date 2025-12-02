@@ -233,6 +233,31 @@ async def handle_prefix_command(client, message):
         await message.channel.send(ui.FLAVOR_TEXT["LOGS_WIPED"])
         return True
 
+    # &nukedatabase
+    if cmd == "&nukedatabase":
+        if not helpers.is_authorized(author_to_check):
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+        
+        success = memory_manager.nuke_database()
+        if success:
+            await message.channel.send("☢️ **DATABASE NUKED.** All data has been erased. Rebooting system...")
+            # Restart Logic
+            meta = {"channel_id": message.channel.id}
+            try:
+                with open(config.RESTART_META_FILE, "w") as f:
+                    json.dump(meta, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to write restart metadata: {e}")
+            await client.close()
+            python = sys.executable
+            os.execl(python, python, *sys.argv)
+        else:
+            await message.channel.send("❌ Database nuke failed. Check logs.")
+        return True
+
     # &help
     if cmd == "&help":
         embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())

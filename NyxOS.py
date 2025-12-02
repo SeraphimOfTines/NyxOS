@@ -2281,6 +2281,27 @@ async def debugtest_command(interaction: discord.Interaction):
     file = discord.File(io.BytesIO(output.encode()), filename="test_results.txt")
     await interaction.followup.send(msg, file=file)
 
+@client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
+async def nukedatabase_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        return
+
+    # Confirmation dialog could be nice, but user asked for the command.
+    # We'll just do it but defer first as it might take a moment.
+    await interaction.response.defer(ephemeral=True)
+    
+    logger.warning(f"☢️ DATABASE NUKE INITIATED BY {interaction.user} ({interaction.user.id})")
+    
+    success = memory_manager.nuke_database()
+    
+    if success:
+        await interaction.followup.send("☢️ **DATABASE NUKED.** All data has been erased. Rebooting system...", ephemeral=True)
+        # Trigger reboot
+        await client.perform_shutdown_sequence(interaction, restart=True)
+    else:
+        await interaction.followup.send("❌ Database nuke failed. Check logs.", ephemeral=True)
+
 @client.tree.command(name="bar", description="Update the Master Bar content and propagate to all whitelisted channels.")
 async def bar_command(interaction: discord.Interaction, content: str):
     if not helpers.is_authorized(interaction.user):

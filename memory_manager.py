@@ -24,15 +24,20 @@ def wipe_all_memories():
         logger.error(f"Failed to wipe all memories: {e}")
 
 def wipe_all_logs():
-    import os
-    import config
     try:
-        import shutil
         if os.path.exists(config.LOGS_DIR):
             shutil.rmtree(config.LOGS_DIR)
             os.makedirs(config.LOGS_DIR)
     except Exception as e:
         print(f"Failed to wipe logs: {e}")
+
+def nuke_database():
+    """Wraps the DB nuke command and clears local caches."""
+    global _ALLOWED_CHANNELS_CACHE
+    success = db.nuke_database()
+    if success:
+        _ALLOWED_CHANNELS_CACHE = None
+    return success
 
 # --- Master Bar & Whitelist (DB Facade) ---
 
