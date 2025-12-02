@@ -250,6 +250,16 @@ class LMStudioBot(discord.Client):
                         clean_content = clean_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
                     self.active_bars[channel_id]["content"] = clean_content
                     
+                    # Extract prefix from content to ensure Console Sync is accurate
+                    found_prefix = None
+                    for emoji in ui.BAR_PREFIX_EMOJIS:
+                        if clean_content.startswith(emoji):
+                            found_prefix = emoji
+                            break
+                    
+                    if found_prefix:
+                        self.active_bars[channel_id]["current_prefix"] = found_prefix
+
                     # Try to sync with Master Bar since we just recovered it
                     master = memory_manager.get_master_bar()
                     if master:
@@ -259,15 +269,28 @@ class LMStudioBot(discord.Client):
                          # Let's trigger a propagation for this single bar.
                          pass
 
-            # 2. Update Message ID (Movement detection)
-            if message and self.active_bars[channel_id].get("message_id") != message.id:
-                logger.info(f"📍 Updating location for bar in {channel_id}: {message.id}")
-                self.active_bars[channel_id]["message_id"] = message.id
-                # Assume checkmark is with it unless we know otherwise
-                self.active_bars[channel_id]["checkmark_message_id"] = message.id
-                
-                # Update DB
-                memory_manager.save_channel_location(channel_id, message.id, message.id)
+            # 2. Update Message ID (Movement detection) & Sync Content/Prefix
+            if message:
+                # Update location if changed
+                if self.active_bars[channel_id].get("message_id") != message.id:
+                    logger.info(f"📍 Updating location for bar in {channel_id}: {message.id}")
+                    self.active_bars[channel_id]["message_id"] = message.id
+                    self.active_bars[channel_id]["checkmark_message_id"] = message.id
+                    memory_manager.save_channel_location(channel_id, message.id, message.id)
+
+                # Always sync content/prefix from message on touch to ensure consistency
+                if message.content:
+                    clean_content = message.content
+                    if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in clean_content:
+                        clean_content = clean_content.replace(ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], "").strip()
+                    
+                    # Only update if different (avoid DB spam if possible, but memory update is cheap)
+                    self.active_bars[channel_id]["content"] = clean_content
+                    
+                    for emoji in ui.BAR_PREFIX_EMOJIS:
+                        if clean_content.startswith(emoji):
+                            self.active_bars[channel_id]["current_prefix"] = emoji
+                            break
 
             # 3. Clear Notification
             if self.active_bars[channel_id].get("has_notification"):
