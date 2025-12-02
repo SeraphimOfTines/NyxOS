@@ -263,11 +263,27 @@ class LMStudioBot(discord.Client):
                     # Try to sync with Master Bar since we just recovered it
                     master = memory_manager.get_master_bar()
                     if master:
-                         # We don't edit immediately to avoid rate limits/spam on a simple touch,
-                         # but we update our internal state to match what it *should* be?
-                         # Actually, user asked to "sync with the master bar once detected".
-                         # Let's trigger a propagation for this single bar.
-                         pass
+                         prefix = self.active_bars[channel_id].get("current_prefix", "")
+                         clean_master = master.strip().replace('\n', ' ')
+                         new_content = f"{prefix} {clean_master}"
+                         
+                         # Update State
+                         self.active_bars[channel_id]["content"] = new_content
+                         
+                         # Edit Discord Message (Visual Sync)
+                         try:
+                             full_content = new_content
+                             if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in message.content:
+                                 chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                                 full_content = f"{new_content} {chk}"
+                             
+                             full_content = re.sub(r'>[ \t]+<', '><', full_content)
+                             
+                             await services.service.limiter.wait_for_slot("edit_message", channel_id)
+                             await message.edit(content=full_content)
+                             logger.info(f"✅ Synced adopted straggler in {channel_id} to Master Bar.")
+                         except Exception as e:
+                             logger.warning(f"Failed to visual-sync adopted bar in {channel_id}: {e}")
 
             # 2. Update Message ID (Movement detection) & Sync Content/Prefix
             if message:
