@@ -169,17 +169,22 @@ class StatusBarView(discord.ui.View):
         btn_drop_all.callback = self.drop_all_callback
         self.add_item(btn_drop_all)
 
-        # 2. Drop Check
-        btn_drop_check = discord.ui.Button(label=FLAVOR_TEXT["BAR_DROP_CHECK"], style=discord.ButtonStyle.secondary, custom_id="bar_drop_check_btn")
-        btn_drop_check.callback = self.drop_check_callback
-        self.add_item(btn_drop_check)
+        # 2. Drop Check (DISABLED)
+        # btn_drop_check = discord.ui.Button(label=FLAVOR_TEXT["BAR_DROP_CHECK"], style=discord.ButtonStyle.secondary, custom_id="bar_drop_check_btn")
+        # btn_drop_check.callback = self.drop_check_callback
+        # self.add_item(btn_drop_check)
 
         # 3. Auto Mode
         btn_persist = discord.ui.Button(label="Auto", style=discord.ButtonStyle.secondary, custom_id="bar_persist_btn")
         btn_persist.callback = self.persist_callback
         self.add_item(btn_persist)
 
-        # 4. Console Link
+        # 4. Symbols Link
+        symbols_url = "https://discord.com/channels/411597692037496833/1302399809113821244/1363651092336083054"
+        btn_symbols = discord.ui.Button(label="Symbols", url=symbols_url)
+        self.add_item(btn_symbols)
+
+        # 5. Console Link
         # Link to the Startup/Console channel (Defaulting to Temple Guild if not specified)
         console_url = f"https://discord.com/channels/{config.TEMPLE_GUILD_ID}/{config.STARTUP_CHANNEL_ID}"
         btn_console = discord.ui.Button(emoji="🖥️", url=console_url)
