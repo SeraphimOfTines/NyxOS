@@ -2260,35 +2260,44 @@ class LMStudioBot(discord.Client):
             
             content = content.strip().replace('\n', ' ')
             
-            # ROBUST STRIP: Check against ALL known prefixes to prevent dupes
-            # Loop to remove multiple prefixes if they accumulated
-            while True:
-                stripped = False
+            # SMART STRIP: Only remove the status prefix, preserving content emojis.
+            stripped = False
+            
+            # 1. Try DB Prefix (Most accurate)
+            if interaction.channel_id in self.active_bars:
+                db_prefix = self.active_bars[interaction.channel_id].get("current_prefix")
+                if db_prefix and content.startswith(db_prefix):
+                    content = content[len(db_prefix):].strip()
+                    stripped = True
+
+            # 2. Try Known Prefixes (if not stripped yet)
+            if not stripped:
                 for emoji in ui.BAR_PREFIX_EMOJIS:
                     if content.startswith(emoji):
                         content = content[len(emoji):].strip()
                         stripped = True
-                        break # Restart loop to check again
-                
-                if not stripped:
-                    # Fallback: Regex for custom emojis <a:name:id> at start
-                    match = re.match(r'^(<a?:[^:]+:[0-9]+>)\s*', content)
-                    if match:
-                        content = content[match.end():].strip()
-                        stripped = True
-                
-                if not stripped:
-                    break
+                        break 
+            
+            # 3. Fallback Regex (Only ONCE, and only if we haven't found a valid prefix yet)
+            # CAUTION: This might eat the first char of emoji-only content if it's not in the known list.
+            # But it's needed for "stuck" prefixes not in the list.
+            # To be safe, we only do this if we haven't found a known one.
+            if not stripped:
+                match = re.match(r'^(<a?:[^:]+:[0-9]+>)\s*', content)
+                if match:
+                    # Heuristic: Only strip if it looks like a "status" (usually followed by space or text)
+                    # If the user has a bar of JUST emojis, the first one might be content.
+                    # But status prefixes are also emojis.
+                    # We'll assume if we are calling /thinking, the user WANTS to replace the first emoji if it looks like a prefix.
+                    content = content[match.end():].strip()
+                    stripped = True
 
         if not content:
-            try: 
-                await interaction.followup.send("❌ No active bar found to update.", ephemeral=True)
-                await asyncio.sleep(2.0)
-                await interaction.delete_original_response()
-            except: pass
-            return
+            # If we stripped everything (empty bar), or it was empty to begin with, we allow it.
+            # The final content will just be the prefix.
+            content = ""
 
-        content_with_prefix = f"{new_prefix_emoji}{content.strip()}"
+        content_with_prefix = f"{new_prefix_emoji} {content.strip()}"
         content_with_prefix = re.sub(r'>[ \t]+<', '><', content_with_prefix)
         
         persisting = False
