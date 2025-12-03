@@ -3835,33 +3835,39 @@ async def on_message(message):
                 # Determine sender ID for Good Bot
                 sender_id = message.author.id
                 real_name = message.author.display_name
-                pk_tag = None
-                is_pk_proxy = False
-                system_name = None
                 
+                # Webhook / Proxy Resolution (Only for real ID)
                 if message.webhook_id:
-                    pk_name, pk_sys_id, pk_sys_name, pk_tag_val, pk_sender, _ = await services.service.get_pk_message_data(message.id)
-                    
+                    pk_name, _, _, _, pk_sender, _ = await services.service.get_pk_message_data(message.id)
                     if pk_sender:
-                        sender_id = int(pk_sender)
-                        is_pk_proxy = True
-
+                        try: sender_id = int(pk_sender)
+                        except: pass
                     if pk_name:
                         real_name = pk_name
-                        pk_tag = pk_tag_val
-                    
-                    if pk_sys_name:
-                        system_name = pk_sys_name
-                
+
                 now = discord.utils.utcnow().timestamp()
                 last_time = client.good_bot_cooldowns.get(sender_id, 0)
                 
                 if now - last_time > 5:
-                    formatted_name = f"{real_name} (@{message.author.name})"
-                    if is_pk_proxy and system_name:
-                        formatted_name = f"{system_name} ({real_name}, @{message.author.name})"
-                    elif not is_pk_proxy:
-                        formatted_name = f"{real_name} (@{message.author.name})"
+                    # Resolve Handle
+                    handle = message.author.name
+                    # If webhook, handle is the webhook name usually, but we want the USER handle if possible?
+                    # The user prompt said: "Displayname (@Handle) - score"
+                    # For proxies, the webhook author name is the display name. The handle is tricky if it's a webhook.
+                    # But we have sender_id. Let's try to fetch the user for the handle.
+                    try:
+                        user_obj = None
+                        if message.guild:
+                             user_obj = message.guild.get_member(sender_id)
+                             if not user_obj: user_obj = await message.guild.fetch_member(sender_id)
+                        else:
+                             user_obj = client.get_user(sender_id) or await client.fetch_user(sender_id)
+                        
+                        if user_obj: handle = user_obj.name
+                    except: pass
+
+                    # Format: Display Name (@Handle)
+                    formatted_name = f"{real_name} (@{handle})"
 
                     count = memory_manager.increment_good_bot(sender_id, formatted_name)
                     client._update_lru_cache(client.good_bot_cooldowns, sender_id, now, limit=1000)
