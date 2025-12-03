@@ -6,6 +6,7 @@ import time
 import shutil
 import logging
 import dropbox
+import requests
 from datetime import datetime, timedelta, timezone
 from dropbox.files import WriteMode
 from dropbox.exceptions import ApiError, AuthError
@@ -27,34 +28,6 @@ def get_human_readable_size(size_in_bytes):
         size_in_bytes /= 1024.0
     return f"{size_in_bytes:.2f} PB"
 
-import os
-import asyncio
-import subprocess
-import re
-import time
-import shutil
-import logging
-import dropbox
-from datetime import datetime, timedelta, timezone
-from dropbox.files import WriteMode
-from dropbox.exceptions import ApiError, AuthError
-
-import config
-import services # For LLM Access
-import helpers # For Sanitization
-
-# Configure logging
-logger = logging.getLogger("BackupManager")
-
-# Path to the DiscordChatExporter CLI
-EXPORTER_CLI_PATH = os.path.join(os.path.dirname(__file__), "DiscordImporter", "DiscordChatExporter.Cli")
-
-def get_human_readable_size(size_in_bytes):
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size_in_bytes < 1024.0:
-            return f"{size_in_bytes:.2f} {unit}"
-        size_in_bytes /= 1024.0
-    return f"{size_in_bytes:.2f} PB"
 
 async def run_backup(target_id, output_name, target_type="guild", progress_callback=None, cancel_event=None, estimated_total_channels=0, skip_download=False):
     """
@@ -401,11 +374,24 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
 
                          chunk = f.read(4 * 1024 * 1024)
                          
-                         if f.tell() == file_size_bytes:
-                             dbx.files_upload_session_finish(chunk, cursor, commit)
-                         else:
-                             dbx.files_upload_session_append_v2(chunk, cursor)
-                             cursor.offset += len(chunk)
+                         # Retry logic for chunk upload
+                         for attempt in range(3):
+                             try:
+                                 if f.tell() == file_size_bytes:
+                                     dbx.files_upload_session_finish(chunk, cursor, commit)
+                                 else:
+                                     dbx.files_upload_session_append_v2(chunk, cursor)
+                                     cursor.offset += len(chunk)
+                                 break # Success
+                             except (requests.exceptions.RequestException, Exception) as e:
+                                 # Check for specific errors if needed, but general retry for network/socket issues is safe here
+                                 # as long as we don't advance the cursor prematurely (which we don't, as cursor.offset is only updated on success).
+                                 if attempt == 2: 
+                                     logger.error(f"Upload failed after 3 attempts. Final error: {e}")
+                                     raise e
+                                 
+                                 logger.warning(f"Dropbox upload failed (Attempt {attempt+1}/3). Retrying in 5s... Error: {e}")
+                                 await asyncio.sleep(5)
                                                               
              try:
                  shared_link_metadata = dbx.sharing_create_shared_link_with_settings(dropbox_path)
