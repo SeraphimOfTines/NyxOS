@@ -3244,8 +3244,8 @@ async def nukedatabase_command(interaction: discord.Interaction):
         await interaction.followup.send("❌ Database nuke failed. Check logs.", ephemeral=True)
 
 @client.tree.command(name="backup", description="Run a backup for the specified target (Temple, WM, or Shrine).")
-@app_commands.describe(target="Target: 'temple', 'wm', or 'shrine'")
-async def backup_command(interaction: discord.Interaction, target: str):
+@app_commands.describe(target="Target: 'temple', 'wm', or 'shrine'", upload_only="Skip download/export and only archive/upload existing files.")
+async def backup_command(interaction: discord.Interaction, target: str, upload_only: bool = False):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
@@ -3275,7 +3275,7 @@ async def backup_command(interaction: discord.Interaction, target: str):
 
     # Estimate Total Channels
     estimated_total = 0
-    if target_type == "guild":
+    if target_type == "guild" and not upload_only:
         try:
             guild = client.get_guild(target_id)
             if not guild:
@@ -3294,14 +3294,30 @@ async def backup_command(interaction: discord.Interaction, target: str):
     # Create Cancel Event & View
     cancel_event = asyncio.Event()
     view = ui.BackupControlView(cancel_event)
-    await progress_msg.edit(view=view)
+    
+    # Use a mutable container for the message so callback can update it if token expires
+    msg_container = {"msg": progress_msg}
+
+    try:
+        await progress_msg.edit(view=view)
+    except: pass
     
     async def progress_callback(pct, status):
         try:
             bar = helpers.generate_progress_bar(pct)
             # Update view as well to keep button active? No, view persists.
-            await progress_msg.edit(content=f"**{output_name} Backup**\n{bar} {pct}%\n{status}", view=view)
-        except: pass
+            await msg_container["msg"].edit(content=f"**{output_name} Backup**\n{bar} {pct}%\n{status}", view=view)
+        except discord.HTTPException as e:
+            if e.code == 50027: # Invalid Webhook Token (Expired)
+                 logger.warning("Backup interaction token expired. Sending new status message.")
+                 try:
+                     new_msg = await interaction.channel.send(content=f"**{output_name} Backup (Continued)**\n{bar} {pct}%\n{status}", view=view)
+                     msg_container["msg"] = new_msg # Update reference
+                 except Exception as ex:
+                     logger.error(f"Failed to send fallback status message: {ex}")
+            else:
+                 pass # Other error
+        except Exception: pass
         
     success, result = await backup_manager.run_backup(
         target_id, 
@@ -3309,14 +3325,25 @@ async def backup_command(interaction: discord.Interaction, target: str):
         target_type=target_type, 
         progress_callback=progress_callback, 
         estimated_total_channels=estimated_total,
-        cancel_event=cancel_event
+        cancel_event=cancel_event,
+        skip_download=upload_only
     )
     
     # Remove View on Finish
-    if success:
-         await progress_msg.edit(content=result, view=None)
-    else:
-         await progress_msg.edit(content=f"❌ **Backup Failed:** {result}", view=None)
+    try:
+        if success:
+             await msg_container["msg"].edit(content=result, view=None)
+        else:
+             await msg_container["msg"].edit(content=f"❌ **Backup Failed:** {result}", view=None)
+    except discord.HTTPException as e:
+        if e.code == 50027:
+             # Expired at the very end
+             if success:
+                  await interaction.channel.send(content=result)
+             else:
+                  await interaction.channel.send(content=f"❌ **Backup Failed:** {result}")
+        else:
+            pass
 
 
 

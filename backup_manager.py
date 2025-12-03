@@ -56,7 +56,7 @@ def get_human_readable_size(size_in_bytes):
         size_in_bytes /= 1024.0
     return f"{size_in_bytes:.2f} PB"
 
-async def run_backup(target_id, output_name, target_type="guild", progress_callback=None, cancel_event=None, estimated_total_channels=0):
+async def run_backup(target_id, output_name, target_type="guild", progress_callback=None, cancel_event=None, estimated_total_channels=0, skip_download=False):
     """
     Runs a full backup of the specified guild OR channel.
     If target_type is 'channel', target_id is treated as a Channel ID.
@@ -81,235 +81,235 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
     if progress_callback:
         await progress_callback(0, config.BACKUP_FLAVOR_TEXT.get("START", "Starting..."))
 
-    # 2. Determine Channels to Export
-    env = os.environ.copy()
-    token_to_use = config.BACKUP_TOKEN if config.BACKUP_TOKEN else config.BOT_TOKEN
-    if not token_to_use:
-        return False, "❌ No valid token found for backup (BACKUP_TOKEN or BOT_TOKEN)."
+    if not skip_download:
+        # 2. Determine Channels to Export
+        env = os.environ.copy()
+        token_to_use = config.BACKUP_TOKEN if config.BACKUP_TOKEN else config.BOT_TOKEN
+        if not token_to_use:
+            return False, "❌ No valid token found for backup (BACKUP_TOKEN or BOT_TOKEN)."
 
-    env["DISCORD_TOKEN"] = token_to_use
-    channels_to_export = []
+        env["DISCORD_TOKEN"] = token_to_use
+        channels_to_export = []
 
-    if target_type == "channel":
-        # Single Channel Mode
-        # We use the output_name as the channel name for display purposes mostly, 
-        # or we could try to fetch it, but let's just use the ID/Name provided.
-        # Actually, the Exporter handles the naming mostly, but for our list we need a name.
-        channels_to_export.append((str(target_id), output_name))
-    
-    else:
-        # Guild Mode: Fetch Channel List
-        cmd_list = [
-            EXPORTER_CLI_PATH,
-            "channels",
-            "-g", str(target_id),
-            "--include-threads", "All"
-        ]
+        if target_type == "channel":
+            # Single Channel Mode
+            channels_to_export.append((str(target_id), output_name))
         
-        try:
-            list_proc = await asyncio.create_subprocess_exec(
-                *cmd_list,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env
-            )
-            stdout, stderr = await list_proc.communicate()
+        else:
+            # Guild Mode: Fetch Channel List
+            cmd_list = [
+                EXPORTER_CLI_PATH,
+                "channels",
+                "-g", str(target_id),
+                "--include-threads", "All"
+            ]
             
-            if list_proc.returncode != 0:
-                err_msg = stderr.decode('utf-8')
-                logger.error(f"Failed to list channels: {err_msg}")
+            try:
+                list_proc = await asyncio.create_subprocess_exec(
+                    *cmd_list,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
+                )
+                stdout, stderr = await list_proc.communicate()
                 
-                if "not found" in err_msg.lower():
-                    return False, f"❌ Guild {target_id} not found. Is the bot/user in the server?"
-                elif "401" in err_msg or "Unauthorized" in err_msg:
-                    return False, "❌ Backup Token/Bot Token is invalid or unauthorized."
-                
-                return False, f"❌ Channel list failed: {err_msg[:100]}"
-                
-        except Exception as e:
-             logger.error(f"Failed to execute channel list command: {e}")
-             return False, f"❌ Channel list command failed: {e}"
-
-        # Parse Channels
-        lines = stdout.decode('utf-8').strip().split('\n')
-        for line in lines:
-            if "|" in line:
-                parts = line.split("|", 1)
-                
-                # Sanitize ID: Remove any markers like '*', spaces, etc.
-                raw_id = parts[0].strip()
-                c_id = "".join(filter(str.isdigit, raw_id))
-                
-                c_name = parts[1].strip()
-                
-                if c_id:
-                    channels_to_export.append((c_id, c_name))
-            
-    total_channels = len(channels_to_export)
-    logger.info(f"Found {total_channels} channels to export.")
-    
-    start_time = time.time()
-    
-    # 3. Iterate and Export Individually
-    for i, (c_id, c_name) in enumerate(channels_to_export):
-        # Check Cancellation
-        if cancel_event and cancel_event.is_set():
-            return False, "🛑 Backup Cancelled by User."
-
-        current_idx = i + 1
-        
-        # Debug Log: Start of Channel
-        logger.info(f"Processing {current_idx}/{total_channels}: {c_name} ({c_id})")
-
-        percent = int((current_idx / total_channels) * 90) # Map to 0-90% range (reserve 10% for archive/upload)
-        
-        # Calculate Time
-        now = time.time()
-        elapsed = int(now - start_time)
-        hours, rem = divmod(elapsed, 3600)
-        minutes, seconds = divmod(rem, 60)
-        elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        
-        # Get Size
-        try:
-            du_res = subprocess.check_output(['du', '-sb', backup_dir], stderr=subprocess.DEVNULL)
-            total_bytes = int(du_res.split()[0])
-            current_file_size_str = get_human_readable_size(total_bytes)
-        except:
-            current_file_size_str = "Calculating..."
-
-        # Update Status
-        status_base = config.BACKUP_FLAVOR_TEXT.get("DOWNLOAD", "Downloading...")
-        time_label = config.BACKUP_FLAVOR_TEXT.get("TIME_LABEL", "⏳ **Time Elapsed:**")
-        processing_label = config.BACKUP_FLAVOR_TEXT.get("PROCESSING_LABEL", "📂 **Processing:**")
-        
-        status_msg = f"{status_base}\n{time_label} `{elapsed_str}` (`{current_file_size_str}`)\n{processing_label} `{c_name}` ({current_idx}/{total_channels})"
-        
-        if progress_callback:
-            await progress_callback(percent, status_msg)
-            
-        # Run Export for Single Channel
-        # Template: .../Category - Channel [ID].html (Handled by CLI automatically if directory given?)
-        # Actually, if we give directory, CLI handles naming.
-        # We want: "{backup_dir}/%c [%C].html"
-        output_path = os.path.join(backup_dir, "%c [%C].html")
-        
-        export_cmd = [
-            EXPORTER_CLI_PATH,
-            "export",
-            "-c", c_id,
-            "--output", output_path,
-            "--format", "HtmlDark",
-            "--media",
-            "--reuse-media",
-            "--include-threads", "All",
-            "--utc",
-            "--locale", "en-US"
-        ]
-        
-        # --- DEBUG LOGGING ---
-        debug_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.info(f"----------------------------------------------------------------")
-        logger.info(f"[DEBUG] Timestamp: {debug_timestamp}")
-        logger.info(f"[DEBUG] Processing File: {c_name} (ID: {c_id})")
-        logger.info(f"[DEBUG] Command Invoked: {' '.join(export_cmd)}")
-        logger.info(f"----------------------------------------------------------------")
-        # ---------------------
-
-        # Run Export
-        try:
-            export_proc = await asyncio.create_subprocess_exec(
-                *export_cmd,
-                stdout=asyncio.subprocess.PIPE,  # Suppress output
-                stderr=asyncio.subprocess.PIPE,
-                env=env
-            )
-            
-            # Create a task to handle communication (drains pipes to prevent deadlock)
-            communicate_task = asyncio.create_task(export_proc.communicate())
-            
-            # Wait for completion or cancellation
-            task_start_time = time.time()
-            last_debug_log = task_start_time
-            last_ui_update = task_start_time
-            
-            while not communicate_task.done():
-                if cancel_event and cancel_event.is_set():
-                    export_proc.terminate()
-                    try:
-                        await asyncio.wait_for(export_proc.wait(), timeout=5.0)
-                    except asyncio.TimeoutError:
-                        export_proc.kill()
+                if list_proc.returncode != 0:
+                    err_msg = stderr.decode('utf-8')
+                    logger.error(f"Failed to list channels: {err_msg}")
                     
-                    communicate_task.cancel()
-                    try: await communicate_task
-                    except: pass
+                    if "not found" in err_msg.lower():
+                        return False, f"❌ Guild {target_id} not found. Is the bot/user in the server?"
+                    elif "401" in err_msg or "Unauthorized" in err_msg:
+                        return False, "❌ Backup Token/Bot Token is invalid or unauthorized."
                     
-                    return False, "🛑 Backup Cancelled by User."
+                    return False, f"❌ Channel list failed: {err_msg[:100]}"
+                    
+            except Exception as e:
+                logger.error(f"Failed to execute channel list command: {e}")
+                return False, f"❌ Channel list command failed: {e}"
+
+            # Parse Channels
+            lines = stdout.decode('utf-8').strip().split('\n')
+            for line in lines:
+                if "|" in line:
+                    parts = line.split("|", 1)
+                    
+                    # Sanitize ID: Remove any markers like '*', spaces, etc.
+                    raw_id = parts[0].strip()
+                    c_id = "".join(filter(str.isdigit, raw_id))
+                    
+                    c_name = parts[1].strip()
+                    
+                    if c_id:
+                        channels_to_export.append((c_id, c_name))
                 
-                # Debug Heartbeat (every 30s)
-                if time.time() - last_debug_log > 30:
-                    duration = int(time.time() - task_start_time)
-                    logger.info(f"Still exporting {c_name}... ({duration}s elapsed)")
-                    last_debug_log = time.time()
+        total_channels = len(channels_to_export)
+        logger.info(f"Found {total_channels} channels to export.")
+        
+        start_time = time.time()
+        
+        # 3. Iterate and Export Individually
+        for i, (c_id, c_name) in enumerate(channels_to_export):
+            # Check Cancellation
+            if cancel_event and cancel_event.is_set():
+                return False, "🛑 Backup Cancelled by User."
 
-                # Live UI Update (every 3s)
-                if time.time() - last_ui_update > 3:
-                    # Recalculate Time
-                    now = time.time()
-                    elapsed = int(now - start_time)
-                    hours, rem = divmod(elapsed, 3600)
-                    minutes, seconds = divmod(rem, 60)
-                    elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-                    
-                    # Recalculate Size
-                    try:
-                        du_res = subprocess.check_output(['du', '-sb', backup_dir], stderr=subprocess.DEVNULL)
-                        total_bytes = int(du_res.split()[0])
-                        current_file_size_str = get_human_readable_size(total_bytes)
-                    except:
-                        current_file_size_str = "Calculating..."
+            current_idx = i + 1
+            
+            # Debug Log: Start of Channel
+            logger.info(f"Processing {current_idx}/{total_channels}: {c_name} ({c_id})")
 
-                    # Re-construct Status Msg
-                    status_msg = f"{status_base}\n{time_label} `{elapsed_str}` (`{current_file_size_str}`)\n{processing_label} `{c_name}` ({current_idx}/{total_channels})"
-                    
-                    if progress_callback:
-                        try: await progress_callback(percent, status_msg)
+            percent = int((current_idx / total_channels) * 90) # Map to 0-90% range (reserve 10% for archive/upload)
+            
+            # Calculate Time
+            now = time.time()
+            elapsed = int(now - start_time)
+            hours, rem = divmod(elapsed, 3600)
+            minutes, seconds = divmod(rem, 60)
+            elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
+            # Get Size
+            try:
+                du_res = subprocess.check_output(['du', '-sb', backup_dir], stderr=subprocess.DEVNULL)
+                total_bytes = int(du_res.split()[0])
+                current_file_size_str = get_human_readable_size(total_bytes)
+            except:
+                current_file_size_str = "Calculating..."
+
+            # Update Status
+            status_base = config.BACKUP_FLAVOR_TEXT.get("DOWNLOAD", "Downloading...")
+            time_label = config.BACKUP_FLAVOR_TEXT.get("TIME_LABEL", "⏳ **Time Elapsed:**")
+            processing_label = config.BACKUP_FLAVOR_TEXT.get("PROCESSING_LABEL", "📂 **Processing:**")
+            
+            status_msg = f"{status_base}\n{time_label} `{elapsed_str}` (`{current_file_size_str}`)\n{processing_label} `{c_name}` ({current_idx}/{total_channels})"
+            
+            if progress_callback:
+                await progress_callback(percent, status_msg)
+                
+            # Run Export for Single Channel
+            # Template: .../Category - Channel [ID].html (Handled by CLI automatically if directory given?)
+            # Actually, if we give directory, CLI handles naming.
+            # We want: "{backup_dir}/%c [%C].html"
+            output_path = os.path.join(backup_dir, "%c [%C].html")
+            
+            export_cmd = [
+                EXPORTER_CLI_PATH,
+                "export",
+                "-c", c_id,
+                "--output", output_path,
+                "--format", "HtmlDark",
+                "--media",
+                "--reuse-media",
+                "--include-threads", "All",
+                "--utc",
+                "--locale", "en-US"
+            ]
+            
+            # --- DEBUG LOGGING ---
+            debug_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(f"----------------------------------------------------------------")
+            logger.info(f"[DEBUG] Timestamp: {debug_timestamp}")
+            logger.info(f"[DEBUG] Processing File: {c_name} (ID: {c_id})")
+            logger.info(f"[DEBUG] Command Invoked: {' '.join(export_cmd)}")
+            logger.info(f"----------------------------------------------------------------")
+            # ---------------------
+
+            # Run Export
+            try:
+                export_proc = await asyncio.create_subprocess_exec(
+                    *export_cmd,
+                    stdout=asyncio.subprocess.PIPE,  # Suppress output
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
+                )
+                
+                # Create a task to handle communication (drains pipes to prevent deadlock)
+                communicate_task = asyncio.create_task(export_proc.communicate())
+                
+                # Wait for completion or cancellation
+                task_start_time = time.time()
+                last_debug_log = task_start_time
+                last_ui_update = task_start_time
+                
+                while not communicate_task.done():
+                    if cancel_event and cancel_event.is_set():
+                        export_proc.terminate()
+                        try:
+                            await asyncio.wait_for(export_proc.wait(), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            export_proc.kill()
+                        
+                        communicate_task.cancel()
+                        try: await communicate_task
                         except: pass
+                        
+                        return False, "🛑 Backup Cancelled by User."
                     
-                    last_ui_update = time.time()
+                    # Debug Heartbeat (every 30s)
+                    if time.time() - last_debug_log > 30:
+                        duration = int(time.time() - task_start_time)
+                        logger.info(f"Still exporting {c_name}... ({duration}s elapsed)")
+                        last_debug_log = time.time()
 
-                # Wait briefly for task completion
-                done, pending = await asyncio.wait([communicate_task], timeout=1.0)
-                if done:
-                    break
+                    # Live UI Update (every 3s)
+                    if time.time() - last_ui_update > 3:
+                        # Recalculate Time
+                        now = time.time()
+                        elapsed = int(now - start_time)
+                        hours, rem = divmod(elapsed, 3600)
+                        minutes, seconds = divmod(rem, 60)
+                        elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                        
+                        # Recalculate Size
+                        try:
+                            du_res = subprocess.check_output(['du', '-sb', backup_dir], stderr=subprocess.DEVNULL)
+                            total_bytes = int(du_res.split()[0])
+                            current_file_size_str = get_human_readable_size(total_bytes)
+                        except:
+                            current_file_size_str = "Calculating..."
 
-            # Get result
-            _, stderr_data = await communicate_task
-            
-            if export_proc.returncode != 0:
-                err_msg = stderr_data.decode('utf-8')
-                if "429" in err_msg or "Too Many Requests" in err_msg:
-                    logger.warning(f"Rate limit hit on {c_name}. Sleeping extra.")
-                    await asyncio.sleep(10) 
-                elif "403" in err_msg or "404" in err_msg:
-                    logger.warning(f"Access denied or missing: {c_name}. Skipping.")
+                        # Re-construct Status Msg
+                        status_msg = f"{status_base}\n{time_label} `{elapsed_str}` (`{current_file_size_str}`)\n{processing_label} `{c_name}` ({current_idx}/{total_channels})"
+                        
+                        if progress_callback:
+                            try: await progress_callback(percent, status_msg)
+                            except: pass
+                        
+                        last_ui_update = time.time()
+
+                    # Wait briefly for task completion
+                    done, pending = await asyncio.wait([communicate_task], timeout=1.0)
+                    if done:
+                        break
+
+                # Get result
+                _, stderr_data = await communicate_task
+                
+                if export_proc.returncode != 0:
+                    err_msg = stderr_data.decode('utf-8')
+                    if "429" in err_msg or "Too Many Requests" in err_msg:
+                        logger.warning(f"Rate limit hit on {c_name}. Sleeping extra.")
+                        await asyncio.sleep(10) 
+                    elif "403" in err_msg or "404" in err_msg:
+                        logger.warning(f"Access denied or missing: {c_name}. Skipping.")
+                    else:
+                        logger.warning(f"Export failed for {c_name}: {err_msg[:100]}")
                 else:
-                    logger.warning(f"Export failed for {c_name}: {err_msg[:100]}")
-            else:
-                logger.info(f"Finished export for {c_name}")
-                    
-        except Exception as e:
-            logger.error(f"Export exception for {c_name}: {e}")
+                    logger.info(f"Finished export for {c_name}")
+                        
+            except Exception as e:
+                logger.error(f"Export exception for {c_name}: {e}")
 
-        # RATE LIMIT PAUSE
-        # User requested pause. 6 seconds seems safe if hitting limits every 5s.
-        pause_duration = 8
-        logger.info(f"[DEBUG] Pausing for {pause_duration} seconds before next job...")
-        start_pause = time.time()
-        await asyncio.sleep(pause_duration)
-        actual_pause = time.time() - start_pause
-        logger.info(f"[DEBUG] Resumed after {actual_pause:.2f} seconds.") 
+            # RATE LIMIT PAUSE
+            # User requested pause. 6 seconds seems safe if hitting limits every 5s.
+            pause_duration = 8
+            logger.info(f"[DEBUG] Pausing for {pause_duration} seconds before next job...")
+            start_pause = time.time()
+            await asyncio.sleep(pause_duration)
+            actual_pause = time.time() - start_pause
+            logger.info(f"[DEBUG] Resumed after {actual_pause:.2f} seconds.") 
+    else:
+        logger.info("SKIPPING DOWNLOAD STEP (Archive/Upload Only Mode)") 
 
     # 4. Archive (7zip)
     if progress_callback:
