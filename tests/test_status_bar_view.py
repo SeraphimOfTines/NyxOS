@@ -75,5 +75,27 @@ class TestStatusBarView(unittest.IsolatedAsyncioTestCase):
         # 2 & 3 are links
         self.assertEqual(view.children[4].callback, view.delete_callback)
 
+    async def test_console_layout(self):
+        """Test ConsoleControlView has 5 buttons in correct order."""
+        view = ui.ConsoleControlView()
+        
+        # Check children count
+        self.assertEqual(len(view.children), 5)
+        
+        # 1. Symbols (Label='Symbols')
+        self.assertEqual(view.children[0].label, "Symbols")
+        
+        # 2. Idle (Emoji='💤', Label=None)
+        self.assertEqual(view.children[1].emoji.name, "💤")
+        
+        # 3. Sleep
+        self.assertEqual(view.children[2].emoji.name, "🛏️")
+        
+        # 4. Reboot
+        self.assertEqual(view.children[3].emoji.name, "🔄")
+        
+        # 5. Shutdown
+        self.assertEqual(view.children[4].emoji.name, "🛑")
+
 if __name__ == '__main__':
     unittest.main()

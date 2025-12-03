@@ -364,16 +364,20 @@ class ConsoleControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         
-        # Insert Link Button (Symbols) manually since decorators don't support URLs
-        # We want it at index 2 (Idle, Sleep, [HERE], Reboot, Shutdown)
+        # 1. Create Symbols Button
         btn_symbols = discord.ui.Button(label="Symbols", url="https://discord.com/channels/411597692037496833/1302399809113821244/1363651092336083054", row=0)
-        self.add_item(btn_symbols)
         
-        # Reorder: Move last item (Symbols) to index 2
-        # self.children is a list of Items.
-        if len(self.children) >= 3:
-            sym = self.children.pop() # Remove the one we just added
-            self.children.insert(2, sym) # Insert at correct position
+        # 2. Capture existing items (Decorators)
+        # Current order from decorators: [Idle, Sleep, Reboot, Shutdown]
+        existing_items = self.children[:]
+        
+        # 3. Clear and Re-Add in correct order
+        self.clear_items()
+        
+        # Order: Symbols -> Existing
+        self.add_item(btn_symbols)
+        for item in existing_items:
+            self.add_item(item)
 
         self.update_button_styles()
 
