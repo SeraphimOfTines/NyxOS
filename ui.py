@@ -209,8 +209,8 @@ class StatusBarView(discord.ui.View):
     def update_buttons(self):
         for child in self.children:
             if getattr(child, "custom_id", "") == "bar_persist_btn":
-                child.label = "Auto"
-                child.style = discord.ButtonStyle.secondary
+                child.label = "Auto" if self.persisting else "Manual"
+                child.style = discord.ButtonStyle.success if self.persisting else discord.ButtonStyle.secondary
 
     async def check_auth(self, interaction, button):
         # Only Original User or Admin
