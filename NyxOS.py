@@ -3552,12 +3552,17 @@ async def on_message(message):
                 
                 if message.webhook_id:
                     pk_name, pk_sys_id, pk_sys_name, pk_tag_val, pk_sender, _ = await services.service.get_pk_message_data(message.id)
+                    
+                    if pk_sender:
+                        sender_id = int(pk_sender)
+                        is_pk_proxy = True
+
                     if pk_name:
                         real_name = pk_name
                         pk_tag = pk_tag_val
-                        if pk_sender: sender_id = int(pk_sender)
+                    
+                    if pk_sys_name:
                         system_name = pk_sys_name
-                        is_pk_proxy = True
                 
                 now = discord.utils.utcnow().timestamp()
                 last_time = client.good_bot_cooldowns.get(sender_id, 0)
