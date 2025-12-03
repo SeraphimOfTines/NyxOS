@@ -2321,11 +2321,24 @@ class LMStudioBot(discord.Client):
                 # Determine current content without prefix
                 current_content = bar_data.get("content", "")
                 
+                # Strip Checkmark first (just in case it's in DB content)
+                chk_emoji = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                if chk_emoji in current_content:
+                    current_content = current_content.replace(chk_emoji, "").strip()
+                
                 # Strip existing prefix
+                stripped = False
                 for emoji in ui.BAR_PREFIX_EMOJIS:
                     if current_content.startswith(emoji):
                         current_content = current_content[len(emoji):].strip()
+                        stripped = True
                         break
+                
+                # Fallback Regex Strip (for unknown emojis)
+                if not stripped:
+                    match = re.match(r'^(<a?:[^:]+:[0-9]+>)\s*', current_content)
+                    if match:
+                        current_content = current_content[match.end():].strip()
                 
                 # Construct Reboot Content
                 new_content = f"{reboot_emoji} {current_content}"
@@ -2336,14 +2349,14 @@ class LMStudioBot(discord.Client):
                 has_merged_check = (check_id == msg_id)
                 
                 if has_merged_check:
-                    chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
-                    if chk not in new_content:
-                        new_content = f"{new_content} {chk}"
+                    if chk_emoji not in new_content:
+                        new_content = f"{new_content} {chk_emoji}"
                         new_content = re.sub(r'>[ \t]+<', '><', new_content)
                 
-                # Edit Message (No View/Buttons)
+                # Edit Message (With Reboot View)
+                view = ui.RebootView()
                 await services.service.limiter.wait_for_slot("edit_message", cid)
-                await msg.edit(content=new_content, view=None)
+                await msg.edit(content=new_content, view=view)
                 
             except Exception as e:
                 logger.warning(f"Failed to set reboot mode for {cid}: {e}")

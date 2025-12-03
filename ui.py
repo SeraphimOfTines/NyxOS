@@ -49,7 +49,7 @@ FLAVOR_TEXT = {
     "GOOD_BOT_REACTION": "<a:SeraphHeartSATVRN:1444517518470287410>",
     "WAKE_WORD_REACTION": "<a:Thinking:1322962569300017214>",
     "BAR_DROP_ALL": "⏬",
-    "BAR_DROP_CHECK": "<a:SeraphHyperYes:1331530716508459018>",
+    "BAR_DROP_CHECK": "✅",
     "BAR_DELETE": "🗑️",
     "BAR_PERSIST_OFF": "🔃",
     "BAR_PERSIST_ON": "🔃",
@@ -141,6 +141,16 @@ class BugReportModal(discord.ui.Modal, title="Report a Bug"):
 
         except Exception as e:
              await interaction.response.send_message(f"❌ Error sending report: {e}", ephemeral=True)
+
+# ==========================================
+# REBOOT VIEW
+# ==========================================
+
+class RebootView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        btn = discord.ui.Button(label="System Restarting . . .", style=discord.ButtonStyle.secondary, disabled=True)
+        self.add_item(btn)
 
 # ==========================================
 # STATUS BAR VIEW
