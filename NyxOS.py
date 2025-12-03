@@ -3848,6 +3848,7 @@ async def on_message(message):
             "wipelogs": (wipelogs_command, None),
             "nukedatabase": (nukedatabase_command, None),
             "backup": (backup_command, "target"),
+            "backupuploadonly": (backup_command, "target"),
             "debugtest": (debugtest_command, None),
             "debugscan": (debugscan_command, None),
             "help": (help_command, None),
@@ -3878,6 +3879,9 @@ async def on_message(message):
                      await message.channel.send(f"❌ Usage: `&{cmd} <{arg_name}>`", delete_after=2.0)
                      return
                 kwargs[arg_name] = " ".join(args)
+            
+            if cmd == "backupuploadonly":
+                kwargs["upload_only"] = True
             
             # Create Mock Interaction
             mock_intr = MockInteraction(client, message.channel, message.author, message)
