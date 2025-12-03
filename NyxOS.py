@@ -3938,18 +3938,22 @@ async def on_message(message):
                 tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
                 if helpers.matches_proxy_tag(message.content, tags): return
                 
-                # Ghost Check (Restored)
+                # Ghost Check (Restored & Enhanced)
                 # Wait to see if a webhook appears that replaces this message
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(3.5)
                 try:
                     await message.channel.fetch_message(message.id)
+                    # If we are here, the message STILL exists.
+                    # Check if a webhook appeared nearby (race condition check)
                     async for recent in message.channel.history(limit=15):
                         if recent.webhook_id is not None:
                              diff = (recent.created_at - message.created_at).total_seconds()
-                             if abs(diff) < 3.0: 
+                             if abs(diff) < 4.0: 
+                                 logger.info(f"👻 Ghost detected (Late Webhook): {message.id} replaced by {recent.id}")
                                  skip_reaction_remove = True
                                  return
                 except (discord.NotFound, discord.HTTPException): 
+                    # Message is gone -> It was ghosted (Proxied)
                     skip_reaction_remove = True
                     return 
             except Exception as e:

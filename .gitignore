@@ -32,4 +32,5 @@ logs/nyxos_cli.log
 *.gemini/
 /DiscordImporter
 *Backup/
+*.7z
 .env

@@ -399,13 +399,13 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
                          if cancel_event and cancel_event.is_set():
                              raise Exception("Cancelled by user")
 
-                         if (file_size_bytes - f.tell()) <= 4 * 1024 * 1024:
-                             dbx.files_upload_session_finish(f.read(4 * 1024 * 1024),
-                                                           cursor,
-                                                           commit)
+                         chunk = f.read(4 * 1024 * 1024)
+                         
+                         if f.tell() == file_size_bytes:
+                             dbx.files_upload_session_finish(chunk, cursor, commit)
                          else:
-                             dbx.files_upload_session_append_v2(f.read(4 * 1024 * 1024),
-                                                              cursor)
+                             dbx.files_upload_session_append_v2(chunk, cursor)
+                             cursor.offset += len(chunk)
                                                               
              try:
                  shared_link_metadata = dbx.sharing_create_shared_link_with_settings(dropbox_path)
