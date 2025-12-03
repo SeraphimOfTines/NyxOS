@@ -1461,6 +1461,72 @@ class LMStudioBot(discord.Client):
                 continue
             # --------------------
 
+            # --- REBOOT/SHUTDOWN RESTORATION LOGIC ---
+            # If DB says "Rebooting" or "Shutdown", we must switch back to "Normal" (Original Prefix)
+            # This happens because we now persist the reboot state to update the console.
+            current_db_prefix = bar_data.get("current_prefix")
+            reboot_emojis = [ui.FLAVOR_TEXT['REBOOT_EMOJI'], ui.FLAVOR_TEXT['SHUTDOWN_EMOJI']]
+            
+            if current_db_prefix in reboot_emojis:
+                # Fetch previous state JSON to get original prefix
+                prev_state = memory_manager.get_previous_state(channel_id)
+                original_prefix = prev_state.get("original_prefix") if prev_state else None
+                
+                if original_prefix:
+                    logger.info(f"🔄 Waking up Bar {channel_id} from {current_db_prefix} -> {original_prefix}")
+                    
+                    # Restore Content
+                    content = bar_data.get("content", "")
+                    # Strip the reboot emoji
+                    if content.startswith(current_db_prefix):
+                        content = content[len(current_db_prefix):].strip()
+                    
+                    # Apply original prefix
+                    new_content = f"{original_prefix} {content}"
+                    new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                    
+                    # Update Internal State
+                    bar_data["current_prefix"] = original_prefix
+                    bar_data["content"] = new_content
+                    
+                    # Update DB immediately (Clears previous_state effectively by not setting it, or we should explicity clear it?)
+                    # save_bar doesn't touch previous_state. We should probably clear it separately?
+                    # Actually, leaving it is fine, it gets overwritten next time we save state.
+                    memory_manager.save_bar(
+                        channel_id,
+                        bar_data.get("guild_id"),
+                        bar_data.get("message_id"),
+                        bar_data.get("user_id"),
+                        new_content,
+                        bar_data.get("persisting", False),
+                        current_prefix=original_prefix,
+                        has_notification=bar_data.get("has_notification", False),
+                        checkmark_message_id=bar_data.get("checkmark_message_id")
+                    )
+                else:
+                    # If we lost the original prefix, default to Idle/NotWatching
+                    default_prefix = "<a:NotWatching:1301840196966285322>"
+                    logger.warning(f"⚠️ Bar {channel_id} stuck in Reboot/Shutdown with no original prefix. Defaulting to Idle.")
+                    
+                    content = bar_data.get("content", "").replace(current_db_prefix, "").strip()
+                    new_content = f"{default_prefix} {content}"
+                    
+                    bar_data["current_prefix"] = default_prefix
+                    bar_data["content"] = new_content
+                    
+                    memory_manager.save_bar(
+                        channel_id,
+                        bar_data.get("guild_id"),
+                        bar_data.get("message_id"),
+                        bar_data.get("user_id"),
+                        new_content,
+                        bar_data.get("persisting", False),
+                        current_prefix=default_prefix,
+                        has_notification=bar_data.get("has_notification", False),
+                        checkmark_message_id=bar_data.get("checkmark_message_id")
+                    )
+            # -----------------------------------------
+
             msg_id = bar_data.get("message_id")
             if not msg_id:
                 # No message ID -> Cannot restore
@@ -1489,8 +1555,17 @@ class LMStudioBot(discord.Client):
                         self.add_view(view, message_id=msg_id)
                         self._register_view(msg_id, view)
                         
-                        # --- SYNC FIX: Update DB from Live Message ---
-                        # If the message on Discord has a different prefix than DB, update DB.
+                        # --- SYNC FIX: Update DB from Live Message OR Update Message from DB ---
+                        # Now that we've fixed the DB (above), we check if the live message needs update.
+                        # If live message still shows "Rebooting" (because we just updated DB to Normal),
+                        # the logic below will catch the mismatch and update the message?
+                        # Wait, existing logic updates DB from Message if mismatch.
+                        # "if found_prefix and found_prefix != bar_data.get('current_prefix'):"
+                        # If Message=Reboot, DB=Normal (just fixed). Mismatch!
+                        # "if found_prefix == REBOOT_EMOJI ... RESTORE Discord message to match DB."
+                        # PERFECT. The existing logic I wrote previously handles exactly this:
+                        # It sees Discord is "Rebooting", DB is "Normal", and edits Discord to match DB.
+                        
                         if msg.content:
                             found_prefix = None
                             clean_cont = msg.content.strip()
@@ -2423,7 +2498,8 @@ class LMStudioBot(discord.Client):
     async def set_reboot_mode(self):
         """
         Sets all active bars to 'Rebooting' mode visually.
-        Does NOT update the database content, ensuring the previous state is preserved for restoration.
+        Updates DB so Console reflects the reboot status. 
+        Saves original prefix for restoration (via previous_state).
         Removes interactive views (buttons) during reboot.
         """
         logger.info("🔄 Setting system to Reboot Mode...")
@@ -2449,11 +2525,15 @@ class LMStudioBot(discord.Client):
                 if chk_emoji in current_content:
                     current_content = current_content.replace(chk_emoji, "").strip()
                 
-                # Strip existing prefix
+                # Determine REAL Prefix (to save)
+                real_prefix = bar_data.get("current_prefix")
+                
+                # Strip existing prefix from content
                 stripped = False
                 for emoji in ui.BAR_PREFIX_EMOJIS:
                     if current_content.startswith(emoji):
                         current_content = current_content[len(emoji):].strip()
+                        if not real_prefix: real_prefix = emoji
                         stripped = True
                         break
                 
@@ -2462,7 +2542,11 @@ class LMStudioBot(discord.Client):
                     match = re.match(r'^(<a?:[^:]+:[0-9]+>)\s*', current_content)
                     if match:
                         current_content = current_content[match.end():].strip()
-                
+                        if not real_prefix: real_prefix = match.group(1)
+
+                if not real_prefix: 
+                    real_prefix = "<a:NotWatching:1301840196966285322>" # Default if lost
+
                 # Construct Reboot Content
                 new_content = f"{reboot_emoji} {current_content}"
                 new_content = re.sub(r'>[ \t]+<', '><', new_content)
@@ -2480,6 +2564,23 @@ class LMStudioBot(discord.Client):
                 view = ui.RebootView()
                 await services.service.limiter.wait_for_slot("edit_message", cid)
                 await msg.edit(content=new_content, view=view)
+
+                # Save Original Prefix to Previous State (Safe JSON blob)
+                # We grab existing previous_state if any? No, we just overwrite for this cycle.
+                memory_manager.save_previous_state(cid, {'original_prefix': real_prefix})
+
+                # Update DB so Console Matches
+                memory_manager.save_bar(
+                    cid, 
+                    bar_data.get("guild_id"),
+                    msg_id,
+                    bar_data["user_id"],
+                    new_content,
+                    bar_data.get("persisting", False),
+                    current_prefix=reboot_emoji,
+                    has_notification=False,
+                    checkmark_message_id=check_id
+                )
                 
             except Exception as e:
                 logger.warning(f"Failed to set reboot mode for {cid}: {e}")
@@ -2489,11 +2590,15 @@ class LMStudioBot(discord.Client):
             
         if tasks:
             await asyncio.gather(*tasks)
+        
+        # Trigger Console Update
+        await self.update_console_status()
 
     async def set_shutdown_mode(self):
         """
         Sets all active bars to 'Shutdown' mode visually.
-        Does NOT update the database content, ensuring the previous state is preserved for restoration.
+        Updates DB so Console reflects status.
+        Saves original prefix for restoration (via previous_state).
         Removes interactive views (buttons) during shutdown.
         """
         logger.info("🛑 Setting system to Shutdown Mode...")
@@ -2514,25 +2619,33 @@ class LMStudioBot(discord.Client):
                 # Determine current content without prefix
                 current_content = bar_data.get("content", "")
                 
-                # Strip Checkmark first (just in case it's in DB content)
+                # Strip Checkmark first
                 chk_emoji = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
                 if chk_emoji in current_content:
                     current_content = current_content.replace(chk_emoji, "").strip()
                 
+                # Determine REAL Prefix (to save)
+                real_prefix = bar_data.get("current_prefix")
+
                 # Strip existing prefix
                 stripped = False
                 for emoji in ui.BAR_PREFIX_EMOJIS:
                     if current_content.startswith(emoji):
                         current_content = current_content[len(emoji):].strip()
+                        if not real_prefix: real_prefix = emoji
                         stripped = True
                         break
                 
-                # Fallback Regex Strip (for unknown emojis)
+                # Fallback Regex Strip
                 if not stripped:
                     match = re.match(r'^(<a?:[^:]+:[0-9]+>)\s*', current_content)
                     if match:
                         current_content = current_content[match.end():].strip()
-                
+                        if not real_prefix: real_prefix = match.group(1)
+
+                if not real_prefix: 
+                    real_prefix = "<a:NotWatching:1301840196966285322>"
+
                 # Construct Shutdown Content
                 new_content = f"{shutdown_emoji} {current_content}"
                 new_content = re.sub(r'>[ \t]+<', '><', new_content)
@@ -2550,6 +2663,22 @@ class LMStudioBot(discord.Client):
                 view = ui.ShutdownView()
                 await services.service.limiter.wait_for_slot("edit_message", cid)
                 await msg.edit(content=new_content, view=view)
+
+                # Save Original Prefix to Previous State
+                memory_manager.save_previous_state(cid, {'original_prefix': real_prefix})
+
+                # Update DB
+                memory_manager.save_bar(
+                    cid, 
+                    bar_data.get("guild_id"),
+                    msg_id,
+                    bar_data["user_id"],
+                    new_content,
+                    bar_data.get("persisting", False),
+                    current_prefix=shutdown_emoji,
+                    has_notification=False,
+                    checkmark_message_id=check_id
+                )
                 
             except Exception as e:
                 logger.warning(f"Failed to set shutdown mode for {cid}: {e}")
@@ -2559,6 +2688,9 @@ class LMStudioBot(discord.Client):
             
         if tasks:
             await asyncio.gather(*tasks)
+        
+        # Trigger Console Update
+        await self.update_console_status()
 
     async def perform_shutdown_sequence(self, interaction, restart=True):
         # 1. Setup
@@ -3450,33 +3582,54 @@ async def on_reaction_add(reaction, user):
 @client.event
 async def on_message_edit(before, after):
     # Quick exit checks for performance
-    # Allow self-edits/embeds to be processed, but ignore other bots
-    if after.author.bot and after.author.id != client.user.id: return
+    # Allow self-edits/embeds to be processed.
+    # Allow Webhooks (PluralKit) to proceed for checking.
+    # Ignore other bots.
+    if after.author.bot and after.author.id != client.user.id and after.webhook_id is None: 
+        return
+    
     if not after.embeds: return
     
-    # Check Master Switch (Cached read preferred, but file read is safe enough for edit events)
+    # Check Master Switch
     if not memory_manager.get_server_setting("embed_suppression", True):
         return
+
+    # Resolve Author ID (Handle PluralKit Proxies)
+    author_id = after.author.id
+    
+    if after.webhook_id:
+        # Attempt to resolve real sender via PK
+        try:
+            _, _, _, _, pk_sender, _ = await services.service.get_pk_message_data(after.id)
+            if pk_sender:
+                author_id = int(pk_sender)
+        except Exception as e:
+            # Log error but continue with default author_id
+            logger.warning(f"Failed to resolve PK sender in on_message_edit: {e}")
 
     # Check User Opt-in (Force suppress for self if global setting is on)
     suppressed_users = memory_manager.get_suppressed_users()
     is_self = (after.author.id == client.user.id)
     
-    if not is_self and str(after.author.id) not in suppressed_users:
+    if not is_self and str(author_id) not in suppressed_users:
         return
 
-    # Check Embed Type (Hyperlinks usually 'link', 'article', 'video')
-    # We avoid 'rich' (bots) or 'image' (uploads) per request
+    # Check Embed Type
+    # Added 'rich' to catch Twitter/X embeds which often misreport type
     should_suppress = False
     for embed in after.embeds:
-        if embed.type in ('link', 'article', 'video'):
+        if embed.type in ('link', 'article', 'video', 'rich'):
             should_suppress = True
             break
             
     if should_suppress:
         try:
             await after.edit(suppress=True)
-        except: pass # Missing permissions or message deleted
+            logger.info(f"🔇 Suppressed embed for {after.author.name} (Real ID: {author_id}) in {after.channel.name}")
+        except discord.Forbidden:
+            logger.warning(f"❌ Failed to suppress embed in {after.channel.name}: Missing Permissions.")
+        except Exception as e:
+            logger.warning(f"❌ Failed to suppress embed: {e}")
 
 @client.event
 async def on_message(message):

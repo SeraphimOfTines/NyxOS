@@ -207,6 +207,15 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
             "--locale", "en-US"
         ]
         
+        # --- DEBUG LOGGING ---
+        debug_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info(f"----------------------------------------------------------------")
+        logger.info(f"[DEBUG] Timestamp: {debug_timestamp}")
+        logger.info(f"[DEBUG] Processing File: {c_name} (ID: {c_id})")
+        logger.info(f"[DEBUG] Command Invoked: {' '.join(export_cmd)}")
+        logger.info(f"----------------------------------------------------------------")
+        # ---------------------
+
         # Run Export
         try:
             export_proc = await asyncio.create_subprocess_exec(
@@ -295,7 +304,12 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
 
         # RATE LIMIT PAUSE
         # User requested pause. 6 seconds seems safe if hitting limits every 5s.
-        await asyncio.sleep(8) 
+        pause_duration = 8
+        logger.info(f"[DEBUG] Pausing for {pause_duration} seconds before next job...")
+        start_pause = time.time()
+        await asyncio.sleep(pause_duration)
+        actual_pause = time.time() - start_pause
+        logger.info(f"[DEBUG] Resumed after {actual_pause:.2f} seconds.") 
 
     # 4. Archive (7zip)
     if progress_callback:

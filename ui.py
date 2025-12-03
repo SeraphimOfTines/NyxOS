@@ -557,15 +557,6 @@ class ResponseView(discord.ui.View):
             button.label = "Error!"
             await interaction.edit_original_response(content=f"❌ Error regenerating: {e}", view=self)
 
-    @discord.ui.button(label=FLAVOR_TEXT["DELETE_BUTTON"], style=discord.ButtonStyle.danger, custom_id="delete_btn", row=0)
-    async def delete_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content=FLAVOR_TEXT["DELETE_MESSAGE"], view=None)
-        await asyncio.sleep(3)
-        try: 
-            await services.service.limiter.wait_for_slot("delete_message", interaction.channel_id)
-            await interaction.message.delete()
-        except: pass
-
     @discord.ui.button(label=FLAVOR_TEXT["GOOD_BOT_BUTTON"], style=discord.ButtonStyle.success, custom_id="good_bot_btn", row=0)
     async def good_bot_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Access Client Cooldowns
@@ -587,6 +578,15 @@ class ResponseView(discord.ui.View):
         button.disabled = True
         button.label = f"Good Bot: {count}" 
         await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label=FLAVOR_TEXT["DELETE_BUTTON"], style=discord.ButtonStyle.danger, custom_id="delete_btn", row=0)
+    async def delete_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content=FLAVOR_TEXT["DELETE_MESSAGE"], view=None)
+        await asyncio.sleep(3)
+        try: 
+            await services.service.limiter.wait_for_slot("delete_message", interaction.channel_id)
+            await interaction.message.delete()
+        except: pass
 
     @discord.ui.button(label=FLAVOR_TEXT["BUG_REPORT_BUTTON"], style=discord.ButtonStyle.secondary, custom_id="bug_report_btn", row=0)
     async def bug_report_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
