@@ -368,14 +368,18 @@ class ConsoleControlView(discord.ui.View):
         btn_symbols = discord.ui.Button(label="Symbols", url="https://discord.com/channels/411597692037496833/1302399809113821244/1363651092336083054", row=0)
         
         # 2. Capture existing items (Decorators)
-        # Current order from decorators: [Idle, Sleep, Reboot, Shutdown]
+        # Decorator Order: [Idle, Sleep, Reboot, Shutdown]
         existing_items = self.children[:]
         
-        # 3. Clear and Re-Add in correct order
-        self.clear_items()
+        # 3. Insert Symbols at Index 2
+        # Result: [Idle, Sleep, Symbols, Reboot, Shutdown]
+        if len(existing_items) >= 2:
+            existing_items.insert(2, btn_symbols)
+        else:
+            existing_items.append(btn_symbols) # Fallback
         
-        # Order: Symbols -> Existing
-        self.add_item(btn_symbols)
+        # 4. Clear and Re-Add
+        self.clear_items()
         for item in existing_items:
             self.add_item(item)
 

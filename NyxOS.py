@@ -914,7 +914,7 @@ class LMStudioBot(discord.Client):
         results = await asyncio.gather(*tasks)
         
         # Sync Console
-        await self.update_console_status()
+        await self.ensure_bar_consistency()
         
         return sum(1 for r in results if r)
 
@@ -1043,7 +1043,7 @@ class LMStudioBot(discord.Client):
         results = await asyncio.gather(*tasks)
         
         # Sync Console
-        await self.update_console_status()
+        await self.ensure_bar_consistency()
 
         return sum(1 for r in results if r)
 
@@ -1454,6 +1454,13 @@ class LMStudioBot(discord.Client):
         
         # Iterate over a copy since we might modify the dict
         for channel_id, bar_data in list(self.active_bars.items()):
+            # --- SANITY CHECK ---
+            if isinstance(channel_id, int) and channel_id < 1000000000000000:
+                logger.warning(f"⚠️ Found invalid Channel ID {channel_id} in DB. Purging.")
+                to_remove.append(channel_id)
+                continue
+            # --------------------
+
             msg_id = bar_data.get("message_id")
             if not msg_id:
                 # No message ID -> Cannot restore
@@ -1590,6 +1597,7 @@ class LMStudioBot(discord.Client):
                         count += 1
                 else:
                     # Channel not found/accessible -> Keep in DB (might be temporary outage)
+                    # But if it's channel 123, it's invalid. (Handled at start)
                     logger.warning(f"⚠️ Channel {channel_id} inaccessible. Keeping bar in DB.")
                     # Can't register view without knowing if channel exists really, but let's try
                     self.add_view(view, message_id=msg_id)
@@ -1607,6 +1615,49 @@ class LMStudioBot(discord.Client):
                 memory_manager.remove_bar_whitelist(cid)
                 
         logger.info(f"✅ Verified and Restored {count} status bar views.")
+
+    async def ensure_bar_consistency(self):
+        """
+        Helper: Checks if 'current_prefix' matches the actual content prefix for all active bars.
+        Updates internal state and DB if mismatched, then triggers console update.
+        """
+        logger.info("🔧 Verifying bar consistency (Prefix Check)...")
+        updated_count = 0
+        
+        for cid, bar_data in self.active_bars.items():
+            content = bar_data.get("content", "").strip()
+            stored_prefix = bar_data.get("current_prefix", "")
+            
+            found_prefix = None
+            for emoji in ui.BAR_PREFIX_EMOJIS:
+                if content.startswith(emoji):
+                    found_prefix = emoji
+                    break
+            
+            if found_prefix and found_prefix != stored_prefix:
+                # Mismatch detected!
+                logger.info(f"⚠️ Prefix mismatch in {cid}. Stored: {stored_prefix}, Found: {found_prefix}. Fixing.")
+                self.active_bars[cid]["current_prefix"] = found_prefix
+                
+                # Update DB (Partial update if possible, or full save)
+                # We re-save the bar.
+                memory_manager.save_bar(
+                    cid, 
+                    bar_data.get("guild_id"),
+                    bar_data.get("message_id"),
+                    bar_data.get("user_id"),
+                    content,
+                    bar_data.get("persisting"),
+                    current_prefix=found_prefix, # The fix
+                    has_notification=bar_data.get("has_notification"),
+                    checkmark_message_id=bar_data.get("checkmark_message_id")
+                )
+                updated_count += 1
+        
+        if updated_count > 0:
+            logger.info(f"✅ Fixed {updated_count} inconsistent bar prefixes.")
+        
+        await self.update_console_status()
 
     async def initialize_console_channel(self, t_ch):
         """Initializes or updates the console messages (Header, Master, Uplinks, Event Log)."""
@@ -1793,6 +1844,13 @@ class LMStudioBot(discord.Client):
                     
                     # 2. Fallback: Derive from Content
                     elif bar_data.get('content'):
+                         for emoji in ui.BAR_PREFIX_EMOJIS:
+                             if bar_data['content'].strip().startswith(emoji):
+                                 status_emoji = emoji
+                                 break
+                    
+                    # 3. Stale Prefix Check: If status is default (NotWatching) but content starts with different emoji, use content
+                    if status_emoji == default_emoji and bar_data.get('content'):
                          for emoji in ui.BAR_PREFIX_EMOJIS:
                              if bar_data['content'].strip().startswith(emoji):
                                  status_emoji = emoji
