@@ -201,7 +201,7 @@ class StatusBarView(discord.ui.View):
         # self.add_item(btn_drop_check)
 
         # 3. Auto Mode
-        btn_persist = discord.ui.Button(label="Auto", style=discord.ButtonStyle.secondary, custom_id="bar_persist_btn")
+        btn_persist = discord.ui.Button(emoji="🅰️", style=discord.ButtonStyle.secondary, custom_id="bar_persist_btn")
         btn_persist.callback = self.persist_callback
         self.add_item(btn_persist)
 
@@ -226,7 +226,8 @@ class StatusBarView(discord.ui.View):
     def update_buttons(self):
         for child in self.children:
             if getattr(child, "custom_id", "") == "bar_persist_btn":
-                child.label = "Auto" if self.persisting else "Manual"
+                child.emoji = "🅰️" if self.persisting else "Ⓜ️"
+                child.label = None
                 child.style = discord.ButtonStyle.success if self.persisting else discord.ButtonStyle.secondary
 
     async def check_auth(self, interaction, button):

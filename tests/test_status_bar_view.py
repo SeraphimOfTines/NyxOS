@@ -38,7 +38,8 @@ class TestStatusBarView(unittest.IsolatedAsyncioTestCase):
         btn2 = children[1]
         self.assertIsInstance(btn2, discord.ui.Button)
         self.assertEqual(btn2.custom_id, "bar_persist_btn")
-        self.assertEqual(btn2.label, "Manual") 
+        self.assertEqual(btn2.emoji.name, "Ⓜ️")
+        self.assertIsNone(btn2.label)
         self.assertEqual(btn2.style, discord.ButtonStyle.secondary)
         
         # 3. Symbols Link
@@ -62,7 +63,8 @@ class TestStatusBarView(unittest.IsolatedAsyncioTestCase):
         view = ui.StatusBarView(content="Test", original_user_id=123, channel_id=456, persisting=True)
         
         btn_auto = view.children[1]
-        self.assertEqual(btn_auto.label, "Auto")
+        self.assertEqual(btn_auto.emoji.name, "🅰️")
+        self.assertIsNone(btn_auto.label)
         self.assertEqual(btn_auto.style, discord.ButtonStyle.success)
 
     async def test_callbacks_bound(self):
