@@ -67,6 +67,14 @@ FLAVOR_TEXT = {
     "REBOOT_EMOJI": "<a:RebootingMainframe:1444740155784036512>",
     "SHUTDOWN_EMOJI": "<a:SeraphOffline:1445560234016903189>",
     "UPLINK_BULLET": "<a:divider:1420151062614118562>",
+    "SYMBOL_KEY": (
+        "**Status Symbol Key**\n"
+        "<a:WatchingOccasionally:1301837550159269888> **Watching**: Standard monitoring mode.\n"
+        "<a:WatchingClosely:1301838354832425010> **Watching Closely**: High alert / Active conversation.\n"
+        "<a:NotWatching:1301840196966285322> **Not Watching**: Idle mode.\n"
+        "<a:Thinking:1322962569300017214> **Thinking**: Processing a response.\n"
+        "<a:Sleeping:1312772391759249410> **Sleeping**: Deep sleep mode (ignore all)."
+    )
 }
 
 BAR_PREFIX_EMOJIS = [
@@ -187,9 +195,8 @@ class StatusBarView(discord.ui.View):
         btn_persist.callback = self.persist_callback
         self.add_item(btn_persist)
 
-        # 4. Symbols Link
-        symbols_url = "https://discord.com/channels/411597692037496833/1302399809113821244/1363651092336083054"
-        btn_symbols = discord.ui.Button(label="Symbols", url=symbols_url)
+        # 4. Symbols Key
+        btn_symbols = discord.ui.Button(label="Symbols", url="https://discord.com/channels/411597692037496833/1302399809113821244/1363651092336083054")
         self.add_item(btn_symbols)
 
         # 5. Console Link
@@ -358,18 +365,30 @@ class WakeupReportView(discord.ui.View):
 class ConsoleControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        
+        # Insert Link Button (Symbols) manually since decorators don't support URLs
+        # We want it at index 2 (Idle, Sleep, [HERE], Reboot, Shutdown)
+        btn_symbols = discord.ui.Button(label="Symbols", url="https://discord.com/channels/411597692037496833/1302399809113821244/1363651092336083054", row=0)
+        self.add_item(btn_symbols)
+        
+        # Reorder: Move last item (Symbols) to index 2
+        # self.children is a list of Items.
+        if len(self.children) >= 3:
+            sym = self.children.pop() # Remove the one we just added
+            self.children.insert(2, sym) # Insert at correct position
+
         self.update_button_styles()
 
     def update_button_styles(self):
         mode = memory_manager.get_server_setting("system_mode", "normal")
         
         # Idle Button
-        idle_btn = [x for x in self.children if getattr(x, "custom_id", "") == "console_idle_btn"][0]
-        idle_btn.style = discord.ButtonStyle.success if mode == "idle" else discord.ButtonStyle.secondary
-        
-        # Sleep Button
-        sleep_btn = [x for x in self.children if getattr(x, "custom_id", "") == "console_sleep_btn"][0]
-        sleep_btn.style = discord.ButtonStyle.success if mode == "sleep" else discord.ButtonStyle.secondary
+        # We need to search by custom_id because order might change or be fragile
+        for child in self.children:
+            if getattr(child, "custom_id", "") == "console_idle_btn":
+                child.style = discord.ButtonStyle.success if mode == "idle" else discord.ButtonStyle.secondary
+            elif getattr(child, "custom_id", "") == "console_sleep_btn":
+                child.style = discord.ButtonStyle.success if mode == "sleep" else discord.ButtonStyle.secondary
 
     @discord.ui.button(emoji="💤", style=discord.ButtonStyle.secondary, custom_id="console_idle_btn", row=0)
     async def idle_callback(self, interaction: discord.Interaction, button: discord.ui.Button):

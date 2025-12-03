@@ -81,42 +81,7 @@ import backup_manager
 # BOT SETUP
 # ==========================================
 
-def kill_duplicate_processes():
-    """Nuclear option: Kills other instances with SIGKILL and ensures they are dead."""
-    my_pid = os.getpid()
-    logger.info(f"💀 Nuclear cleanup initiated. My PID: {my_pid}")
-    
-    # Retry loop to ensure death
-    for i in range(3):
-        try:
-            # Find all PIDs matching "python.*NyxOS.py"
-            result = subprocess.run(['pgrep', '-f', 'python.*NyxOS.py'], stdout=subprocess.PIPE, text=True)
-            
-            if result.returncode != 0:
-                break # No processes found
-            
-            pids = result.stdout.strip().split('\n')
-            killed_something = False
-            
-            for pid_str in pids:
-                if not pid_str.strip(): continue
-                try:
-                    pid = int(pid_str)
-                    if pid != my_pid:
-                        logger.warning(f"💥 SIGKILLing PID: {pid}")
-                        os.kill(pid, signal.SIGKILL) # NUCLEAR
-                        killed_something = True
-                except (ValueError, ProcessLookupError):
-                    pass
-            
-            if not killed_something:
-                break # Only self remaining (or none)
-            
-            time.sleep(1) # Wait for OS to clean up
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Error during process cleanup: {e}")
-            break
+# (Process cleanup moved to NyxOSDaemon.py)
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -1626,12 +1591,13 @@ class LMStudioBot(discord.Client):
         logger.info(f"✅ Verified and Restored {count} status bar views.")
 
     async def initialize_console_channel(self, t_ch):
-        """Initializes or updates the 3 console messages (Header, Master Bar, Uplinks List)."""
+        """Initializes or updates the console messages (Header, Master, Uplinks, Event Log)."""
         if not t_ch: return
 
         master_content = memory_manager.get_master_bar() or "NyxOS Uplink Active"
         divider = ui.FLAVOR_TEXT["COSMETIC_DIVIDER"]
         startup_header_text = f"{ui.FLAVOR_TEXT['STARTUP_HEADER']}\n{ui.FLAVOR_TEXT['STARTUP_SUB_DONE']}\n{divider}"
+        event_log_text = f"{divider}\n# System Events"
 
         # 1. Fetch existing messages
         msgs = []
@@ -1640,23 +1606,52 @@ class LMStudioBot(discord.Client):
                 msgs.append(m)
         msgs.sort(key=lambda x: x.created_at)
 
-        # 2. Validate Structure (Header, Master, List)
-        # We expect AT LEAST 3 messages. 
-        h_msg, bar_msg = None, None
-        list_msgs = []
-        
-        if len(msgs) >= 3:
+        h_msg, bar_msg, list_msgs, event_msg = None, None, [], None
+        valid_structure = False
+
+        # 2. Sandwich Detection
+        if len(msgs) >= 3: # Need at least Header, Master, and something else (List or Event)
             h_msg = msgs[0]
             bar_msg = msgs[1]
-            list_msgs = msgs[2:]
+            
+            # Search for Event Log (from end backwards, or just scan)
+            # The Event Log should contain the divider and "# System Events"
+            for i in range(2, len(msgs)):
+                if divider in msgs[i].content and "# System Events" in msgs[i].content:
+                    event_msg = msgs[i]
+                    # Everything between 1 and i is List
+                    list_msgs = msgs[2:i]
+                    break
+            
+            # If we found an event message, we have a valid sandwich (even if list is empty/missing, though unlikely)
+            if event_msg:
+                if not list_msgs:
+                     # If list is missing (e.g. Header, Bar, Event), create one
+                     # This implies we insert a message? Inserting is hard in Discord (can't).
+                     # We must wipe if we can't preserve order.
+                     valid_structure = False
+                else:
+                     valid_structure = True
+            else:
+                # No Event Log found. Check if the LAST message is the List?
+                # If we are upgrading from 3-msg system, we won't find Event Log.
+                # We should treat all remaining as List, and Append Event Log.
+                list_msgs = msgs[2:]
+                valid_structure = False # Force append of event log?
+                # Actually, if we just append, it's fine. But let's rely on wipe/rebuild for cleaner upgrade.
+                pass
+
+        if valid_structure:
+             pass # Good to go
         else:
-            # Invalid -> Wipe and Recreate
+            # Invalid or Upgrade -> Wipe and Recreate
             try: await t_ch.purge(limit=100)
             except: pass
             
             h_msg = await t_ch.send(startup_header_text)
             bar_msg = await t_ch.send(master_content)
             list_msgs = [await t_ch.send(f"{divider}\nLoading Uplinks...", view=ui.ConsoleControlView())]
+            event_msg = await t_ch.send(event_log_text)
 
         # 3. Update Content
         if h_msg.content != startup_header_text:
@@ -1666,11 +1661,16 @@ class LMStudioBot(discord.Client):
         if bar_msg.content != master_content:
             try: await bar_msg.edit(content=master_content)
             except: pass
+            
+        if event_msg.content != event_log_text:
+            try: await event_msg.edit(content=event_log_text)
+            except: pass
 
         # 4. Register references
         self.startup_header_msg = h_msg
         self.startup_bar_msg = bar_msg
         self.console_progress_msgs = list_msgs
+        self.event_log_msg = event_msg
 
     async def on_ready(self):
         logger.info('# ==========================================')
@@ -3900,7 +3900,6 @@ async def on_message(message):
             client.processing_locks.remove(message.id)
 
 if __name__ == "__main__":
-    kill_duplicate_processes()
     if not config.BOT_TOKEN:
         logger.error("❌ BOT_TOKEN not found.")
     else:
