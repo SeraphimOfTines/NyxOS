@@ -198,6 +198,9 @@ def increment_good_bot(user_id, username):
 def get_good_bot_leaderboard():
     return db.get_leaderboard()
 
+def clear_good_bot_leaderboard():
+    return db.clear_user_scores()
+
 # --- EMBED SUPPRESSION LOGIC ---
 
 def get_suppressed_users():

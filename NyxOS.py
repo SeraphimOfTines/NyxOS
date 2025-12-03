@@ -2769,6 +2769,17 @@ async def good_bot_leaderboard(interaction: discord.Interaction):
     
     await interaction.response.send_message(chart_text, ephemeral=True)
 
+@client.tree.command(name="cleargoodbots", description="Clear the Good Bot leaderboard (Admin Only).")
+async def cleargoodbots_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        return
+
+    if memory_manager.clear_good_bot_leaderboard():
+        await interaction.response.send_message("✅ Good Bot leaderboard has been wiped.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Failed to wipe Good Bot leaderboard.", ephemeral=True)
+
 @client.tree.command(name="synccommands", description="Force sync slash commands.")
 async def synccommands_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
@@ -3244,7 +3255,7 @@ async def help_command(interaction: discord.Interaction):
     
     embed.add_field(
         name="System / Admin", 
-        value="`/console` - Jump to Console.\n`/addchannel` - Whitelist current channel.\n`/removechannel` - Blacklist current channel.\n`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/clearmemory` - Clear channel memory.\n`/clearallmemory` - Wipe ALL memories.\n`/wipelogs` - Wipe ALL logs.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test message.\n`/synccommands` - Force sync slash commands.\n`/suppressembedson/off` - Global embed suppression.", 
+        value="`/console` - Jump to Console.\n`/addchannel` - Whitelist current channel.\n`/removechannel` - Blacklist current channel.\n`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/clearmemory` - Clear channel memory.\n`/cleargoodbots` - Wipe Good Bot leaderboard.\n`/clearallmemory` - Wipe ALL memories.\n`/wipelogs` - Wipe ALL logs.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test message.\n`/synccommands` - Force sync slash commands.\n`/suppressembedson/off` - Global embed suppression.", 
         inline=False
     )
     

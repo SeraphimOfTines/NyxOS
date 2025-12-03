@@ -130,6 +130,18 @@ async def handle_prefix_command(client, message):
         await message.channel.send(chart_text)
         return True
 
+    # &cleargoodbots
+    if cmd == "&cleargoodbots":
+        if not helpers.is_authorized(author_to_check):
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+        
+        if memory_manager.clear_good_bot_leaderboard():
+            await message.channel.send("🧹 Good Bot leaderboard has been wiped.")
+        else:
+            await message.channel.send("❌ Failed to wipe Good Bot leaderboard.")
+        return True
+
     # &backup
     if cmd == "&backup":
         if not helpers.is_authorized(author_to_check):
@@ -342,7 +354,7 @@ async def handle_prefix_command(client, message):
     if cmd == "&help":
         embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
         embed.add_field(name="General Commands", value="`&killmyembeds` - Toggle auto-suppression of link embeds.\n`&goodbot` - Show the Good Bot leaderboard.\n`&reportbug` - How to report bugs.", inline=False)
-        embed.add_field(name="Admin Commands", value="`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
+        embed.add_field(name="Admin Commands", value="`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&cleargoodbots` - Wipe Good Bot leaderboard.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
         await message.channel.send(embed=embed)
         return True
 

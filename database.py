@@ -632,6 +632,17 @@ class Database:
             logger.error(f"Failed to get leaderboard: {e}")
             return []
 
+    def clear_user_scores(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM user_scores")
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to clear user scores: {e}")
+            return False
+
     # --- Suppressed Users Methods ---
 
     def get_suppressed_users(self):
