@@ -36,13 +36,17 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.mock_client = self.MockBot()
         self.mock_client.close = AsyncMock()
+        self.mock_client.set_reboot_mode = AsyncMock()
+        self.mock_client.set_shutdown_mode = AsyncMock()
         
         # Mock Channel
-        self.mock_channel = AsyncMock()
+        self.mock_channel = MagicMock()
+        self.mock_channel.id = 12345
         # Fix: history returns an AsyncIter, not a Coroutine
         self.mock_channel.history = MagicMock(return_value=AsyncIter([]))
         
         self.mock_client.fetch_channel = AsyncMock(return_value=self.mock_channel)
+        self.mock_client.get_channel = MagicMock(return_value=self.mock_channel)
         
         # Clean up temp files
         if os.path.exists(config.RESTART_META_FILE):
@@ -61,39 +65,51 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
         interaction = MagicMock()
         interaction.response.is_done.return_value = False
         interaction.response.defer = AsyncMock()
+        interaction.channel.id = 999
         
         # Mock cached messages
         h_msg = AsyncMock()
-        h_msg.channel.id = 12345
         h_msg.id = 100
+        # Explicitly set channel as MagicMock with int ID
+        h_msg.channel = MagicMock() 
+        h_msg.channel.id = 12345
+        
         b_msg = AsyncMock()
-        b_msg.channel.id = 12345
         b_msg.id = 101
+        b_msg.channel = h_msg.channel # Same channel
         
         self.mock_client.startup_header_msg = h_msg
         self.mock_client.startup_bar_msg = b_msg
         self.mock_client.fetch_channel.return_value = h_msg.channel
         
-        with patch('asyncio.sleep'): # Skip sleep
-            with patch('sys.exit') as mock_exit:
-                
-                await self.mock_client.perform_shutdown_sequence(interaction, restart=True)
-                
-                # Verify UI updates
-                # h_msg should be edited twice (Powering Down, then Offline)
-                self.assertEqual(h_msg.edit.call_count, 2)
-                
-                # b_msg (Bar) should NOT be edited (Preserve Status Icons)
-                b_msg.edit.assert_not_called()
-                
-                # Verify Meta Write
-                self.assertTrue(os.path.exists(config.RESTART_META_FILE))
-                with open(config.RESTART_META_FILE, 'r') as f:
-                    data = json.load(f)
-                    self.assertEqual(data['header_msg_id'], 100)
-                
-                # Verify Close (Exit is handled by main loop now)
-                self.mock_client.close.assert_called_once()
+        # Manual patch because patch() context manager seemed flaky or scoped poorly
+        old_startup = config.STARTUP_CHANNEL_ID
+        config.STARTUP_CHANNEL_ID = 123456789
+        
+        try:
+            with patch('asyncio.sleep'): # Skip sleep
+                with patch('sys.exit') as mock_exit:
+                    with patch('services.service.limiter.wait_for_slot', new=AsyncMock()):
+                        await self.mock_client.perform_shutdown_sequence(interaction, restart=True)
+                        
+                        # Verify UI updates
+                        # h_msg should be edited twice (Powering Down, then Offline)
+                        self.assertEqual(h_msg.edit.call_count, 2)
+                        
+                        # b_msg (Bar) should NOT be edited (Preserve Status Icons)
+                        b_msg.edit.assert_not_called()
+                        
+                        # Verify Meta Write
+                        self.assertTrue(os.path.exists(config.RESTART_META_FILE))
+                        with open(config.RESTART_META_FILE, 'r') as f:
+                            data = json.load(f)
+                            self.assertEqual(data['header_msg_id'], 100)
+                            self.assertEqual(data['channel_id'], 12345)
+                        
+                        # Verify Close (Exit is handled by main loop now)
+                        self.mock_client.close.assert_called_once()
+        finally:
+            config.STARTUP_CHANNEL_ID = old_startup
 
     async def test_shutdown_sequence_logic(self):
         """Test shutdown logic (restart=False)"""
@@ -101,17 +117,18 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
         interaction.response.is_done.return_value = False
         interaction.response.defer = AsyncMock()
         interaction.followup.send = AsyncMock()
+        interaction.channel.id = 999
         
         with patch('asyncio.sleep'):
              with patch('sys.exit') as mock_exit:
-                
-                await self.mock_client.perform_shutdown_sequence(interaction, restart=False)
-                
-                # Verify Flag Write
-                self.assertTrue(os.path.exists(config.SHUTDOWN_FLAG_FILE))
-                
-                # Verify Close (Exit is handled by main loop now)
-                self.mock_client.close.assert_called_once()
+                 with patch('services.service.limiter.wait_for_slot', new=AsyncMock()):
+                    await self.mock_client.perform_shutdown_sequence(interaction, restart=False)
+                    
+                    # Verify Flag Write
+                    self.assertTrue(os.path.exists(config.SHUTDOWN_FLAG_FILE))
+                    
+                    # Verify Close (Exit is handled by main loop now)
+                    self.mock_client.close.assert_called_once()
 
     async def test_reboot_fallback_no_ui(self):
         """Test reboot fallback when UI not found"""
@@ -126,16 +143,21 @@ class TestRebootLogic(unittest.IsolatedAsyncioTestCase):
         # Mock fetch_channel to fail or return None for startup channel
         self.mock_client.fetch_channel.side_effect = Exception("Not Found")
         
-        with patch('asyncio.sleep'):
-             with patch('sys.exit') as mock_exit:
-                
-                await self.mock_client.perform_shutdown_sequence(interaction, restart=True)
-                
-                # Should send fallback message
-                interaction.followup.send.assert_called()
-                
-                # Meta should point to interaction channel
-                self.assertTrue(os.path.exists(config.RESTART_META_FILE))
-                with open(config.RESTART_META_FILE, 'r') as f:
-                    data = json.load(f)
-                    self.assertEqual(data['channel_id'], 999)
+        old_startup = config.STARTUP_CHANNEL_ID
+        config.STARTUP_CHANNEL_ID = 123456789
+        try:
+            with patch('asyncio.sleep'):
+                 with patch('sys.exit') as mock_exit:
+                     with patch('services.service.limiter.wait_for_slot', new=AsyncMock()):
+                        await self.mock_client.perform_shutdown_sequence(interaction, restart=True)
+                        
+                        # Should send fallback message
+                        interaction.followup.send.assert_called()
+                        
+                        # Meta should point to interaction channel
+                        self.assertTrue(os.path.exists(config.RESTART_META_FILE))
+                        with open(config.RESTART_META_FILE, 'r') as f:
+                            data = json.load(f)
+                            self.assertEqual(data['channel_id'], 999)
+        finally:
+            config.STARTUP_CHANNEL_ID = old_startup

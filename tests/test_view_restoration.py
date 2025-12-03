@@ -28,19 +28,19 @@ class TestViewRestoration:
             
             # 2. Mock dependencies
             bot.active_bars = {
-                101: {
+                123456789012345678: {
                     "content": "Bar 1",
                     "user_id": 1,
                     "message_id": 5001,
                     "persisting": True
                 },
-                102: {
+                123456789012345679: {
                     "content": "Bar 2",
                     "user_id": 2,
                     "message_id": 5002,
                     "persisting": False
                 },
-                103: { # Broken/Missing Bar
+                123456789012345680: { # Broken/Missing Bar
                     "content": "Bar 3",
                     "user_id": 3,
                     "message_id": 5003,
@@ -97,5 +97,5 @@ class TestViewRestoration:
                 assert view2.persisting is False
                 
                 # Verify cleanup of 103
-                mock_delete.assert_called_once_with(103)
-                assert 103 not in bot.active_bars
+                mock_delete.assert_called_once_with(123456789012345680)
+                assert 123456789012345680 not in bot.active_bars

@@ -65,7 +65,7 @@ class TestBarPersistence(unittest.IsolatedAsyncioTestCase):
     async def test_network_error_preserves_bar(self):
         """Test that HTTP/Network errors do NOT delete the bar from DB."""
         # Setup: One active bar
-        channel_id = 100
+        channel_id = 123456789012345678
         msg_id = 200
         self.bot.active_bars = {
             channel_id: {"message_id": msg_id, "content": "Test Bar", "user_id": 123}
@@ -96,7 +96,7 @@ class TestBarPersistence(unittest.IsolatedAsyncioTestCase):
 
     async def test_forbidden_error_preserves_bar(self):
         """Test that Forbidden (Permission) errors do NOT delete the bar."""
-        channel_id = 100
+        channel_id = 123456789012345678
         msg_id = 200
         self.bot.active_bars = {
             channel_id: {"message_id": msg_id, "content": "Test Bar", "user_id": 123}
@@ -116,7 +116,7 @@ class TestBarPersistence(unittest.IsolatedAsyncioTestCase):
 
     async def test_not_found_deletes_bar(self):
         """Test that NotFound (404) DOES delete the bar."""
-        channel_id = 100
+        channel_id = 123456789012345678
         msg_id = 200
         self.bot.active_bars = {
             channel_id: {"message_id": msg_id, "content": "Test Bar", "user_id": 123}

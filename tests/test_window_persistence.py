@@ -29,8 +29,8 @@ class TestWindowPersistence:
             
             # Mock Active Bars (as if loaded from DB)
             bot.active_bars = {
-                1001: {
-                    "channel_id": 1001,
+                123456789012345678: {
+                    "channel_id": 123456789012345678,
                     "message_id": 5001,
                     "checkmark_message_id": 5002,
                     "user_id": 999,
@@ -39,8 +39,8 @@ class TestWindowPersistence:
                     "current_prefix": "<a:Speed1:>",
                     "has_notification": False
                 },
-                1002: {
-                    "channel_id": 1002,
+                123456789012345679: {
+                    "channel_id": 123456789012345679,
                     "message_id": 6001,
                     # checkmark merged
                     "checkmark_message_id": 6001, 
@@ -86,7 +86,7 @@ class TestWindowPersistence:
             assert view1 is not None
             assert isinstance(view1, ui.StatusBarView)
             assert kwargs1['message_id'] == 5001 
-            assert view1.channel_id == 1001
+            assert view1.channel_id == 123456789012345678
             assert view1.persisting is True
             assert view1.original_user_id == 999
             
@@ -94,7 +94,7 @@ class TestWindowPersistence:
             assert view2 is not None
             assert isinstance(view2, ui.StatusBarView)
             assert kwargs2['message_id'] == 6001
-            assert view2.channel_id == 1002
+            assert view2.channel_id == 123456789012345679
             assert view2.persisting is False
             
             print("✅ Persistence Test Passed: Views re-attached correctly.")

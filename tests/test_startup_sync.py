@@ -23,7 +23,7 @@ class TestStartupSync(unittest.IsolatedAsyncioTestCase):
         """Test that verify_and_restore_bars updates DB if message content differs."""
         
         # 1. Setup Active Bars (Stale State: Idle)
-        channel_id = 1001
+        channel_id = 123456789012345678
         msg_id = 2001
         idle_emoji = "<a:NotWatching:1301840196966285322>"
         fast_emoji = "<a:WatchingClosely:1301838354832425010>"
@@ -76,7 +76,7 @@ class TestStartupSync(unittest.IsolatedAsyncioTestCase):
     async def test_verify_and_restore_bars_no_sync_if_same(self, mock_mm):
         """Test that verify_and_restore_bars does NOT update DB if content matches."""
         
-        channel_id = 1001
+        channel_id = 123456789012345678
         msg_id = 2001
         idle_emoji = "<a:NotWatching:1301840196966285322>"
         

@@ -18,7 +18,7 @@ class TestBarManagement(unittest.IsolatedAsyncioTestCase):
     async def test_addbar_command(self):
         interaction = AsyncMock()
         interaction.user.id = 123
-        interaction.channel_id = 100
+        interaction.channel_id = 123456789012345678
         interaction.guild_id = 555
         interaction.channel.send = AsyncMock()
         
@@ -42,19 +42,19 @@ class TestBarManagement(unittest.IsolatedAsyncioTestCase):
                          await NyxOS.addbar_command.callback(interaction)
                          
                          # Verifications
-                         mock_whitelist.assert_called_with(100)
+                         mock_whitelist.assert_called_with(123456789012345678)
                          interaction.channel.send.assert_called()
                          
                          # Check active_bars update
-                         self.assertIn(100, mock_client.active_bars)
-                         self.assertEqual(mock_client.active_bars[100]['message_id'], 999)
+                         self.assertIn(123456789012345678, mock_client.active_bars)
+                         self.assertEqual(mock_client.active_bars[123456789012345678]['message_id'], 999)
                          
                          mock_save.assert_called()
 
     async def test_removebar_command(self):
         interaction = AsyncMock()
         interaction.user.id = 123
-        interaction.channel_id = 100
+        interaction.channel_id = 123456789012345678
         interaction.response.defer = AsyncMock()
         interaction.edit_original_response = AsyncMock()
         interaction.delete_original_response = AsyncMock()
@@ -69,12 +69,16 @@ class TestBarManagement(unittest.IsolatedAsyncioTestCase):
                     
                     # Verifications
                     interaction.response.defer.assert_called_with(ephemeral=True)
-                    mock_remove_wl.assert_called_with(100)
+                    mock_remove_wl.assert_called_with(123456789012345678)
                     mock_client.wipe_channel_bars.assert_called_with(interaction.channel)
-                    interaction.edit_original_response.assert_called_with(content="✅")
+                    
+                    # Updated: removebar does NOT send checkmark anymore, just deletes response
+                    interaction.edit_original_response.assert_not_called()
+                    interaction.delete_original_response.assert_called()
+
     async def test_drop_command_no_bar(self):
         interaction = AsyncMock()
-        interaction.channel_id = 100
+        interaction.channel_id = 123456789012345678
         
         with patch('NyxOS.client', new=AsyncMock()) as mock_client:
             mock_client.active_bars = {} # Empty
@@ -87,15 +91,13 @@ class TestBarManagement(unittest.IsolatedAsyncioTestCase):
 
     async def test_drop_command_success(self):
         interaction = AsyncMock()
-        interaction.channel_id = 100
+        interaction.channel_id = 123456789012345678
         
         with patch('NyxOS.client', new=AsyncMock()) as mock_client:
-            mock_client.active_bars = {100: {}}
+            mock_client.active_bars = {123456789012345678: {}}
             
             await NyxOS.drop_command.callback(interaction)
             
             interaction.response.defer.assert_called()
-            mock_client.drop_status_bar.assert_called_with(100, move_bar=True, move_check=True)
+            mock_client.drop_status_bar.assert_called_with(123456789012345678, move_bar=True, move_check=True)
             interaction.delete_original_response.assert_called()
-
-

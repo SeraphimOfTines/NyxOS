@@ -82,14 +82,14 @@ class TestStatusBarView(unittest.IsolatedAsyncioTestCase):
         # Check children count
         self.assertEqual(len(view.children), 5)
         
-        # 1. Symbols (Label='Symbols')
-        self.assertEqual(view.children[0].label, "Symbols")
+        # 1. Idle (Emoji='💤', Label=None)
+        self.assertEqual(view.children[0].emoji.name, "💤")
         
-        # 2. Idle (Emoji='💤', Label=None)
-        self.assertEqual(view.children[1].emoji.name, "💤")
+        # 2. Sleep
+        self.assertEqual(view.children[1].emoji.name, "🛏️")
         
-        # 3. Sleep
-        self.assertEqual(view.children[2].emoji.name, "🛏️")
+        # 3. Symbols (Label='Symbols')
+        self.assertEqual(view.children[2].label, "Symbols")
         
         # 4. Reboot
         self.assertEqual(view.children[3].emoji.name, "🔄")
