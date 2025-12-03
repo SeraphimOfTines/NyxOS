@@ -48,7 +48,7 @@ FLAVOR_TEXT = {
     "GLOBAL_CHAT_DISABLED": "🔒 Global Chat Mode **DISABLED**. I will only respond in whitelisted channels.",
     "GOOD_BOT_REACTION": "<a:SeraphHeartSATVRN:1444517518470287410>",
     "WAKE_WORD_REACTION": "<a:Thinking:1322962569300017214>",
-    "BAR_DROP_ALL": "⏬",
+    "BAR_DROP_ALL": "🔻",
     "BAR_DROP_CHECK": "✅",
     "BAR_DELETE": "🗑️",
     "BAR_PERSIST_OFF": "🔃",
