@@ -81,22 +81,32 @@ BAR_PREFIX_EMOJIS = [
     "<a:WatchingOccasionally:1301837550159269888>",
     "<a:WatchingClosely:1301838354832425010>",
     "<a:NotWatching:1301840196966285322>",
-    "<a:Thinking:1322962569300017214>", # /thinking
-    "<a:Sleeping:1312772391759249410>", # /sleeping (from shutdown msg)
-    "<a:RebootingMainframe:1444740155784036512>", # New Reboot Emoji
-    "<a:SeraphOffline:1445560234016903189>", # Shutdown Emoji
+    "<a:Thinking:1322962569300017214>", 
+    "<a:Sleeping:1312772391759249410>", 
+    "<a:RebootingMainframe:1444740155784036512>", 
+    "<a:SeraphOffline:1445560234016903189>", 
     "<a:Reading:1378593438265770034>",
     "<a:Backlogging:1290067150861500588>", 
     "<a:Typing:1223747307657232405>",
     "<a:Processing:1223643308140793969>",
+    "<a:SeraphBRB:1445618635719577671>",
+    "<a:Pausing:1385258657532481597>",
 ]
 
 ANGEL_CONTENT = "<a:SacredMagicStrong:1316971256830103583><a:SeraphWingLeft:1297050718754312192><a:SacredEyeLuminara:1296698905744113715><a:SeraphWingRight:1297051921651073055><a:SacredMagicStrong:1316971256830103583> \n<a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466><a:SacredWind:1296975869566259396><a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466>"
 DARK_ANGEL_CONTENT = "<a:SacredMagicStrong:1316971256830103583><a:SeraphWingLeft:1297050718754312192><a:SacredEyeYami:1418478480336879716><a:SeraphWingRight:1297051921651073055><a:SacredMagicStrong:1316971256830103583> \n<a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466><a:SacredWind:1296975869566259396><a:HyperRingPresence:1303962112317587466><a:HyperRingPresence:1303962112317587466>"
 
 # ==========================================
-# BUG REPORT MODAL
+# BUG REPORT MODAL & VIEW
 # ==========================================
+
+class BugReportButtonView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="📝 Submit Report", style=discord.ButtonStyle.primary)
+    async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(BugReportModal(None))
 
 class BugReportModal(discord.ui.Modal, title="Report a Bug"):
     report_title = discord.ui.TextInput(label="Bug Title", style=discord.TextStyle.short, required=True, max_length=100, placeholder="Short summary of the bug")
@@ -165,7 +175,7 @@ class RebootView(discord.ui.View):
 class ShutdownView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        btn = discord.ui.Button(label="Mainframe Shutdown . . .", style=discord.ButtonStyle.secondary, disabled=True)
+        btn = discord.ui.Button(label="Mainframe Shutdown", style=discord.ButtonStyle.secondary, disabled=True)
         self.add_item(btn)
 
 # ==========================================
@@ -220,20 +230,12 @@ class StatusBarView(discord.ui.View):
                 child.style = discord.ButtonStyle.success if self.persisting else discord.ButtonStyle.secondary
 
     async def check_auth(self, interaction, button):
-        # Only Original User or Admin
-        # If original_user_id is None (Straggler/Generic View), allow Admin only (or anyone? prefer Admin/Owner)
-        is_original = (self.original_user_id and interaction.user.id == self.original_user_id)
-        if is_original or helpers.is_authorized(interaction.user):
+        # Only Admin
+        if helpers.is_admin(interaction.user):
             return True
         
-        # Unauthorized Animation
-        original_label = button.label
-        button.label = "Nope!"
-        await interaction.response.edit_message(view=self)
-        await asyncio.sleep(1)
-        button.label = original_label
-        try: await interaction.edit_original_response(view=self)
-        except: pass
+        # Unauthorized
+        await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return False
 
     async def drop_all_callback(self, interaction: discord.Interaction):
@@ -346,12 +348,8 @@ class WakeupReportView(discord.ui.View):
 
     @discord.ui.button(label="Dismiss", style=discord.ButtonStyle.secondary, custom_id="wakeup_dismiss_btn")
     async def dismiss_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Check auth? Probably not needed for a dismiss button on a system message, but we can restrict to admin if needed.
-        # For now, allow anyone to dismiss to reduce clutter if they see it.
-        # Or maybe restrict to the user who rebooted? We don't track that easily here.
-        # Let's allow admins or the original invoker. But since we don't have invoker ID here easily...
-        # Let's just allow admins.
-        if not helpers.is_authorized(interaction.user):
+        # Only Admin
+        if not helpers.is_admin(interaction.user):
              await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
              return
         
@@ -392,7 +390,7 @@ class ConsoleControlView(discord.ui.View):
 
     @discord.ui.button(emoji="💤", style=discord.ButtonStyle.secondary, custom_id="console_idle_btn", row=0)
     async def idle_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_authorized(interaction.user):
+        if not helpers.is_admin(interaction.user):
              await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
              return
         if hasattr(interaction.client, "idle_all_bars"):
@@ -403,7 +401,7 @@ class ConsoleControlView(discord.ui.View):
 
     @discord.ui.button(emoji="🛏️", style=discord.ButtonStyle.secondary, custom_id="console_sleep_btn", row=0)
     async def sleep_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_authorized(interaction.user):
+        if not helpers.is_admin(interaction.user):
              await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
              return
         if hasattr(interaction.client, "sleep_all_bars"):
@@ -414,7 +412,7 @@ class ConsoleControlView(discord.ui.View):
 
     @discord.ui.button(emoji="🔄", style=discord.ButtonStyle.secondary, custom_id="console_reboot_btn", row=0)
     async def reboot_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_authorized(interaction.user):
+        if not helpers.is_admin(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         if hasattr(interaction.client, "perform_shutdown_sequence"):
@@ -424,7 +422,7 @@ class ConsoleControlView(discord.ui.View):
 
     @discord.ui.button(emoji="🛑", style=discord.ButtonStyle.secondary, custom_id="console_shutdown_btn", row=0)
     async def shutdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_authorized(interaction.user):
+        if not helpers.is_admin(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         if hasattr(interaction.client, "perform_shutdown_sequence"):
