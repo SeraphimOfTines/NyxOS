@@ -2120,7 +2120,8 @@ class LMStudioBot(discord.Client):
                     if msg.components:
                         for row in msg.components:
                             for child in row.children:
-                                if getattr(child, "custom_id", "").startswith("bar_"):
+                                cid_str = getattr(child, "custom_id", "") or ""
+                                if cid_str.startswith("bar_"):
                                     is_target = True
                                     break
                             if is_target: break
@@ -2159,7 +2160,8 @@ class LMStudioBot(discord.Client):
                     if msg.components:
                         for row in msg.components:
                             for child in row.children:
-                                if getattr(child, "custom_id", "").startswith("bar_"):
+                                cid_str = getattr(child, "custom_id", "") or ""
+                                if cid_str.startswith("bar_"):
                                     is_target = True
                                     break
                             if is_target: break
@@ -2207,7 +2209,8 @@ class LMStudioBot(discord.Client):
                     if msg.components:
                         for row in msg.components:
                             for child in row.children:
-                                if getattr(child, "custom_id", "",).startswith("bar_"):
+                                cid_str = getattr(child, "custom_id", "") or ""
+                                if cid_str.startswith("bar_"):
                                     is_bar = True
                                     break
                             if is_bar: break
@@ -3567,6 +3570,81 @@ async def global_command(interaction: discord.Interaction, text: str):
 async def darkangel_command(interaction: discord.Interaction):
     await client.replace_bar_content(interaction, ui.DARK_ANGEL_CONTENT)
 
+@client.tree.command(name="debugscan", description="Diagnose why the bot can't see the status bar (Admin).")
+async def debugscan_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    
+    log = []
+    log.append(f"--- DEBUG SCAN FOR #{interaction.channel.name} ({interaction.channel_id}) ---")
+    log.append(f"Bot ID: {client.user.id}")
+    log.append(f"Active Bars Entry: {client.active_bars.get(interaction.channel_id)}")
+    log.append(f"Allowed Channels: {memory_manager.get_allowed_channels()}")
+    log.append("-" * 40)
+
+    found_any = False
+    count = 0
+    
+    try:
+        async for msg in interaction.channel.history(limit=20):
+            count += 1
+            log.append(f"\n[MSG {msg.id}] Author: {msg.author.id} ({msg.author.name})")
+            log.append(f"Content: {repr(msg.content)}")
+            
+            if msg.author.id != client.user.id:
+                log.append("Result: IGNORED (Not me)")
+                continue
+
+            # Check 1: Buttons
+            has_bar_btn = False
+            btn_ids = []
+            if msg.components:
+                for row in msg.components:
+                    for child in row.children:
+                        cid = getattr(child, "custom_id", "") or "None"
+                        btn_ids.append(cid)
+                        if cid and cid.startswith("bar_"):
+                            has_bar_btn = True
+            
+            log.append(f"Buttons: {btn_ids}")
+            
+            # Check 2: Prefix
+            has_prefix = False
+            matched_prefix = None
+            for emoji in ui.BAR_PREFIX_EMOJIS:
+                if msg.content.strip().startswith(emoji):
+                    has_prefix = True
+                    matched_prefix = emoji
+                    break
+            
+            log.append(f"Detection: Button={has_bar_btn}, Prefix={has_prefix} ({matched_prefix})")
+            
+            if has_bar_btn or has_prefix:
+                log.append("Result: ✅ VALID BAR MATCH")
+                found_any = True
+            else:
+                log.append("Result: ❌ NO MATCH")
+
+    except Exception as e:
+        log.append(f"\nCRITICAL ERROR DURING SCAN: {e}")
+        import traceback
+        log.append(traceback.format_exc())
+
+    log.append("-" * 40)
+    log.append(f"Scanned {count} messages.")
+    log.append(f"Found valid bar: {found_any}")
+
+    # Send file
+    import io
+    out_file = io.BytesIO("\n".join(log).encode("utf-8"))
+    await interaction.followup.send(
+        content="🔍 **Debug Scan Complete**\nIf a bar is visible but marked 'NO MATCH', the detection logic is failing.\nIf 'VALID BAR MATCH' is found, the issue is in the update/adoption logic.",
+        file=discord.File(out_file, filename=f"debug_scan_{interaction.channel_id}.txt")
+    )
+
 # ==========================================
 # EVENTS
 # ==========================================
@@ -3702,6 +3780,7 @@ async def on_message(message):
             "nukedatabase": (nukedatabase_command, None),
             "backup": (backup_command, "target"),
             "debugtest": (debugtest_command, None),
+            "debugscan": (debugscan_command, None),
             "help": (help_command, None),
             "killmyembeds": (killmyembeds_command, None),
             "suppressembedson": (suppressembedson_command, None),
