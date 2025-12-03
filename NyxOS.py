@@ -2218,9 +2218,13 @@ class LMStudioBot(discord.Client):
         # Cleanup old
         await self.cleanup_old_bars(interaction.channel)
         
-        new_content = new_content.strip().replace('\n', ' ')
-        # Strip spaces between emojis
-        new_content = re.sub(r'>[ \t]+<', '><', new_content)
+        # Special Handling for Angel/Dark Angel to preserve newline layout
+        if new_content == ui.ANGEL_CONTENT or new_content == ui.DARK_ANGEL_CONTENT:
+             new_content = new_content.strip()
+        else:
+             new_content = new_content.strip().replace('\n', ' ')
+             # Strip spaces between emojis
+             new_content = re.sub(r'>[ \t]+<', '><', new_content)
         
         # Send new
         full_content = new_content
