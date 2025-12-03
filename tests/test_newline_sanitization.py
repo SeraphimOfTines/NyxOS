@@ -104,7 +104,7 @@ class TestNewlineSanitization(unittest.IsolatedAsyncioTestCase):
     async def test_update_bar_prefix_sanitization(self):
         """Test that update_bar_prefix cleans found content."""
         client = NyxOS.LMStudioBot()
-        client.find_last_bar_content = AsyncMock(return_value="Found Dirty Content\n")
+        client.find_last_bar_message = AsyncMock(return_value=(MagicMock(), "Found Dirty Content\n"))
         client.active_bars = {11111: {"message_id": 999, "user_id": 123, "content": "Old"}}
         
         with patch('memory_manager.save_bar') as mock_save_bar, \

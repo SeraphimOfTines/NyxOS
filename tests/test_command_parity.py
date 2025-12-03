@@ -7,6 +7,7 @@ import ui
 import NyxOS
 import memory_manager
 import discord
+import services
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,12 +52,20 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
         self.mock_save = patch('memory_manager.save_bar').start()
         self.mock_update = patch('memory_manager.update_bar_content').start()
         self.mock_prev = patch('memory_manager.save_previous_state').start()
-        self.mock_find = patch.object(self.client, 'find_last_bar_content', new_callable=AsyncMock).start()
+        self.mock_find = patch.object(self.client, 'find_last_bar_message', new_callable=AsyncMock).start()
         self.mock_wipe = patch.object(self.client, 'wipe_channel_bars', new_callable=AsyncMock).start()
         self.mock_wipe.return_value = 0
         
-        # Default finding content
-        self.mock_find.return_value = "<a:Thinking:123> Thinking..."
+        # Patch limiter logic
+        # We create a MagicMock for the limiter
+        mock_limiter_obj = MagicMock()
+        # We set wait_for_slot to be an AsyncMock
+        mock_limiter_obj.wait_for_slot = AsyncMock()
+        # We patch the limiter attribute on the service object
+        patch.object(services.service, 'limiter', mock_limiter_obj).start()
+        
+        # Default finding content (message, content)
+        self.mock_find.return_value = (MagicMock(), "<a:Thinking:123> Thinking...")
 
     def tearDown(self):
         patch.stopall()
@@ -70,6 +79,12 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
         
         # Setup fetch_message to return a mock message
         mock_channel.fetch_message = AsyncMock(return_value=mock_msg)
+        # Setup send to return mock message (for wipe path)
+        mock_channel.send = AsyncMock(return_value=mock_msg)
+        
+        # Override find_last_bar_message to return our mock_msg so edit path is taken
+        self.mock_find.return_value = (mock_msg, "<a:Thinking:123> Thinking...")
+        
         # Setup history to avoid issues (though we mock wipe now)
         mock_channel.history = MagicMock(return_value=AsyncIter([]))
         
