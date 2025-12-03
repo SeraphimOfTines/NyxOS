@@ -354,6 +354,20 @@ async def process_message(client, message):
                 if sent_message:
                     client.active_views[sent_message.id] = view
                     client.last_bot_message_id[message.channel.id] = sent_message.id
+                    
+                    # --- SAVE VIEW STATE FOR PERSISTENCE ---
+                    view_data = {
+                        "original_prompt": clean_prompt,
+                        "username": clean_name,
+                        "identity_suffix": identity_suffix,
+                        "history_messages": history_messages,
+                        "image_data_uri": image_data_uri,
+                        "member_description": member_description,
+                        "search_context": search_context,
+                        "reply_context_str": current_reply_context
+                    }
+                    memory_manager.save_view_state(sent_message.id, view_data)
+                    
                     client.loop.create_task(client.suppress_embeds_later(sent_message, delay=5))
 
             except discord.HTTPException as e:

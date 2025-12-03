@@ -48,7 +48,7 @@ FLAVOR_TEXT = {
     "GLOBAL_CHAT_DISABLED": "🔒 Global Chat Mode **DISABLED**. I will only respond in whitelisted channels.",
     "GOOD_BOT_REACTION": "<a:SeraphHeartSATVRN:1444517518470287410>",
     "WAKE_WORD_REACTION": "<a:Thinking:1322962569300017214>",
-    "BAR_DROP_ALL": "🔻",
+    "BAR_DROP_ALL": "⏬",
     "BAR_DROP_CHECK": "✅",
     "BAR_DELETE": "🗑️",
     "BAR_PERSIST_OFF": "🔃",
@@ -514,7 +514,28 @@ class ResponseView(discord.ui.View):
                 desc = state.get('member_description')
                 search = state.get('search_context')
                 reply_ctx = state.get('reply_context_str')
+                
+                # Ensure channel has name (PartialMessageable/Thread fallback)
+                if not hasattr(channel, 'name'):
+                     # Try to fetch full channel if possible, or mock name
+                     try:
+                         if hasattr(interaction.client, 'fetch_channel'):
+                             channel = await interaction.client.fetch_channel(channel.id)
+                     except: pass
+                     
+                     if not hasattr(channel, 'name'):
+                         # Create a wrapper or monkey patch for this scope if needed by services
+                         # services.py uses channel_obj.id and channel_obj.name
+                         class MockChannel:
+                             def __init__(self, c):
+                                 self.id = c.id
+                                 self.name = f"channel-{c.id}"
+                                 self.send = c.send
+                                 self.typing = c.typing
+                         channel = MockChannel(channel)
+
             else:
+                logger.warning(f"❌ View State not found for message {interaction.message.id}")
                 await interaction.response.send_message("❌ Context lost due to reboot. Cannot retry old messages.", ephemeral=True)
                 return
 

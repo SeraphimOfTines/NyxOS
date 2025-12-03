@@ -1530,6 +1530,7 @@ class LMStudioBot(discord.Client):
             msg_id = bar_data.get("message_id")
             if not msg_id:
                 # No message ID -> Cannot restore
+                logger.warning(f"⚠️ Bar {channel_id} has no message ID in DB. Marking for removal.")
                 to_remove.append(channel_id)
                 continue
             
