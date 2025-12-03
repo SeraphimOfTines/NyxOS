@@ -302,7 +302,7 @@ class LMStudioBot(discord.Client):
             )
 
             # 5. Sync Console
-            await self.update_console_status()
+            asyncio.create_task(self.update_console_status())
 
         except Exception as e:
             logger.error(f"Failed to handle bar touch in {channel_id}: {e}")
@@ -1210,22 +1210,18 @@ class LMStudioBot(discord.Client):
                     persisting = self.active_bars[cid].get("persisting", False)
 
                 # Attempt Edit In-Place
-                msg = None
+                # Use found_msg if available, otherwise try to fetch from DB ID
+                msg = found_msg
                 bar_data = self.active_bars.get(cid)
-                msg_id = bar_data.get("message_id") if bar_data else None
                 
-                if msg_id:
-                     try: msg = await ch.fetch_message(msg_id)
-                     except: pass
+                if not msg and bar_data:
+                    msg_id = bar_data.get("message_id")
+                    if msg_id:
+                         try: msg = await ch.fetch_message(msg_id)
+                         except: pass
                 
                 if not msg:
-                    # Try to find a remnant
-                    async for m in ch.history(limit=50):
-                        if m.author.id == self.user.id:
-                            # Loose match on content
-                            if m.content and (clean_content in m.content):
-                                 msg = m
-                                 break
+                    pass # We already scanned with find_last_bar_message above. If not found there, we proceed to Wipe & Send.
 
                 if msg:
                      # EDIT
@@ -2111,7 +2107,7 @@ class LMStudioBot(discord.Client):
 
         # 2. Fallback: Scan (only if not in DB)
         try:
-            async for msg in channel.history(limit=50):
+            async for msg in channel.history(limit=20):
                 if msg.id == exclude_msg_id: continue
                 
                 if msg.author.id == self.user.id:
@@ -2152,7 +2148,7 @@ class LMStudioBot(discord.Client):
                 memory_manager.delete_bar(channel.id)
 
             # 2. Scan and Delete
-            async for msg in channel.history(limit=100):
+            async for msg in channel.history(limit=20):
                 if msg.author.id == self.user.id:
                     is_target = False
                     
@@ -2196,14 +2192,14 @@ class LMStudioBot(discord.Client):
         # 1. DB (Check if valid)
         if channel.id in self.active_bars:
             content = self.active_bars[channel.id]["content"]
-            if content:
+            if content is not None:
                 # We store CLEAN content in DB now.
                 return (None, content)
-            # If content is empty/None, fall through to scan (Corruption Recovery)
+            # If content is None, fall through to scan (Corruption Recovery)
             
         # 2. Scan
         try:
-            async for msg in channel.history(limit=200):
+            async for msg in channel.history(limit=20):
                 if msg.author.id == self.user.id:
                     is_bar = False
                     if msg.components:
