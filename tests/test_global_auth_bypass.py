@@ -91,10 +91,10 @@ class TestGlobalAuthBypass(unittest.IsolatedAsyncioTestCase):
     @patch('memory_manager.get_allowed_channels', return_value=[100]) # Whitelist only includes 100
     @patch('memory_manager.get_server_setting', return_value=True) # GLOBAL CHAT ON
     @patch('helpers.clean_name_logic', return_value="TestUser")
-    @patch('services.service.get_pk_message_data', return_value=(None, None, None, None, None, None))
-    @patch('services.service.get_pk_user_data', return_value=None)
-    @patch('services.service.generate_search_queries', return_value=[])
-    @patch('services.service.query_lm_studio', return_value="Response")
+    @patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None))
+    @patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None)
+    @patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[])
+    @patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response")
     @patch('helpers.is_authorized', return_value=False) # USER IS NOT AUTH
     async def test_global_mode_bypasses_auth_and_whitelist(self, mock_is_auth, mock_query, *args):
         """
@@ -122,10 +122,10 @@ class TestGlobalAuthBypass(unittest.IsolatedAsyncioTestCase):
     @patch('memory_manager.get_allowed_channels', return_value=[100])
     @patch('memory_manager.get_server_setting', return_value=False) # GLOBAL CHAT OFF
     @patch('helpers.clean_name_logic', return_value="TestUser")
-    @patch('services.service.get_pk_message_data', return_value=(None, None, None, None, None, None))
-    @patch('services.service.get_pk_user_data', return_value=None)
-    @patch('services.service.generate_search_queries', return_value=[])
-    @patch('services.service.query_lm_studio', return_value="Response")
+    @patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None))
+    @patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None)
+    @patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[])
+    @patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response")
     @patch('helpers.is_authorized', return_value=False) # USER IS NOT AUTH
     async def test_normal_mode_blocks_unauth_user(self, mock_is_auth, mock_query, *args):
         """

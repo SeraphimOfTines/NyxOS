@@ -17,8 +17,9 @@ class TestUplinkFormatting:
         
         # Create 15 active bars
         whitelist = []
+        base_id = 100000000000000000
         for i in range(1, 16):
-            cid = i
+            cid = base_id + i
             client.active_bars[cid] = {
                 "content": "Bar",
                 "guild_id": 100,
@@ -72,8 +73,9 @@ class TestUplinkFormatting:
         # Each link is approx 60 chars. 200 * 60 = 12000 chars.
         # Should split into ~6 messages.
         whitelist = []
+        base_id = 100000000000000000
         for i in range(1, 201):
-            cid = i
+            cid = base_id + i
             client.active_bars[cid] = {
                 "content": "Bar",
                 "guild_id": 100,

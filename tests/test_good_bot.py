@@ -50,8 +50,8 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         
         # We need to patch the global client in NyxOS
         with patch('NyxOS.client', mock_client):
-             with patch('services.service.get_pk_user_data', return_value=None): # No PK
-                 with patch('services.service.get_system_proxy_tags', return_value=[]):
+             with patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None): # No PK
+                 with patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]):
                      with patch('memory_manager.increment_good_bot', return_value=5) as mock_inc:
                          
                          # Run on_message
@@ -85,7 +85,7 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client.good_bot_cooldowns = {123: time.time()} # Just happened
         
         with patch('NyxOS.client', mock_client):
-             with patch('services.service.get_system_proxy_tags', return_value=[]):
+             with patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]):
                  with patch('memory_manager.increment_good_bot') as mock_inc:
                      
                      await NyxOS.on_message(message)

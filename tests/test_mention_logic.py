@@ -95,10 +95,10 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
         msg.channel.fetch_message = AsyncMock(return_value=msg)
         
         # Mock services
-        with patch('services.service.get_pk_user_data', return_value=None), \
-             patch('services.service.get_pk_message_data', return_value=(None, None, None, None, None, None)), \
-             patch('services.service.generate_search_queries', return_value=[]), \
-             patch('services.service.query_lm_studio', return_value="Response") as mock_query, \
+        with patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response") as mock_query, \
              patch('helpers.is_authorized', return_value=True): # Auth pass
              
              # Run on_message
@@ -127,10 +127,10 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
         msg.channel.fetch_message = AsyncMock(return_value=msg)
         
         # Mock services
-        with patch('services.service.get_pk_user_data', return_value=None), \
-             patch('services.service.get_pk_message_data', return_value=(None, None, None, None, None, None)), \
-             patch('services.service.generate_search_queries', return_value=[]), \
-             patch('services.service.query_lm_studio', return_value="Response") as mock_query, \
+        with patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response") as mock_query, \
              patch('helpers.is_authorized', return_value=True): 
              
              await NyxOS.on_message(msg)

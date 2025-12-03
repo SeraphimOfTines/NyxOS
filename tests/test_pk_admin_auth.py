@@ -11,8 +11,12 @@ import config
 import services
 import helpers
 import command_handler
+import importlib
 
 class TestPKAdminAuth(unittest.IsolatedAsyncioTestCase):
+    
+    def setUp(self):
+        importlib.reload(services)
 
     @patch.object(config, 'ADMIN_USER_IDS', [123456789])
     def test_is_authorized_with_user_id(self):
@@ -43,11 +47,12 @@ class TestPKAdminAuth(unittest.IsolatedAsyncioTestCase):
         services.service.http_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json.return_value = {
+        # Make .json() awaitable
+        mock_response.json = AsyncMock(return_value={
             "member": {"name": "Name", "display_name": "Name", "description": "Desc"},
             "system": {"id": "SysID", "name": "SysName", "tag": "SysTag"},
             "sender": 123456789
-        }
+        })
         
         # Setup Async Context Manager
         class MockContext:

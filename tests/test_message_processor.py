@@ -4,6 +4,17 @@ import message_processor
 import discord
 import config
 
+# Helper class for async iteration
+class AsyncIter:
+    def __init__(self, items):
+        self.items = list(items)
+    def __aiter__(self):
+        return self
+    async def __anext__(self):
+        if not self.items:
+            raise StopAsyncIteration
+        return self.items.pop(0)
+
 class TestMessageProcessor:
     
     @pytest.fixture
@@ -42,14 +53,7 @@ class TestMessageProcessor:
         msg.channel.fetch_message = AsyncMock() # Mock this
         
         # Mock history
-        msg.channel.history.return_value = AsyncMock() # Async iterator?
-        # Mocking async iterator is tricky.
-        
-        async def mock_history(limit=None, before=None):
-             # Yield nothing by default
-             if False: yield None
-        
-        msg.channel.history = mock_history
+        msg.channel.history = MagicMock(return_value=AsyncIter([]))
         
         return msg
 
@@ -63,6 +67,9 @@ class TestMessageProcessor:
         
         with patch('asyncio.sleep'), \
              patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
              patch('services.service.query_lm_studio', new_callable=AsyncMock) as mock_query, \
              patch('memory_manager.get_allowed_channels', return_value=[777]), \
              patch('memory_manager.log_conversation'):
@@ -85,6 +92,9 @@ class TestMessageProcessor:
         
         with patch('asyncio.sleep'), \
              patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
              patch('services.service.query_lm_studio', new_callable=AsyncMock) as mock_query, \
              patch('memory_manager.get_allowed_channels', return_value=[777]), \
              patch('memory_manager.log_conversation'):

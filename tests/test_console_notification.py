@@ -158,7 +158,7 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
 
     async def test_update_console_renders_exclamark(self):
         # Setup
-        cid = 123
+        cid = 100000000000000123
         self.client.active_bars = {
             cid: {
                 "content": "Bar", 
@@ -186,7 +186,7 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
 
     async def test_update_console_no_exclamark_when_false(self):
         # Setup
-        cid = 123
+        cid = 100000000000000123
         self.client.active_bars = {
             cid: {
                 "content": "Bar", 

@@ -70,8 +70,8 @@ class TestMasterBarRestoration:
             await bot.initialize_console_channel(mock_channel)
             
             # Verification
-            # We expect 3 sends: Header, Master Bar, Uplinks List
-            assert mock_channel.send.call_count == 3
+            # We expect 4 sends: Header, Master Bar, Uplinks List, Event Log
+            assert mock_channel.send.call_count == 4
             
             # Check 2nd message (Master Bar)
             args, _ = mock_channel.send.call_args_list[1]
@@ -85,7 +85,7 @@ class TestMasterBarRestoration:
             mock_channel.send.reset_mock()
             mock_channel.purge.reset_mock()
             
-            # Create 3 existing messages
+            # Create 4 existing messages
             msg1 = MagicMock(author=MagicMock(id=12345), content="Old Header", created_at=datetime.datetime(2025, 1, 1, 10, 0, 0))
             msg1.edit = AsyncMock()
             
@@ -94,9 +94,12 @@ class TestMasterBarRestoration:
             
             msg3 = MagicMock(author=MagicMock(id=12345), content="Old List", created_at=datetime.datetime(2025, 1, 1, 10, 0, 2))
             msg3.edit = AsyncMock()
+
+            msg4 = MagicMock(author=MagicMock(id=12345), content=f"{ui.FLAVOR_TEXT['COSMETIC_DIVIDER']}\n# System Events", created_at=datetime.datetime(2025, 1, 1, 10, 0, 3))
+            msg4.edit = AsyncMock()
             
-            # Mock history to return these 3
-            mock_channel.history = MagicMock(return_value=AsyncIter([msg1, msg2, msg3]))
+            # Mock history to return these 4
+            mock_channel.history = MagicMock(return_value=AsyncIter([msg1, msg2, msg3, msg4]))
             
             # Execute
             await bot.initialize_console_channel(mock_channel)
