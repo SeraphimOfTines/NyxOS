@@ -207,6 +207,7 @@ def get_suppressed_users():
     return db.get_suppressed_users()
 
 def toggle_suppressed_user(user_id):
+    """Toggles the user's ID in the suppressed users list."""
     return db.toggle_suppressed_user(user_id)
 
 # --- SERVER SETTINGS ---

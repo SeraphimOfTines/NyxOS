@@ -141,12 +141,9 @@ class TestCommandParity(unittest.IsolatedAsyncioTestCase):
                 self.client.set_speed_all_bars = AsyncMock(return_value=5)
                 self.client.global_update_bars = AsyncMock(return_value=5)
                 
-                # Test /awake
-                await NyxOS.awake_command.callback(interaction)
-                
-                # Should be visible (ephemeral=False) or ephemeral=True depending on implementation
-                interaction.response.defer.assert_called_with(ephemeral=True)
-                interaction.edit_original_response.assert_called()
+                # Test /idle
+                await NyxOS.idle_command.callback(interaction)
+                interaction.edit_original_response.assert_called_with(content="✅")
 
                 
                 
@@ -156,21 +153,23 @@ class TestCommandParityChecks(unittest.IsolatedAsyncioTestCase):
         """Verify MockInteraction passes arguments correctly to channel.send"""
         mock_channel = AsyncMock()
         mock_user = MagicMock()
-        intr = NyxOS.MockInteraction(None, mock_channel, mock_user)
+        mock_msg = MagicMock()
+        intr = NyxOS.MockInteraction(None, mock_channel, mock_user, mock_msg)
         
         # Test send_message with kwargs
         await intr.response.send_message("Hello", delete_after=5, view="ViewObj")
-        mock_channel.send.assert_called_with("Hello", delete_after=5, view="ViewObj")
+        mock_channel.send.assert_called_with(content="Hello", embed=None, delete_after=5, view="ViewObj")
         
         # Test followup.send with kwargs
         await intr.followup.send("Followup", embed="EmbedObj")
-        mock_channel.send.assert_called_with("Followup", embed="EmbedObj")
+        mock_channel.send.assert_called_with(content="Followup", embed="EmbedObj", delete_after=None)
 
     async def test_help_command_parity(self):
         """Test that &help (via MockInteraction) sends an embed"""
         mock_channel = AsyncMock()
         mock_user = MagicMock()
-        interaction = NyxOS.MockInteraction(None, mock_channel, mock_user)
+        mock_msg = MagicMock()
+        interaction = NyxOS.MockInteraction(None, mock_channel, mock_user, mock_msg)
         
         # Execute
         await NyxOS.help_command.callback(interaction)
@@ -185,7 +184,8 @@ class TestCommandParityChecks(unittest.IsolatedAsyncioTestCase):
         mock_channel = AsyncMock()
         mock_user = MagicMock()
         mock_user.id = 123
-        interaction = NyxOS.MockInteraction(None, mock_channel, mock_user)
+        mock_msg = MagicMock()
+        interaction = NyxOS.MockInteraction(None, mock_channel, mock_user, mock_msg)
         
         with patch('helpers.is_authorized', return_value=True):
             with patch('services.service.query_lm_studio', new=AsyncMock(return_value="Response")):
@@ -204,7 +204,8 @@ class TestCommandParityChecks(unittest.IsolatedAsyncioTestCase):
         """Test that &reboot works (calls perform_shutdown_sequence)"""
         mock_channel = AsyncMock()
         mock_user = MagicMock()
-        interaction = NyxOS.MockInteraction(None, mock_channel, mock_user)
+        mock_msg = MagicMock()
+        interaction = NyxOS.MockInteraction(None, mock_channel, mock_user, mock_msg)
         
         with patch('helpers.is_authorized', return_value=True):
             with patch('NyxOS.client', new=AsyncMock()) as mock_client:
