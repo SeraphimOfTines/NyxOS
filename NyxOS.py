@@ -404,26 +404,10 @@ class LMStudioBot(discord.Client):
              
              if channel:
                  # Scan for straggler
-                 found_content = await self.find_last_bar_content(channel)
-                 # We need the message ID too... find_last_bar_content just returns content string currently.
-                 # We need a method that finds the MESSAGE.
-                 # Let's iterate history here or make a helper.
-                 last_msg = None
-                 async for msg in channel.history(limit=20):
-                     if msg.author.id == self.user.id:
-                         is_bar = False
-                         if msg.components:
-                             for row in msg.components:
-                                 for child in row.children:
-                                     if getattr(child, "custom_id", "").startswith("bar_"):
-                                         is_bar = True; break
-                                 if is_bar: break
-                         if is_bar:
-                             last_msg = msg
-                             break
+                 found_msg, found_content = await self.find_last_bar_message(channel)
                  
-                 if last_msg:
-                     await self.handle_bar_touch(channel_id, last_msg)
+                 if found_msg:
+                     await self.handle_bar_touch(channel_id, found_msg)
                  else:
                      return # Truly nothing found
 
@@ -800,7 +784,14 @@ class LMStudioBot(discord.Client):
                         memory_manager.save_previous_state(cid, bar_data)
                 else:
                     # Remnant recovery
-                    found = await self.find_last_bar_content(ch)
+                    found_msg, found = await self.find_last_bar_message(ch)
+                    
+                    if found_msg and cid not in self.active_bars:
+                         await self.handle_bar_touch(cid, found_msg)
+                         # Re-fetch bar data after touch
+                         if cid in self.active_bars:
+                             bar_data = self.active_bars[cid]
+
                     if found:
                         current_content = found
                         # Strip checkmark
@@ -947,7 +938,13 @@ class LMStudioBot(discord.Client):
                     current_content = bar_data["content"]
                 else:
                     # Remnant recovery
-                    found = await self.find_last_bar_content(ch)
+                    found_msg, found = await self.find_last_bar_message(ch)
+                    
+                    if found_msg and cid not in self.active_bars:
+                         await self.handle_bar_touch(cid, found_msg)
+                         if cid in self.active_bars:
+                             bar_data = self.active_bars[cid]
+
                     if found:
                         current_content = found
                         if ui.FLAVOR_TEXT['CHECKMARK_EMOJI'] in current_content:
@@ -1167,7 +1164,12 @@ class LMStudioBot(discord.Client):
                 if not ch: return False
 
                 # 1. Find Content (Scan)
-                found_content = await self.find_last_bar_content(ch)
+                found_msg, found_content = await self.find_last_bar_message(ch)
+                
+                # Adopt if found via scan but missing in DB
+                if found_msg and cid not in self.active_bars:
+                     await self.handle_bar_touch(cid, found_msg)
+
                 if not found_content:
                     if cid in self.active_bars:
                         found_content = self.active_bars[cid]["content"]
@@ -2187,22 +2189,25 @@ class LMStudioBot(discord.Client):
             logger.warning(f"Wipe bars failed: {e}")
         return count
 
-    async def find_last_bar_content(self, channel):
-        """Finds content from DB or scan."""
-        # 1. DB
+    async def find_last_bar_message(self, channel):
+        """Finds (message, content) from DB or scan. Returns (None, content) if DB-only."""
+        # 1. DB (Check if valid)
         if channel.id in self.active_bars:
-            # We store CLEAN content in DB now.
-            return self.active_bars[channel.id]["content"]
+            content = self.active_bars[channel.id]["content"]
+            if content:
+                # We store CLEAN content in DB now.
+                return (None, content)
+            # If content is empty/None, fall through to scan (Corruption Recovery)
             
         # 2. Scan
         try:
-            async for msg in channel.history(limit=50):
+            async for msg in channel.history(limit=200):
                 if msg.author.id == self.user.id:
                     is_bar = False
                     if msg.components:
                         for row in msg.components:
                             for child in row.children:
-                                if getattr(child, "custom_id", "").startswith("bar_"):
+                                if getattr(child, "custom_id", "",).startswith("bar_"):
                                     is_bar = True
                                     break
                             if is_bar: break
@@ -2214,10 +2219,10 @@ class LMStudioBot(discord.Client):
                                 break
                 
                     if is_bar:
-                        return msg.content
+                        return (msg, msg.content)
         except Exception as e:
             logger.warning(f"Find last bar failed: {e}")
-        return None
+        return (None, None)
 
     async def update_bar_prefix(self, interaction, new_prefix_emoji):
         """Updates the bar prefix. Edits in-place if bottom. Drops WITHOUT checkmark if moving."""
@@ -2228,7 +2233,11 @@ class LMStudioBot(discord.Client):
 
         # 1. Find existing content
         content = None
-        found_raw = await self.find_last_bar_content(interaction.channel)
+        found_msg, found_raw = await self.find_last_bar_message(interaction.channel)
+        
+        # Auto-Adopt if found via scan but missing in DB
+        if found_msg and interaction.channel_id not in self.active_bars:
+             await self.handle_bar_touch(interaction.channel_id, found_msg)
         
         if found_raw:
             # ANGEL GUARD: Ignore update if it is an Angel bar
