@@ -6,6 +6,7 @@ import os
 # Adjust path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from tests.mock_utils import AsyncIter
 import NyxOS
 import ui
 
@@ -27,6 +28,7 @@ class TestCheckFix:
         }
         
         mock_channel = AsyncMock()
+        mock_channel.history = MagicMock(return_value=AsyncIter([]))
         client.get_channel = MagicMock(return_value=mock_channel)
         
         # We expect NOTHING to happen (no edit, no delete)
@@ -82,6 +84,7 @@ class TestCheckFix:
         }
         
         mock_channel = AsyncMock()
+        mock_channel.history = MagicMock(return_value=AsyncIter([]))
         client.get_channel = MagicMock(return_value=mock_channel)
         
         mock_msg_101 = AsyncMock()

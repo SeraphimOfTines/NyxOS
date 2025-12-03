@@ -9,6 +9,7 @@ sys.path.append(os.getcwd())
 
 # Import the class to test
 from NyxOS import LMStudioBot
+from tests.mock_utils import AsyncIter
 import ui
 
 class TestViewRestoration:
@@ -49,6 +50,7 @@ class TestViewRestoration:
             
             # Mock Channel/Message fetching
             mock_channel = AsyncMock()
+            mock_channel.history = MagicMock(return_value=AsyncIter([])) # Use AsyncIter
             mock_message = AsyncMock()
             mock_channel.fetch_message.return_value = mock_message
             

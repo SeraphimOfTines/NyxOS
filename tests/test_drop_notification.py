@@ -42,13 +42,21 @@ class TestDropStatusBarNotification(unittest.IsolatedAsyncioTestCase):
         self.client.get_channel.return_value = mock_channel
         
         # Correctly mock Async Iterator for history
-        async def mock_history_iterator(*args, **kwargs):
-            mock_msg = AsyncMock()
-            mock_msg.id = 100
-            mock_msg.content = "Bar Content"
-            yield mock_msg
+        class AsyncIter:
+            def __init__(self, items):
+                self.items = list(items)
+            def __aiter__(self):
+                return self
+            async def __anext__(self):
+                if not self.items:
+                    raise StopAsyncIteration
+                return self.items.pop(0)
 
-        mock_channel.history.return_value.__aiter__ = mock_history_iterator
+        mock_msg = AsyncMock()
+        mock_msg.id = 100
+        mock_msg.content = "Bar Content"
+        mock_channel.history.return_value = AsyncIter([mock_msg])
+
         mock_channel.fetch_message.return_value = AsyncMock(id=100, content="Bar Content")
         
         # Run Drop

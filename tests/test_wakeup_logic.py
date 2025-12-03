@@ -10,6 +10,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Helper for async iteration
 
+from tests.mock_utils import AsyncIter
+
 class TestWakeupLogic(unittest.IsolatedAsyncioTestCase):
     
     def setUp(self):
@@ -35,6 +37,7 @@ class TestWakeupLogic(unittest.IsolatedAsyncioTestCase):
         
         # Mock Channel fetch to raise NotFound
         mock_ch = AsyncMock()
+        mock_ch.history = MagicMock(return_value=AsyncIter([]))
         mock_ch.fetch_message.side_effect = discord.NotFound(MagicMock(), "Gone")
         
         # Setup client mocks

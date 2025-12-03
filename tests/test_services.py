@@ -9,6 +9,8 @@ class TestServices:
     
     @pytest.fixture
     def api_service(self):
+        # Reset global cache if services.service is used implicitly or if we want isolation
+        # But here we are creating a NEW instance for testing locally.
         service = services.APIService()
         service.http_session = MagicMock()
         return service

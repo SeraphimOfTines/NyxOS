@@ -3,8 +3,10 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import sys
 import os
 
-sys.path.append(os.getcwd())
+# Add project root to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from tests.mock_utils import AsyncIter
 from NyxOS import LMStudioBot
 import ui
 
@@ -57,6 +59,7 @@ class TestWindowPersistence:
             
             # Mock Channel/Message Fetch
             mock_channel = AsyncMock()
+            mock_channel.history = MagicMock(return_value=AsyncIter([]))
             mock_message = AsyncMock()
             mock_channel.fetch_message.return_value = mock_message
             bot.get_channel.return_value = mock_channel

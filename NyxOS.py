@@ -2541,14 +2541,16 @@ class LMStudioBot(discord.Client):
                     json.dump(meta, f)
                     f.flush()
                     os.fsync(f.fileno())
-            except: pass
+            except Exception as e:
+                logger.error(f"Failed to write restart meta: {e}")
         else:
             # Set visuals to Shutdown Mode
             await self.set_shutdown_mode()
             
             try:
                 with open(config.SHUTDOWN_FLAG_FILE, "w") as f: f.write("shutdown")
-            except: pass
+            except Exception as e:
+                logger.error(f"Failed to write shutdown flag: {e}")
 
         # 6. Close & Exit
         await self.close()
@@ -2598,6 +2600,14 @@ class MockInteraction:
         def is_done(self): return False
         
         async def delete_original_response(self): pass
+        
+        async def edit_original_response(self, content=None, view=None, **kwargs):
+            # Simulate editing the original response
+            if self.response.last_message:
+                try:
+                    await self.response.last_message.edit(content=content, view=view, **kwargs)
+                except: pass
+            return self.response.last_message
     
     async def original_response(self):
         """Simulate getting the original response message."""
@@ -2857,23 +2867,24 @@ async def debugtest_command(interaction: discord.Interaction):
         return
 
     # 1. Send Thinking Emoji
-    # We use send_message instead of defer to show the custom emoji
     await interaction.response.send_message("<a:Thinking:1322962569300017214>", ephemeral=True)
     
     import io
-    import pytest
-    import contextlib
     
-    log_capture = io.StringIO()
-    
-    def run_tests():
-        with contextlib.redirect_stdout(log_capture), contextlib.redirect_stderr(log_capture):
-            return pytest.main(["-v", "--color=no", "tests/"])
-            
     start_time = time.time()
-    exit_code = await asyncio.to_thread(run_tests)
+    
+    # Run pytest in a subprocess to ensure isolation and prevent memory pollution
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "pytest", "-v", "--color=no", "tests/",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    
+    stdout, stderr = await process.communicate()
+    output = stdout.decode() + stderr.decode()
+    exit_code = process.returncode
+    
     duration = time.time() - start_time
-    output = log_capture.getvalue()
     
     logger.info(f"Debug Test Output:\n{output}")
     

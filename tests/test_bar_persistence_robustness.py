@@ -7,6 +7,7 @@ import asyncio
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from tests.mock_utils import AsyncIter
 import NyxOS
 import discord
 import config
@@ -49,6 +50,15 @@ class TestBarPersistence(unittest.IsolatedAsyncioTestCase):
         self.bot.add_view = MagicMock()
         self.bot._register_view = MagicMock()
         
+        # Mock history for any channel returned
+        async def mock_fetch_channel_side_effect(cid):
+            ch = AsyncMock()
+            ch.id = cid
+            ch.history = MagicMock(return_value=AsyncIter([]))
+            return ch
+        self.bot.fetch_channel.side_effect = mock_fetch_channel_side_effect
+        self.bot.get_channel.side_effect = lambda cid: None # Force fetch
+        
     async def asyncTearDown(self):
         self.config_patcher.stop()
         
@@ -63,6 +73,7 @@ class TestBarPersistence(unittest.IsolatedAsyncioTestCase):
         
         # Mock Channel & Message Fetch to raise HTTPException
         mock_channel = AsyncMock()
+        mock_channel.history = MagicMock(return_value=AsyncIter([]))
         # Mock fetch_message to raise error
         mock_channel.fetch_message.side_effect = discord.HTTPException(response=MagicMock(), message="Network Error")
         
@@ -92,6 +103,7 @@ class TestBarPersistence(unittest.IsolatedAsyncioTestCase):
         }
         
         mock_channel = AsyncMock()
+        mock_channel.history = MagicMock(return_value=AsyncIter([]))
         mock_channel.fetch_message.side_effect = discord.Forbidden(response=MagicMock(), message="No Access")
         
         self.bot.get_channel = MagicMock(return_value=mock_channel)
@@ -111,6 +123,7 @@ class TestBarPersistence(unittest.IsolatedAsyncioTestCase):
         }
         
         mock_channel = AsyncMock()
+        mock_channel.history = MagicMock(return_value=AsyncIter([]))
         mock_channel.fetch_message.side_effect = discord.NotFound(response=MagicMock(), message="Deleted")
         
         self.bot.get_channel = MagicMock(return_value=mock_channel)
