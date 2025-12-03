@@ -215,10 +215,10 @@ class StatusBarView(discord.ui.View):
         btn_console = discord.ui.Button(emoji="🖥️", url=console_url)
         self.add_item(btn_console)
 
-        # 6. Delete
-        btn_delete = discord.ui.Button(label=FLAVOR_TEXT["BAR_DELETE"], style=discord.ButtonStyle.secondary, custom_id="bar_delete_btn")
-        btn_delete.callback = self.delete_callback
-        self.add_item(btn_delete)
+        # 6. Delete (DISABLED - Handled via on_message_delete)
+        # btn_delete = discord.ui.Button(label=FLAVOR_TEXT["BAR_DELETE"], style=discord.ButtonStyle.secondary, custom_id="bar_delete_btn")
+        # btn_delete.callback = self.delete_callback
+        # self.add_item(btn_delete)
 
         # Update persist button state on init
         self.update_buttons()

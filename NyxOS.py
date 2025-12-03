@@ -534,6 +534,7 @@ class LMStudioBot(discord.Client):
                         await old_msg.edit(content=ui.FLAVOR_TEXT['CHECKMARK_EMOJI'], view=None)
                     else:
                         # DELETE: Bar moves, Check moves (or is separate).
+                        self.pending_drops.add(old_msg.id)
                         await old_msg.delete()
                 except: pass
             
@@ -1882,6 +1883,42 @@ class LMStudioBot(discord.Client):
         
         # Check commands
         await client.check_and_sync_commands()
+
+    async def on_raw_message_delete(self, payload):
+        """
+        Detects when a message is manually deleted by a user.
+        If the deleted message is a Status Bar, we clean up its DB entry and Console listing.
+        """
+        try:
+            # Ignore if this deletion was initiated by the bot (e.g. during a move/drop)
+            if payload.message_id in self.pending_drops:
+                self.pending_drops.discard(payload.message_id)
+                return
+
+            # Check if deleted message ID matches any active bar's message_id
+            target_channel = None
+            
+            for cid, data in self.active_bars.items():
+                bar_id = data.get("message_id")
+                
+                if payload.message_id == bar_id:
+                    target_channel = cid
+                    logger.info(f"🗑️ Status Bar manually deleted in channel {cid}")
+                    break
+            
+            if target_channel:
+                # Cleanup
+                if target_channel in self.active_bars:
+                    del self.active_bars[target_channel]
+                
+                memory_manager.delete_bar(target_channel)
+                memory_manager.remove_bar_whitelist(target_channel)
+                
+                # Sync Console
+                await self.update_console_status()
+
+        except Exception as e:
+            logger.error(f"Error in on_raw_message_delete: {e}")
 
     async def update_console_status(self):
         """Updates the console message with the current list of known uplinks from DB."""
