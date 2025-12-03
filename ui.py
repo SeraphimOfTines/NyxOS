@@ -151,7 +151,7 @@ class BugReportModal(discord.ui.Modal, title="Report a Bug"):
 class RebootView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        btn = discord.ui.Button(label="System Restarting . . .", style=discord.ButtonStyle.secondary, disabled=True)
+        btn = discord.ui.Button(label="System Rebooting . . .", style=discord.ButtonStyle.secondary, disabled=True)
         self.add_item(btn)
 
 class ShutdownView(discord.ui.View):
