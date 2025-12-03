@@ -65,6 +65,7 @@ FLAVOR_TEXT = {
     "COSMETIC_DIVIDER": "<a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562><a:divider:1420151062614118562>",
     "CUSTOM_CHECKMARK": "<a:SeraphHyperYes:1331530716508459018>",
     "REBOOT_EMOJI": "<a:RebootingMainframe:1444740155784036512>",
+    "SHUTDOWN_EMOJI": "<a:SeraphOffline:1445560234016903189>",
     "UPLINK_BULLET": "<a:divider:1420151062614118562>",
 }
 
@@ -75,6 +76,7 @@ BAR_PREFIX_EMOJIS = [
     "<a:Thinking:1322962569300017214>", # /thinking
     "<a:Sleeping:1312772391759249410>", # /sleeping (from shutdown msg)
     "<a:RebootingMainframe:1444740155784036512>", # New Reboot Emoji
+    "<a:SeraphOffline:1445560234016903189>", # Shutdown Emoji
     "<a:Reading:1378593438265770034>",
     "<a:Backlogging:1290067150861500588>", 
     "<a:Typing:1223747307657232405>",
@@ -152,6 +154,12 @@ class RebootView(discord.ui.View):
         btn = discord.ui.Button(label="System Restarting . . .", style=discord.ButtonStyle.secondary, disabled=True)
         self.add_item(btn)
 
+class ShutdownView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        btn = discord.ui.Button(label="Mainframe Shutdown . . .", style=discord.ButtonStyle.secondary, disabled=True)
+        self.add_item(btn)
+
 # ==========================================
 # STATUS BAR VIEW
 # ==========================================
@@ -191,7 +199,7 @@ class StatusBarView(discord.ui.View):
         self.add_item(btn_console)
 
         # 6. Delete
-        btn_delete = discord.ui.Button(label=FLAVOR_TEXT["BAR_DELETE"], style=discord.ButtonStyle.danger, custom_id="bar_delete_btn")
+        btn_delete = discord.ui.Button(label=FLAVOR_TEXT["BAR_DELETE"], style=discord.ButtonStyle.secondary, custom_id="bar_delete_btn")
         btn_delete.callback = self.delete_callback
         self.add_item(btn_delete)
 
@@ -385,7 +393,7 @@ class ConsoleControlView(discord.ui.View):
         else:
              await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 
-    @discord.ui.button(emoji="🔄", style=discord.ButtonStyle.danger, custom_id="console_reboot_btn", row=0)
+    @discord.ui.button(emoji="🔄", style=discord.ButtonStyle.secondary, custom_id="console_reboot_btn", row=0)
     async def reboot_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
@@ -395,7 +403,7 @@ class ConsoleControlView(discord.ui.View):
         else:
             await interaction.response.send_message("❌ Logic missing.", ephemeral=True)
 
-    @discord.ui.button(emoji="🛑", style=discord.ButtonStyle.danger, custom_id="console_shutdown_btn", row=0)
+    @discord.ui.button(emoji="🛑", style=discord.ButtonStyle.secondary, custom_id="console_shutdown_btn", row=0)
     async def shutdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)

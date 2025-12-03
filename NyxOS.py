@@ -225,12 +225,13 @@ class LMStudioBot(discord.Client):
         - Syncs content with Master Bar if needed.
         """
         try:
-            # --- REBOOT GUARD ---
-            # Ignore touch events if the message is in "Rebooting" state (visual only).
-            # This prevents the DB from being overwritten with the temporary reboot emoji.
-            if message and ui.FLAVOR_TEXT['REBOOT_EMOJI'] in message.content:
-                return
-            # --------------------
+            # --- REBOOT/SHUTDOWN GUARD ---
+            # Ignore touch events if the message is in "Rebooting" or "Shutdown" state (visual only).
+            # This prevents the DB from being overwritten with the temporary emojis.
+            if message:
+                if ui.FLAVOR_TEXT['REBOOT_EMOJI'] in message.content: return
+                if ui.FLAVOR_TEXT['SHUTDOWN_EMOJI'] in message.content: return
+            # -----------------------------
 
             # 1. Adopt/Register if missing
             if channel_id not in self.active_bars:
@@ -1503,10 +1504,10 @@ class LMStudioBot(discord.Client):
                                     break
                             
                             if found_prefix and found_prefix != bar_data.get("current_prefix"):
-                                if found_prefix == ui.FLAVOR_TEXT['REBOOT_EMOJI']:
-                                    # RECOVERY: Discord is in "Reboot Mode" (Visual), but DB has the "True" state.
+                                if found_prefix == ui.FLAVOR_TEXT['REBOOT_EMOJI'] or found_prefix == ui.FLAVOR_TEXT['SHUTDOWN_EMOJI']:
+                                    # RECOVERY: Discord is in "Reboot/Shutdown Mode" (Visual), but DB has the "True" state.
                                     # RESTORE Discord message to match DB.
-                                    logger.info(f"🔄 Restoring Bar {channel_id} from Reboot state...")
+                                    logger.info(f"🔄 Restoring Bar {channel_id} from Reboot/Shutdown state...")
                                     
                                     true_content = bar_data.get("content", "Loading...")
                                     # Ensure checkmark if needed
@@ -2367,6 +2368,76 @@ class LMStudioBot(discord.Client):
         if tasks:
             await asyncio.gather(*tasks)
 
+    async def set_shutdown_mode(self):
+        """
+        Sets all active bars to 'Shutdown' mode visually.
+        Does NOT update the database content, ensuring the previous state is preserved for restoration.
+        Removes interactive views (buttons) during shutdown.
+        """
+        logger.info("🛑 Setting system to Shutdown Mode...")
+        shutdown_emoji = ui.FLAVOR_TEXT['SHUTDOWN_EMOJI']
+        
+        tasks = []
+        
+        async def update_bar(cid, bar_data):
+            try:
+                msg_id = bar_data.get("message_id")
+                if not msg_id: return
+                
+                ch = self.get_channel(cid) or await self.fetch_channel(cid)
+                if not ch: return
+                
+                msg = await ch.fetch_message(msg_id)
+                
+                # Determine current content without prefix
+                current_content = bar_data.get("content", "")
+                
+                # Strip Checkmark first (just in case it's in DB content)
+                chk_emoji = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
+                if chk_emoji in current_content:
+                    current_content = current_content.replace(chk_emoji, "").strip()
+                
+                # Strip existing prefix
+                stripped = False
+                for emoji in ui.BAR_PREFIX_EMOJIS:
+                    if current_content.startswith(emoji):
+                        current_content = current_content[len(emoji):].strip()
+                        stripped = True
+                        break
+                
+                # Fallback Regex Strip (for unknown emojis)
+                if not stripped:
+                    match = re.match(r'^(<a?:[^:]+:[0-9]+>)\s*', current_content)
+                    if match:
+                        current_content = current_content[match.end():].strip()
+                
+                # Construct Shutdown Content
+                new_content = f"{shutdown_emoji} {current_content}"
+                new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                
+                # Handle Checkmark
+                check_id = bar_data.get("checkmark_message_id")
+                has_merged_check = (check_id == msg_id)
+                
+                if has_merged_check:
+                    if chk_emoji not in new_content:
+                        new_content = f"{new_content} {chk_emoji}"
+                        new_content = re.sub(r'>[ \t]+<', '><', new_content)
+                
+                # Edit Message (With Shutdown View)
+                view = ui.ShutdownView()
+                await services.service.limiter.wait_for_slot("edit_message", cid)
+                await msg.edit(content=new_content, view=view)
+                
+            except Exception as e:
+                logger.warning(f"Failed to set shutdown mode for {cid}: {e}")
+
+        for cid, bar_data in list(self.active_bars.items()):
+            tasks.append(update_bar(cid, bar_data))
+            
+        if tasks:
+            await asyncio.gather(*tasks)
+
     async def perform_shutdown_sequence(self, interaction, restart=True):
         # 1. Setup
         memory_manager.set_server_setting("global_chat_enabled", False)
@@ -2453,6 +2524,9 @@ class LMStudioBot(discord.Client):
                     os.fsync(f.fileno())
             except: pass
         else:
+            # Set visuals to Shutdown Mode
+            await self.set_shutdown_mode()
+            
             try:
                 with open(config.SHUTDOWN_FLAG_FILE, "w") as f: f.write("shutdown")
             except: pass
