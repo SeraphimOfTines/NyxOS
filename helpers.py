@@ -90,6 +90,8 @@ def get_identity_suffix(user_obj, system_id, member_name=None, my_system_members
     is_system_member = False
     if system_id == config.MY_SYSTEM_ID:
         is_system_member = True
+    elif getattr(config, 'SECONDARY_SYSTEM_ID', None) and system_id == config.SECONDARY_SYSTEM_ID:
+        is_system_member = True
     elif my_system_members and member_name in my_system_members:
         is_system_member = True
         

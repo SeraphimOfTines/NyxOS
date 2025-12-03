@@ -50,28 +50,84 @@ class APIService:
     # --- PLURALKIT ---
 
     async def fetch_my_system_data(self):
-        try:
-            url = config.PLURALKIT_SYSTEM_MEMBERS.format(config.MY_SYSTEM_ID)
-            async with self.http_session.get(url) as resp:
-                if resp.status == 200:
-                    members = await resp.json()
-                    for m in members:
-                        if 'name' in m: self.my_system_members.add(m['name'])
-                        if 'display_name' in m and m['display_name']: self.my_system_members.add(m['display_name'])
-        except Exception as e:
-            logger.warning(f"Error fetching main system data: {e}")
+        systems_to_fetch = [config.MY_SYSTEM_ID]
+        if getattr(config, 'SECONDARY_SYSTEM_ID', None):
+            systems_to_fetch.append(config.SECONDARY_SYSTEM_ID)
+
+        for sys_id in systems_to_fetch:
+            if not sys_id: continue
+            try:
+                url = config.PLURALKIT_SYSTEM_MEMBERS.format(sys_id)
+                # If using local PK, we might need to use official API for the secondary system 
+                # IF the secondary system is not in the local DB/Mirror.
+                # But for simplicity, we trust the configured API first.
+                # If config.PLURALKIT_SYSTEM_MEMBERS uses local, we try local.
+                # If that fails (404), we should try official? 
+                # The requirements say "switch to official... for whatever data is needed".
+                # So yes, we should probably use a robust fetch here too.
+                
+                # We can reuse a robust fetch pattern here, but let's keep it inline for now or use a helper if I make one.
+                # Since I haven't made the helper yet, I will just use the current session with fallback logic logic inline 
+                # or assumes the configured API works for now, but the prompt implies general robustness.
+                
+                # Let's implement the fallback logic here too.
+                async def fetch_members(target_url):
+                    async with self.http_session.get(target_url) as resp:
+                        if resp.status == 200:
+                            members = await resp.json()
+                            for m in members:
+                                if 'name' in m: self.my_system_members.add(m['name'])
+                                if 'display_name' in m and m['display_name']: self.my_system_members.add(m['display_name'])
+                            return True
+                        return False
+
+                success = await fetch_members(url)
+                if not success and config.USE_LOCAL_PLURALKIT:
+                     # Fallback to Official
+                     logger.info(f"Local fetch failed for system {sys_id}. Trying Official API...")
+                     official_url = f"https://api.pluralkit.me/v2/systems/{sys_id}/members"
+                     await fetch_members(official_url)
+
+            except Exception as e:
+                logger.warning(f"Error fetching system data for {sys_id}: {e}")
 
     async def check_local_pk_system(self, user_id):
-        """Checks only the local DB for system existence. Returns True if user has a system."""
-        if not self.db_pool: return False
+        """Checks if a user has a system. Tries local DB first, then falls back to full API lookup."""
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    # Check if uid exists in accounts table and has a system linked
+                    val = await conn.fetchval("SELECT system FROM accounts WHERE uid = $1", user_id)
+                    if val is not None: return True
+            except Exception as e:
+                logger.error(f"Local PK Check Failed: {e}")
+                # Fallthrough to API logic below
+        
+        # Fallback to API (uses Cache + Redundancy)
+        data = await self.get_pk_user_data(user_id)
+        return data is not None
+
+    async def _fetch_pk_user_api(self, url, user_id):
+        """Helper to fetch user data from a specific PK API URL."""
         try:
-            async with self.db_pool.acquire() as conn:
-                # Check if uid exists in accounts table and has a system linked
-                val = await conn.fetchval("SELECT system FROM accounts WHERE uid = $1", user_id)
-                return val is not None
+            async with self.http_session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    result = {'system_id': data.get('id'), 'tag': data.get('tag')}
+                    
+                    # Cache Success
+                    self.pk_user_cache[user_id] = result
+                    if len(self.pk_user_cache) > self.MAX_CACHE_SIZE:
+                        self.pk_user_cache.popitem(last=False)
+                    return result
+                elif resp.status == 404:
+                    return None # Not found here
+                else:
+                    logger.warning(f"PK User API Error {resp.status} from {url}")
+                    return None
         except Exception as e:
-            logger.error(f"Local PK Check Failed: {e}")
-            return False
+            logger.warning(f"PK User API Exception for {url}: {e}")
+            return None
 
     async def get_pk_user_data(self, user_id):
         # 1. Try DB if Local
@@ -96,36 +152,34 @@ class APIService:
                                 self.pk_user_cache.popitem(last=False)
                                 
                         return result
-                    # If no row, user might not be in a system or DB logic differs.
-                    # Don't cache failure immediately to fallback to API? 
-                    # Actually, if DB is authoritative, it means no system.
             except Exception as e:
                 logger.error(f"PK DB User Lookup Error: {e}")
 
-        # 2. Fallback to API / Cache
+        # 2. Check Cache
         if user_id in self.pk_user_cache:
             self.pk_user_cache.move_to_end(user_id)
             return self.pk_user_cache[user_id]
 
+        # 3. Try Configured API
         url = config.PLURALKIT_USER_API.format(user_id)
-        try:
-            async with self.http_session.get(url) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    result = {'system_id': data.get('id'), 'tag': data.get('tag')}
-                    
-                    self.pk_user_cache[user_id] = result
-                    if len(self.pk_user_cache) > self.MAX_CACHE_SIZE:
-                        self.pk_user_cache.popitem(last=False)
-                    
-                    return result
-                elif resp.status == 404:
-                    self.pk_user_cache[user_id] = None
-                    if len(self.pk_user_cache) > self.MAX_CACHE_SIZE:
-                        self.pk_user_cache.popitem(last=False)
-        except Exception as e:
-            logger.warning(f"PK User API Exception: {e}")
-        return None
+        result = await self._fetch_pk_user_api(url, user_id)
+        
+        # 4. Fallback to Official API
+        # If result is None (404 or Error) AND we are using Local PK, try Official
+        if result is None and config.USE_LOCAL_PLURALKIT:
+             # We can't easily distinguish 404 (User doesn't exist) vs 404 (User not in Local Mirror).
+             # So we try Official just in case.
+             logger.info(f"Local PK User lookup failed for {user_id}. Trying Official API...")
+             official_url = f"https://api.pluralkit.me/v2/users/{user_id}"
+             result = await self._fetch_pk_user_api(official_url, user_id)
+
+        # Cache the final None result if we really found nothing (to prevent spamming)
+        if result is None:
+             self.pk_user_cache[user_id] = None
+             if len(self.pk_user_cache) > self.MAX_CACHE_SIZE:
+                  self.pk_user_cache.popitem(last=False)
+        
+        return result
 
     async def get_system_proxy_tags(self, system_id):
         if system_id in self.pk_proxy_tags:
@@ -150,6 +204,48 @@ class APIService:
         except Exception as e:
             logger.warning(f"Error fetching proxy tags: {e}")
         return tags
+
+    async def _fetch_pk_message_api(self, url, message_id):
+        """Helper to fetch message data from a specific PK API URL."""
+        for attempt in range(3):
+            try:
+                async with self.http_session.get(url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        member_name = data.get('member', {}).get('name')
+                        member_display = data.get('member', {}).get('display_name')
+                        final_name = member_display if member_display else member_name
+                        
+                        system_data = data.get('system', {})
+                        system_id = system_data.get('id')
+                        system_name = system_data.get('name')
+                        system_tag = system_data.get('tag')
+                        sender_id = data.get('sender') 
+                        
+                        description = data.get('member', {}).get('description', "")
+                        if description:
+                            description = description.replace('[', '(').replace(']', ')')
+                        
+                        result = (final_name, system_id, system_name, system_tag, sender_id, description)
+                        
+                        # Update Cache
+                        self.pk_message_cache[message_id] = result
+                        if len(self.pk_message_cache) > self.MAX_CACHE_SIZE:
+                            self.pk_message_cache.popitem(last=False)
+
+                        return result
+                    elif resp.status == 429:
+                        logger.warning(f"PK Rate Limit (429) on attempt {attempt+1} for {url}. Retrying...")
+                        await asyncio.sleep(1 * (attempt + 1))
+                    elif resp.status == 404:
+                        # Not a PK message (or not found in this instance)
+                        return None
+                    else:
+                        logger.warning(f"PK API Error {resp.status} on attempt {attempt+1} for {url}.")
+            except Exception as e:
+                logger.warning(f"PK Message API Exception on attempt {attempt+1} for {url}: {e}")
+                await asyncio.sleep(1)
+        return None
 
     async def get_pk_message_data(self, message_id):
         # 0. Check Cache
@@ -201,48 +297,20 @@ class APIService:
             except Exception as e:
                 logger.error(f"PK DB Message Lookup Error: {e}")
 
-        # 2. Fallback to API
+        # 2. Try Configured API
         url = config.PLURALKIT_MESSAGE_API.format(message_id)
-        for attempt in range(3):
-            try:
-                async with self.http_session.get(url) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        member_name = data.get('member', {}).get('name')
-                        member_display = data.get('member', {}).get('display_name')
-                        final_name = member_display if member_display else member_name
-                        
-                        system_data = data.get('system', {})
-                        system_id = system_data.get('id')
-                        system_name = system_data.get('name')
-                        system_tag = system_data.get('tag')
-                        sender_id = data.get('sender') 
-                        
-                        description = data.get('member', {}).get('description', "")
-                        if description:
-                            description = description.replace('[', '(').replace(']', ')')
-                        
-                        result = (final_name, system_id, system_name, system_tag, sender_id, description)
-                        
-                        # Update Cache
-                        self.pk_message_cache[message_id] = result
-                        if len(self.pk_message_cache) > self.MAX_CACHE_SIZE:
-                            self.pk_message_cache.popitem(last=False)
+        result = await self._fetch_pk_message_api(url, message_id)
 
-                        return result
-                    elif resp.status == 429:
-                        logger.warning(f"PK Rate Limit (429) on attempt {attempt+1}. Retrying...")
-                        await asyncio.sleep(1 * (attempt + 1))
-                    elif resp.status == 404:
-                        # Not a PK message
-                        return None, None, None, None, None, None
-                    else:
-                        logger.warning(f"PK API Error {resp.status} on attempt {attempt+1}.")
-            except Exception as e:
-                logger.warning(f"PK Message API Exception on attempt {attempt+1}: {e}")
-                await asyncio.sleep(1)
+        # 3. Fallback to Official API
+        if result is None and config.USE_LOCAL_PLURALKIT:
+             logger.info(f"Local PK Message lookup failed for {message_id}. Trying Official API...")
+             official_url = f"https://api.pluralkit.me/v2/messages/{message_id}"
+             result = await self._fetch_pk_message_api(official_url, message_id)
+
+        if result is None:
+             return None, None, None, None, None, None
         
-        return None, None, None, None, None, None
+        return result
 
     # --- WEB SEARCH ---
 

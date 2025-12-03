@@ -1,4 +1,5 @@
 MY_SYSTEM_ID = "your_pluralkit_system_id"
+SECONDARY_SYSTEM_ID = "second_system_id_optional"
 BOT_NAME = "NyxOS"
 MODEL_TEMPERATURE = 0.6
 CONTEXT_WINDOW = 5

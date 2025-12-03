@@ -142,6 +142,7 @@ except Exception as e:
 
 # Overrides from ENV (take precedence over config.txt)
 if os.getenv("MY_SYSTEM_ID"): MY_SYSTEM_ID = os.getenv("MY_SYSTEM_ID")
+if os.getenv("SECONDARY_SYSTEM_ID"): SECONDARY_SYSTEM_ID = os.getenv("SECONDARY_SYSTEM_ID")
 if os.getenv("LM_STUDIO_URL"): LM_STUDIO_URL = os.getenv("LM_STUDIO_URL")
 if os.getenv("BUG_REPORT_CHANNEL_ID"): BUG_REPORT_CHANNEL_ID = int(os.getenv("BUG_REPORT_CHANNEL_ID"))
 if os.getenv("STARTUP_CHANNEL_ID"): STARTUP_CHANNEL_ID = int(os.getenv("STARTUP_CHANNEL_ID"))
