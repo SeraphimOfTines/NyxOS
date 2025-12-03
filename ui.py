@@ -165,7 +165,7 @@ class StatusBarView(discord.ui.View):
         self.persisting = persisting
         
         # 1. Drop All
-        btn_drop_all = discord.ui.Button(label=FLAVOR_TEXT["BAR_DROP_ALL"], style=discord.ButtonStyle.primary, custom_id="bar_drop_all_btn")
+        btn_drop_all = discord.ui.Button(label=FLAVOR_TEXT["BAR_DROP_ALL"], style=discord.ButtonStyle.secondary, custom_id="bar_drop_all_btn")
         btn_drop_all.callback = self.drop_all_callback
         self.add_item(btn_drop_all)
 
@@ -190,7 +190,7 @@ class StatusBarView(discord.ui.View):
         btn_console = discord.ui.Button(emoji="🖥️", url=console_url)
         self.add_item(btn_console)
 
-        # 5. Delete
+        # 6. Delete
         btn_delete = discord.ui.Button(label=FLAVOR_TEXT["BAR_DELETE"], style=discord.ButtonStyle.danger, custom_id="bar_delete_btn")
         btn_delete.callback = self.delete_callback
         self.add_item(btn_delete)
@@ -202,7 +202,7 @@ class StatusBarView(discord.ui.View):
         for child in self.children:
             if getattr(child, "custom_id", "") == "bar_persist_btn":
                 child.label = "Auto"
-                child.style = discord.ButtonStyle.success if self.persisting else discord.ButtonStyle.secondary
+                child.style = discord.ButtonStyle.secondary
 
     async def check_auth(self, interaction, button):
         # Only Original User or Admin
