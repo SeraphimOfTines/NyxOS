@@ -368,9 +368,29 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
                                                               offset=f.tell())
                      commit = dropbox.files.CommitInfo(path=dropbox_path)
                      
+                     last_upload_ui_update = 0
+                     last_log_pct = -1
+
                      while f.tell() < file_size_bytes:
                          if cancel_event and cancel_event.is_set():
                              raise Exception("Cancelled by user")
+                        
+                         # Progress Update
+                         current_pos = f.tell()
+                         now = time.time()
+                         if now - last_upload_ui_update > 4:
+                             pct = int((current_pos / file_size_bytes) * 100)
+                             uploaded_str = get_human_readable_size(current_pos)
+                             status_msg = f"Uploading... {uploaded_str} / {readable_size}"
+                             
+                             if progress_callback:
+                                 await progress_callback(pct, status_msg)
+                                 
+                             if pct >= last_log_pct + 10:
+                                 logger.info(f"Uploading: {pct}% ({uploaded_str}/{readable_size})")
+                                 last_log_pct = pct
+                                 
+                             last_upload_ui_update = now
 
                          chunk = f.read(4 * 1024 * 1024)
                          
