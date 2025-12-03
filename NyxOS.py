@@ -1394,6 +1394,12 @@ class LMStudioBot(discord.Client):
                 
                 # Get current prefix
                 current_content = bar_data.get("content", "")
+
+                # ANGEL GUARD: Ignore Angel/Dark Angel bars
+                clean_current = current_content.replace(' \n', '\n') # Normalize line breaks
+                if clean_current == ui.ANGEL_CONTENT or clean_current == ui.DARK_ANGEL_CONTENT:
+                    return False
+
                 prefix = ""
                 for emoji in ui.BAR_PREFIX_EMOJIS:
                     if current_content.startswith(emoji):
@@ -2068,6 +2074,13 @@ class LMStudioBot(discord.Client):
         found_raw = await self.find_last_bar_content(interaction.channel)
         
         if found_raw:
+            # ANGEL GUARD: Ignore update if it is an Angel bar
+            clean_found = found_raw.replace(' \n', '\n')
+            if clean_found == ui.ANGEL_CONTENT or clean_found == ui.DARK_ANGEL_CONTENT:
+                try: await interaction.response.send_message("❌ Cannot update prefix on an Angel Bar.", ephemeral=True, delete_after=2.0)
+                except: pass
+                return
+
             content = found_raw
             chk = ui.FLAVOR_TEXT['CHECKMARK_EMOJI']
             if chk in content:
@@ -2217,9 +2230,11 @@ class LMStudioBot(discord.Client):
         if interaction.channel_id in self.active_bars:
             persisting = self.active_bars[interaction.channel_id].get("persisting", False)
         
+        # Ensure view is attached
+        view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
+        
         await interaction.response.defer(ephemeral=True)
         
-        view = ui.StatusBarView(full_content, interaction.user.id, interaction.channel_id, persisting)
         await services.service.limiter.wait_for_slot("send_message", interaction.channel_id)
         msg = await interaction.channel.send(full_content, view=view)
         
