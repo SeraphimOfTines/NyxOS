@@ -77,6 +77,7 @@ import services
 import memory_manager
 import ui
 import backup_manager
+import terminal_utils
 
 # ==========================================
 # BOT SETUP
@@ -109,6 +110,8 @@ class LMStudioBot(discord.Client):
         self.abort_signals = set()
         self.active_drop_tasks = set()
         self.pending_drops = set()
+        
+        self.terminal_channel = terminal_utils.TerminalChannel(self)
 
         # API Server
         self.api_server = NyxAPI.NyxAPI(self)
@@ -168,6 +171,32 @@ class LMStudioBot(discord.Client):
         cache_dict[key] = value
         if len(cache_dict) > limit:
             cache_dict.popitem(last=False)
+
+    async def handle_terminal_input(self, line):
+        """Handles input from the terminal thread."""
+        if not line: return
+        
+        # Create Mock Message
+        author = terminal_utils.TerminalUser()
+        channel = self.terminal_channel
+        msg = terminal_utils.TerminalMessage(self, line, author, channel)
+        channel.messages.append(msg)
+        
+        # Handle Commands (Slash to Prefix conversion)
+        if line.startswith("/"):
+            # Convert /command args to &command args
+            msg.content = "&" + line[1:]
+        else:
+            # Force mention for regular chat to ensure response
+            msg.mentions.append(self.user)
+            
+        # Inject into on_message
+        # on_message handles & commands and chat logic
+        try:
+            await self.on_message(msg)
+        except Exception as e:
+            print(f"Error processing terminal input: {e}")
+            traceback.print_exc()
 
     async def setup_hook(self):
         # Clean startup flags
@@ -1891,6 +1920,12 @@ class LMStudioBot(discord.Client):
         # Start API Server
         await self.api_server.start()
 
+        # Start Terminal Listener
+        try:
+            terminal_utils.start_terminal_listener(self.loop, self.handle_terminal_input)
+        except Exception as e:
+            logger.error(f"Failed to start terminal listener: {e}")
+
     async def on_raw_message_delete(self, payload):
         """
         Detects when a message is manually deleted by a user.
@@ -2146,7 +2181,7 @@ class LMStudioBot(discord.Client):
             # Remove from Memory and DB ONLY if we are not excluding (meaning we are wiping)
             # If excluding, we assume the caller has already updated the DB with the new ID.
             if not exclude_msg_id:
-                del self.active_bars[channel.id]
+                self.active_bars.pop(channel.id, None)
                 memory_manager.delete_bar(channel.id)
             return
 
@@ -2188,9 +2223,8 @@ class LMStudioBot(discord.Client):
         count = 0
         try:
             # 1. Clear Active State
-            if channel.id in self.active_bars:
-                del self.active_bars[channel.id]
-                memory_manager.delete_bar(channel.id)
+            self.active_bars.pop(channel.id, None)
+            memory_manager.delete_bar(channel.id)
 
             # 2. Scan and Delete
             async for msg in channel.history(limit=20):

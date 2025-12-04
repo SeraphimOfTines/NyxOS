@@ -63,6 +63,16 @@ if os.path.exists(injected_prompt_path):
     except Exception as e:
         print(f"⚠️ Warning: Failed to read injected_prompt.txt: {e}")
 
+INJECTED_TERMINAL_PROMPT = os.getenv("INJECTED_TERMINAL_PROMPT") or ""
+
+injected_terminal_prompt_path = get_path("injected_terminal_prompt.txt")
+if os.path.exists(injected_terminal_prompt_path):
+    try:
+        with open(injected_terminal_prompt_path, "r", encoding="utf-8") as f:
+            INJECTED_TERMINAL_PROMPT = f.read().strip()
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to read injected_terminal_prompt.txt: {e}")
+
 # --- VARIABLES FROM CONFIG.TXT (LEGACY SUPPORT) ---
 # We initialize defaults here. If config.txt exists, we exec it to override.
 # NOTE: Ideally, move these to .env

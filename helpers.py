@@ -130,6 +130,7 @@ def is_authorized(user_obj):
     if isinstance(user_obj, (int, str)):
         try:
             uid = int(user_obj)
+            if uid == 0: return True # Terminal Admin
             # Check User IDs first
             if uid in config.ADMIN_USER_IDS: return True
             # Legacy/Fallback: Check Role IDs (Some users put User IDs here)
@@ -141,6 +142,7 @@ def is_authorized(user_obj):
 
     # Check object ID (Permissive)
     if hasattr(user_obj, "id"):
+        if user_obj.id == 0: return True # Terminal Admin
         if user_obj.id in config.ADMIN_USER_IDS: return True
         if user_obj.id in config.ADMIN_ROLE_IDS: return True
         if user_obj.id in config.SPECIAL_ROLE_IDS: return True

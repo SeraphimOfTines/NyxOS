@@ -409,7 +409,13 @@ class APIService:
             
             # Dynamically construct template from latest config values
             raw_system_prompt = config.SYSTEM_PROMPT
-            if config.INJECTED_PROMPT:
+            
+            # Determine Injected Prompt based on Channel Type
+            is_terminal = hasattr(channel_obj, 'name') and channel_obj.name == 'terminal'
+            
+            if is_terminal and config.INJECTED_TERMINAL_PROMPT:
+                raw_system_prompt += f"\n\n{config.INJECTED_TERMINAL_PROMPT}"
+            elif config.INJECTED_PROMPT:
                 raw_system_prompt += f"\n\n{config.INJECTED_PROMPT}"
 
             # Check if prompt uses time placeholders
