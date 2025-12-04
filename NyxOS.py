@@ -16,6 +16,7 @@ from collections import OrderedDict, deque
 
 # Local Modules
 import config
+import NyxAPI
 
 # ==========================================
 # LOGGING SETUP (Must be before other imports)
@@ -108,6 +109,9 @@ class LMStudioBot(discord.Client):
         self.abort_signals = set()
         self.active_drop_tasks = set()
         self.pending_drops = set()
+
+        # API Server
+        self.api_server = NyxAPI.NyxAPI(self)
 
     def get_tree_hash(self):
         """Generates a hash of the current command tree structure."""
@@ -1884,6 +1888,9 @@ class LMStudioBot(discord.Client):
         # Check commands
         await client.check_and_sync_commands()
 
+        # Start API Server
+        await self.api_server.start()
+
     async def on_raw_message_delete(self, payload):
         """
         Detects when a message is manually deleted by a user.
@@ -2105,6 +2112,7 @@ class LMStudioBot(discord.Client):
             await asyncio.sleep(2) # Faster heartbeat for 3s detection
 
     async def close(self):
+        await self.api_server.stop()
         await services.service.close()
         await super().close()
 
@@ -3369,6 +3377,44 @@ async def dropall_command(interaction: discord.Interaction):
     await asyncio.sleep(0.5)
     await interaction.delete_original_response()
 
+@client.tree.command(name="scanemojis", description="Extract custom emojis from recent messages into a JSON database.")
+@app_commands.describe(limit="Number of messages to scan (Default: 20)")
+async def scanemojis_command(interaction: discord.Interaction, limit: int = 20):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    
+    emoji_pattern = re.compile(r'<(a?):(\w+):(\d+)>')
+    found_emojis = {}
+    
+    count = 0
+    try:
+        async for message in interaction.channel.history(limit=limit):
+            # Find all matches in message content
+            matches = emoji_pattern.findall(message.content)
+            for animated, name, id in matches:
+                # Reconstruct valid discord string
+                # animated is 'a' or empty
+                full_str = f"<{animated}:{name}:{id}>"
+                found_emojis[name] = full_str
+                count += 1
+    except Exception as e:
+        await interaction.followup.send(f"❌ Scan failed: {e}")
+        return
+
+    if not found_emojis:
+        await interaction.followup.send("No custom emojis found in recent messages.")
+        return
+
+    # Create JSON file
+    import io
+    json_data = json.dumps(found_emojis, indent=4)
+    file = discord.File(io.BytesIO(json_data.encode()), filename="emoji_db.json")
+    
+    await interaction.followup.send(f"✅ Scanned {limit} messages. Found {len(found_emojis)} unique emojis (from {count} total instances).", file=file)
+
 @client.tree.command(name="addbar", description="Summon a status bar to this channel.")
 async def addbar_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
@@ -3907,6 +3953,35 @@ async def on_message(message):
                     client.tree.copy_global_to(guild=guild)
                     await client.tree.sync(guild=guild)
                 await message.channel.send("✅ Commands synced.")
+            except Exception as e: await message.channel.send(f"❌ Error: {e}")
+            return
+
+        if message.content.startswith("&scanemojis"):
+            if not helpers.is_authorized(message.author): return
+            try:
+                limit = 20
+                parts = message.content.split()
+                if len(parts) > 1 and parts[1].isdigit():
+                    limit = int(parts[1])
+                
+                # Reuse logic? Hard in on_message. Reimplement simply.
+                emoji_pattern = re.compile(r'<(a?):(\w+):(\d+)>')
+                found_emojis = {}
+                count = 0
+                
+                async for msg in message.channel.history(limit=limit):
+                    matches = emoji_pattern.findall(msg.content)
+                    for animated, name, id in matches:
+                         found_emojis[name] = f"<{animated}:{name}:{id}>"
+                         count += 1
+                
+                if not found_emojis:
+                    await message.channel.send("No custom emojis found.")
+                else:
+                    import io
+                    json_data = json.dumps(found_emojis, indent=4)
+                    file = discord.File(io.BytesIO(json_data.encode()), filename="emoji_db.json")
+                    await message.channel.send(f"✅ Scanned {limit} messages. Found {len(found_emojis)} unique emojis.", file=file)
             except Exception as e: await message.channel.send(f"❌ Error: {e}")
             return
         

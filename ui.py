@@ -230,8 +230,8 @@ class StatusBarView(discord.ui.View):
                 child.style = discord.ButtonStyle.success if self.persisting else discord.ButtonStyle.secondary
 
     async def check_auth(self, interaction, button):
-        # Only Admin
-        if helpers.is_admin(interaction.user):
+        # Only Authorized Users (Admin + Special)
+        if helpers.is_authorized(interaction.user):
             return True
         
         # Unauthorized
@@ -349,7 +349,7 @@ class WakeupReportView(discord.ui.View):
     @discord.ui.button(label="Dismiss", style=discord.ButtonStyle.secondary, custom_id="wakeup_dismiss_btn")
     async def dismiss_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Only Admin
-        if not helpers.is_admin(interaction.user):
+        if not helpers.is_authorized(interaction.user):
              await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
              return
         
@@ -398,7 +398,7 @@ class ConsoleControlView(discord.ui.View):
 
     @discord.ui.button(emoji="💤", style=discord.ButtonStyle.secondary, custom_id="console_idle_btn", row=0)
     async def idle_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_admin(interaction.user):
+        if not helpers.is_authorized(interaction.user):
              await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
              return
         if hasattr(interaction.client, "idle_all_bars"):
@@ -409,7 +409,7 @@ class ConsoleControlView(discord.ui.View):
 
     @discord.ui.button(emoji="🛏️", style=discord.ButtonStyle.secondary, custom_id="console_sleep_btn", row=0)
     async def sleep_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_admin(interaction.user):
+        if not helpers.is_authorized(interaction.user):
              await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
              return
         if hasattr(interaction.client, "sleep_all_bars"):
@@ -420,7 +420,7 @@ class ConsoleControlView(discord.ui.View):
 
     @discord.ui.button(emoji="🔄", style=discord.ButtonStyle.secondary, custom_id="console_reboot_btn", row=0)
     async def reboot_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_admin(interaction.user):
+        if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         if hasattr(interaction.client, "perform_shutdown_sequence"):
@@ -430,7 +430,7 @@ class ConsoleControlView(discord.ui.View):
 
     @discord.ui.button(emoji="🛑", style=discord.ButtonStyle.secondary, custom_id="console_shutdown_btn", row=0)
     async def shutdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not helpers.is_admin(interaction.user):
+        if not helpers.is_authorized(interaction.user):
             await interaction.response.send_message(FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
             return
         if hasattr(interaction.client, "perform_shutdown_sequence"):

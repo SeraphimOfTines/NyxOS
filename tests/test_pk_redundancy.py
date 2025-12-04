@@ -44,16 +44,16 @@ class TestPKRedundancy(unittest.IsolatedAsyncioTestCase):
         resp_local = AsyncMock()
         resp_local.status = 404
         
-        ctx_local = MagicMock()
+        ctx_local = AsyncMock()
         ctx_local.__aenter__.return_value = resp_local
         ctx_local.__aexit__.return_value = None
         
         # 2. Official Response (Success)
         resp_official = AsyncMock()
         resp_official.status = 200
-        resp_official.json.return_value = {"id": "sys1", "tag": "Tag"}
+        resp_official.json = AsyncMock(return_value={"id": "sys1", "tag": "Tag"})
         
-        ctx_official = MagicMock()
+        ctx_official = AsyncMock()
         ctx_official.__aenter__.return_value = resp_official
         ctx_official.__aexit__.return_value = None
         
@@ -88,21 +88,22 @@ class TestPKRedundancy(unittest.IsolatedAsyncioTestCase):
         # 1. Local Response (Error)
         resp_local = AsyncMock()
         resp_local.status = 500
+        resp_local.json = AsyncMock(return_value={}) # Ensure json is awaitable even if not called
         
-        ctx_local = MagicMock()
+        ctx_local = AsyncMock()
         ctx_local.__aenter__.return_value = resp_local
         ctx_local.__aexit__.return_value = None
         
         # 2. Official Response (Success)
         resp_official = AsyncMock()
         resp_official.status = 200
-        resp_official.json.return_value = {
+        resp_official.json = AsyncMock(return_value={
             "member": {"name": "Member", "display_name": "Display"},
             "system": {"id": "sys1", "name": "System", "tag": "Tag"},
             "sender": 555
-        }
+        })
         
-        ctx_official = MagicMock()
+        ctx_official = AsyncMock()
         ctx_official.__aenter__.return_value = resp_official
         ctx_official.__aexit__.return_value = None
         
@@ -111,6 +112,7 @@ class TestPKRedundancy(unittest.IsolatedAsyncioTestCase):
                 return ctx_local
             elif url == official_url:
                 return ctx_official
+            print(f"Unexpected URL: {url}")
             return AsyncMock()
             
         self.service.http_session.get.side_effect = side_effect

@@ -34,3 +34,4 @@ logs/nyxos_cli.log
 *Backup/
 *.7z
 .env
+config.txt

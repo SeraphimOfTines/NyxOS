@@ -12,6 +12,8 @@ class TestServices:
         # Reset global cache if services.service is used implicitly or if we want isolation
         # But here we are creating a NEW instance for testing locally.
         service = services.APIService()
+        # http_session should be a MagicMock, because session.get() is synchronous
+        # and returns an async context manager.
         service.http_session = MagicMock()
         return service
 

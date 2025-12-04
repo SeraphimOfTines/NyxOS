@@ -81,6 +81,10 @@ BOT_ROLE_IDS = []
 MODEL_TEMPERATURE = 0.6
 CONTEXT_WINDOW = 20
 
+# API Defaults
+CONTROL_API_PORT = 5555
+CONTROL_API_KEY = "changeme_default"
+
 # Default Status Messages
 MSG_REBOOT_HEADER = "# <a:Thinking:1322962569300017214> Rebooting . . ."
 MSG_REBOOT_SUB = "-# Waking {current}/{total} Uplinks" 
@@ -123,12 +127,23 @@ WM_BACKUP_PASSWORD = os.getenv("WM_BACKUP_PASSWORD")
 
 try:
     with open(get_path("config.txt"), "r") as f:
+        exec(f.read(), globals())
+except FileNotFoundError:
+    print("⚠️ Warning: config.txt not found. Using defaults.")
+except Exception as e:
+    print(f"⚠️ Warning: Error loading config.txt: {e}")
+
+try:
+    with open(get_path("nyxcontrolconfig.txt"), "r") as f:
         # Be careful with exec. It executes in the current scope.
         exec(f.read(), globals())
 except FileNotFoundError:
     pass
 except Exception as e:
-    print(f"⚠️ Warning: Error loading config.txt: {e}")
+    print(f"⚠️ Warning: Error loading nyxcontrolconfig.txt: {e}")
+
+print(f"DEBUG: CONTROL_API_KEY loaded as type: {type(CONTROL_API_KEY)}")
+# print(f"DEBUG: CONTROL_API_KEY value: {CONTROL_API_KEY}") # Uncomment if desperate
 
 # --- DATA SANITIZATION ---
 # Ensure IDs are integers to prevent auth failures

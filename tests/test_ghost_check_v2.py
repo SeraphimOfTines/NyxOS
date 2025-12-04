@@ -3,15 +3,6 @@ import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime, timedelta, timezone
 
-# Mock config before import
-import sys
-sys.modules["config"] = MagicMock()
-sys.modules["config"].MY_SYSTEM_ID = "sys_123"
-
-# Mock service
-sys.modules["services"] = MagicMock()
-sys.modules["services"].service = MagicMock()
-
 # We need to test the logic inside on_message, but it's huge.
 # Instead of importing the whole bot, we can extract the logic or mock the bot/message environment carefully.
 # Since I modified NyxOS.py directly, I should try to import it, but it has heavy dependencies.

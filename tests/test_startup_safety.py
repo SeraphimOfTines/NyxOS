@@ -42,6 +42,9 @@ class TestStartupSafety(unittest.IsolatedAsyncioTestCase):
         self.bot.update_console_status = AsyncMock()
         self.bot.check_and_sync_commands = AsyncMock()
         
+        # MOCK API START TO PREVENT PORT BINDING
+        self.bot.api_server.start = AsyncMock()
+        
         # Run on_ready
         with patch('NyxOS.client', self.bot):
             await self.bot.on_ready()

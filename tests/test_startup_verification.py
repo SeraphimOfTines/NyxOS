@@ -22,6 +22,9 @@ class TestStartupLogic(unittest.IsolatedAsyncioTestCase):
         bot.wait_until_ready = AsyncMock()
         bot.is_closed = MagicMock(return_value=False)
         
+        # Prevent Port Binding
+        bot.api_server.start = AsyncMock()
+        
         # Mock config to avoid IO
         with patch('config.STARTUP_CHANNEL_ID', None), \
              patch('NyxOS.client', bot):
