@@ -35,3 +35,4 @@ logs/nyxos_cli.log
 *.7z
 .env
 config.txt
+nyxcontrolconfig.txt

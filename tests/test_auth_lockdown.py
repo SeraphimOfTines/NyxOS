@@ -29,10 +29,10 @@ class TestAuthLockdown(unittest.IsolatedAsyncioTestCase):
         self.mock_interaction.client.idle_all_bars = AsyncMock()
         self.mock_interaction.client.sleep_all_bars = AsyncMock()
 
-    @patch('helpers.is_admin')
-    async def test_status_bar_auth_fail(self, mock_is_admin):
+    @patch('helpers.is_authorized')
+    async def test_status_bar_auth_fail(self, mock_is_auth):
         """Test StatusBarView buttons block non-admins."""
-        mock_is_admin.return_value = False
+        mock_is_auth.return_value = False
         
         view = ui.StatusBarView("content", 123, 456)
         button = MagicMock()
@@ -43,10 +43,10 @@ class TestAuthLockdown(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result)
         self.mock_interaction.response.send_message.assert_called_with(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
 
-    @patch('helpers.is_admin')
-    async def test_status_bar_auth_pass(self, mock_is_admin):
+    @patch('helpers.is_authorized')
+    async def test_status_bar_auth_pass(self, mock_is_auth):
         """Test StatusBarView buttons allow admins."""
-        mock_is_admin.return_value = True
+        mock_is_auth.return_value = True
         
         view = ui.StatusBarView("content", 123, 456)
         button = MagicMock()
