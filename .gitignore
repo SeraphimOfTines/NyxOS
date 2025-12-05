@@ -37,3 +37,4 @@ logs/nyxos_cli.log
 config.txt
 nyxcontrolconfig.txt
 *injected_terminal_prompt.txt
+NyxControl.py
