@@ -22,6 +22,7 @@ class NyxAPI:
         self.app.router.add_post('/api/global/update', self.handle_global_update)
         self.app.router.add_post('/api/global/state', self.handle_global_state)
         self.app.router.add_post('/api/bar/{channel_id}/update', self.handle_bar_update)
+        self.app.router.add_get('/api/emojis', self.handle_get_emojis)
         
         self.runner = None
         self.site = None
@@ -59,6 +60,29 @@ class NyxAPI:
             'user': str(self.bot.user),
             'id': self.bot.user.id
         })
+
+    async def handle_get_emojis(self, request):
+        """Returns a list of all custom emojis visible to the bot, filtered by Guild ID."""
+        emojis_data = []
+        for emoji in self.bot.emojis:
+            # Filter: Only allow emojis from the configured Temple Guild
+            # (TEMPLE_GUILD_ID defaults to 411597692037496833)
+            if emoji.guild.id != config.TEMPLE_GUILD_ID:
+                continue
+
+            # Format: <a:Name:ID> or <:Name:ID>
+            animated_tag = "a" if emoji.animated else ""
+            full_str = f"<{animated_tag}:{emoji.name}:{emoji.id}>"
+            
+            emojis_data.append({
+                "name": emoji.name,
+                "id": str(emoji.id),
+                "string": full_str,
+                "animated": emoji.animated,
+                "url": str(emoji.url)
+            })
+            
+        return web.json_response({'emojis': emojis_data, 'count': len(emojis_data)})
 
     async def handle_get_bars(self, request):
         """Returns a list of all active status bars."""
