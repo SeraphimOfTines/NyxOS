@@ -36,3 +36,4 @@ logs/nyxos_cli.log
 .env
 config.txt
 nyxcontrolconfig.txt
+*injected_terminal_prompt.txt
