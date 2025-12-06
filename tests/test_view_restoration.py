@@ -52,6 +52,7 @@ class TestViewRestoration:
             mock_channel = AsyncMock()
             mock_channel.history = MagicMock(return_value=AsyncIter([])) # Use AsyncIter
             mock_message = AsyncMock()
+            mock_message.content = "Bar Content"
             mock_channel.fetch_message.return_value = mock_message
             
             # Setup fetch_message to raise NotFound for 5003

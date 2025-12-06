@@ -33,6 +33,8 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client.processing_locks = set()
         mock_client.abort_signals = set()
         mock_client._update_lru_cache = MagicMock()
+        # schedule_next_heartbeat is sync
+        mock_client.schedule_next_heartbeat = MagicMock()
 
         # Mock Message
         message = AsyncMock()
@@ -44,6 +46,11 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         message.mentions = [mock_client.user] # PING to trigger logic
         message.role_mentions = []
         message.webhook_id = None
+        
+        # get_member is sync
+        mock_member = MagicMock()
+        mock_member.name = "testuser"
+        message.guild.get_member = MagicMock(return_value=mock_member)
         
         # Setup History Mock
         message.channel.history = MagicMock(return_value=AsyncIter([]))

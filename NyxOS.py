@@ -534,6 +534,11 @@ class LMStudioBot(discord.Client):
                                  await old_chk.delete()
                              except: pass
 
+                    # Update Memory State
+                    if manual:
+                        self.active_bars[channel_id]["has_notification"] = False
+                        asyncio.create_task(self.update_console_status())
+
                     # Sync DB
                     memory_manager.save_bar(
                         channel_id, 
@@ -4395,7 +4400,12 @@ async def on_message(message):
                     member_description = None
                     
                     if message.webhook_id:
-                        pk_name, pk_sys_id, pk_sys_name, pk_tag, pk_sender, pk_desc = await services.service.get_pk_message_data(message.id)
+                        # PK Race Condition Handling: Retry lookup if not found immediately
+                        for _ in range(3):
+                            pk_name, pk_sys_id, pk_sys_name, pk_tag, pk_sender, pk_desc = await services.service.get_pk_message_data(message.id)
+                            if pk_name: break
+                            await asyncio.sleep(0.5)
+                        
                         if pk_name:
                             real_name = pk_name
                             system_tag = pk_tag

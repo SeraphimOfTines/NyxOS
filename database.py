@@ -147,7 +147,7 @@ class Database:
                         bar_msg_id = excluded.bar_msg_id,
                         check_msg_id = excluded.check_msg_id,
                         timestamp = excluded.timestamp
-                """, (str(channel_id), new_bar, new_check, datetime.now()))
+                """, (str(channel_id), new_bar, new_check, datetime.now().isoformat(sep=' ')))
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to save channel location: {e}")
@@ -257,7 +257,7 @@ class Database:
                         has_notification = excluded.has_notification,
                         checkmark_message_id = excluded.checkmark_message_id,
                         timestamp = excluded.timestamp
-                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, current_prefix, 1 if has_notification else 0, str(checkmark_message_id) if checkmark_message_id else str(message_id), datetime.now()))
+                """, (str(channel_id), str(guild_id), str(message_id), str(user_id), content, 1 if persisting else 0, current_prefix, 1 if has_notification else 0, str(checkmark_message_id) if checkmark_message_id else str(message_id), datetime.now().isoformat(sep=' ')))
                 
                 # 2. Check History
                 # Get the most recent history entry for this channel
@@ -269,7 +269,7 @@ class Database:
                 # We only save clean content changes.
                 if content != last_content:
                     c.execute("INSERT INTO bar_history (channel_id, content, timestamp) VALUES (?, ?, ?)", 
-                              (str(channel_id), content, datetime.now()))
+                              (str(channel_id), content, datetime.now().isoformat(sep=' ')))
 
                 conn.commit()
         except Exception as e:
@@ -499,7 +499,7 @@ class Database:
                     ON CONFLICT(message_id) DO UPDATE SET
                         data = excluded.data,
                         timestamp = excluded.timestamp
-                """, (str(message_id), json_data, datetime.now()))
+                """, (str(message_id), json_data, datetime.now().isoformat(sep=' ')))
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to save view state: {e}")
@@ -544,7 +544,7 @@ class Database:
                         channel_name = excluded.channel_name,
                         content = excluded.content,
                         last_updated = excluded.last_updated
-                """, (str(channel_id), channel_name, content, datetime.now()))
+                """, (str(channel_id), channel_name, content, datetime.now().isoformat(sep=' ')))
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to update context buffer: {e}")
@@ -565,7 +565,7 @@ class Database:
                     UPDATE context_buffers 
                     SET content = ?, last_updated = ?
                     WHERE channel_id = ?
-                """, (new_content, datetime.now(), str(channel_id)))
+                """, (new_content, datetime.now().isoformat(sep=' '), str(channel_id)))
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to append context buffer: {e}")

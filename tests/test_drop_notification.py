@@ -55,7 +55,8 @@ class TestDropStatusBarNotification(unittest.IsolatedAsyncioTestCase):
         mock_msg = AsyncMock()
         mock_msg.id = 100
         mock_msg.content = "Bar Content"
-        mock_channel.history.return_value = AsyncIter([mock_msg])
+        # mock_channel.history needs to be MagicMock because it's not awaited, it returns an iterator
+        mock_channel.history = MagicMock(return_value=AsyncIter([mock_msg]))
 
         mock_channel.fetch_message.return_value = AsyncMock(id=100, content="Bar Content")
         
@@ -65,8 +66,12 @@ class TestDropStatusBarNotification(unittest.IsolatedAsyncioTestCase):
         # Assert notification flag is cleared in memory
         self.assertFalse(self.client.active_bars[channel_id]["has_notification"])
         
-        # Assert DB update called
-        mock_mm.set_bar_notification.assert_called_with(channel_id, False)
+        # Assert DB update called (via save_bar in optimization path)
+        # We check that save_bar was called and 'has_notification=False' was passed
+        self.assertTrue(mock_mm.save_bar.called)
+        call_args = mock_mm.save_bar.call_args
+        self.assertIn("has_notification", call_args.kwargs)
+        self.assertFalse(call_args.kwargs["has_notification"])
         
         # Assert Console Update Called
         # Note: Since we used asyncio.create_task, we might need to yield to loop to let it run

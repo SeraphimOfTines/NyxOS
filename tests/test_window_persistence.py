@@ -61,6 +61,7 @@ class TestWindowPersistence:
             mock_channel = AsyncMock()
             mock_channel.history = MagicMock(return_value=AsyncIter([]))
             mock_message = AsyncMock()
+            mock_message.content = "Bar Content"
             mock_channel.fetch_message.return_value = mock_message
             bot.get_channel.return_value = mock_channel
             
