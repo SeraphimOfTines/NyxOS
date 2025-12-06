@@ -4175,7 +4175,7 @@ async def on_message(message):
             kwargs = {}
             if arg_name:
                 # Special handling for 'learn' where text is optional if file exists
-                if cmd == "learn" and not args and message.attachments:
+                if (cmd == "learn" or cmd == "addknowledge") and not args and message.attachments:
                     pass
                 elif not args:
                      await message.channel.send(f"❌ Usage: `&{cmd} <{arg_name}>`", delete_after=2.0)
@@ -4186,7 +4186,7 @@ async def on_message(message):
             if cmd == "backupuploadonly":
                 kwargs["upload_only"] = True
                 
-            if cmd == "learn" and message.attachments:
+            if (cmd == "learn" or cmd == "addknowledge") and message.attachments:
                 kwargs["file"] = message.attachments[0]
             
             # Create Mock Interaction
