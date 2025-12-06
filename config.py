@@ -135,6 +135,7 @@ BACKUP_FLAVOR_TEXT = {
 BACKUP_COMPLETION_TEMPLATE = "**Backup Complete:** {size} | [Download]({link})"
 TEMPLE_BACKUP_PROMPT = "Say something nice about the backup."
 WM_BACKUP_PROMPT = "Be snarky about the backup."
+HEARTBEAT_PROMPT = "You are waking up and deciding to start a conversation with a specific user. You should come up with a topic to talk about, something fun, snarky, or interesting. It can be about anything, but try to make it engaging. You are starting the conversation, so don't act like you are replying to something. Just jump right in."
 
 # Archive Password
 TEMPLE_BACKUP_PASSWORD = os.getenv("TEMPLE_BACKUP_PASSWORD")

@@ -12,6 +12,7 @@ import signal
 import hashlib
 import subprocess
 import traceback
+import random
 from collections import OrderedDict, deque
 
 # Local Modules
@@ -110,6 +111,8 @@ class LMStudioBot(discord.Client):
         self.abort_signals = set()
         self.active_drop_tasks = set()
         self.pending_drops = set()
+        
+        self.heartbeat_enabled = False
         
         self.terminal_channel = terminal_utils.TerminalChannel(self)
 
@@ -213,6 +216,7 @@ class LMStudioBot(discord.Client):
         self.add_view(ui.StatusBarView("Loading...", None, None, False))
         
         asyncio.create_task(self.heartbeat_task())
+        asyncio.create_task(self.conversation_heartbeat_task())
 
     async def handle_bar_touch(self, channel_id, message=None, user_id=None):
         """
@@ -2146,6 +2150,64 @@ class LMStudioBot(discord.Client):
                 logger.warning(f"⚠️ Heartbeat failed: {e}")
             await asyncio.sleep(2) # Faster heartbeat for 3s detection
 
+    async def conversation_heartbeat_task(self):
+        logger.info("Conversation Heartbeat task started.")
+        await self.wait_until_ready()
+        
+        while not self.is_closed():
+            try:
+                # Random interval 5-30 minutes
+                wait_time = random.randint(5 * 60, 30 * 60)
+                logger.info(f"Heartbeat: Sleeping for {wait_time / 60:.1f} minutes.")
+                await asyncio.sleep(wait_time)
+
+                if not getattr(self, "heartbeat_enabled", False):
+                    continue
+
+                await self.trigger_conversation_heartbeat()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Conversation Heartbeat task error: {e}")
+                await asyncio.sleep(60)
+
+    async def trigger_conversation_heartbeat(self):
+        logger.info("💓 Triggering Conversation Heartbeat...")
+        
+        target_channel_id = 1222646289020223651
+        target_users = [319878959649259533, 1224270358920822786]
+        
+        channel = self.get_channel(target_channel_id) or await self.fetch_channel(target_channel_id)
+        if not channel:
+            logger.error(f"Heartbeat: Channel {target_channel_id} not found.")
+            return
+
+        # Pick random user
+        target_uid = random.choice(target_users)
+        
+        # Get Prompt
+        sys_prompt = config.HEARTBEAT_PROMPT
+        
+        # Construct Messages for LLM
+        # We act as if the system prompt is the "user" instruction in a way, or just override system prompt.
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": "Wake up and start a conversation."}
+        ]
+        
+        try:
+            # Generate
+            response = await services.service.get_chat_response(messages)
+            
+            # Send
+            msg_content = f"<@{target_uid}> {response}"
+            await channel.send(msg_content)
+            logger.info(f"Heartbeat sent to {target_channel_id} targeting {target_uid}")
+            
+        except Exception as e:
+            logger.error(f"Heartbeat generation failed: {e}")
+
     async def close(self):
         await self.api_server.stop()
         await services.service.close()
@@ -3264,26 +3326,42 @@ async def debugtest_command(interaction: discord.Interaction):
     # 3. Edit Original Message
     await interaction.edit_original_response(content=msg, attachments=[file])
 
-@client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
-async def nukedatabase_command(interaction: discord.Interaction):
+@client.tree.command(name="debugtest", description="Run unit tests and report results (Admin Only).")
+async def debugtest_command(interaction: discord.Interaction):
+    if not helpers.is_admin(interaction.user):
+        await interaction.response.send_message("❌ Admin Only.", ephemeral=True)
+        return
+    
+    # Check if we are already running a test?
+    # Create View
+    view = ui.ResponseView() # Reusing this for the debug button? No, custom view.
+    
+    await interaction.response.send_message(
+        f"🧪 **Debug Test Console**\nSelect a test suite to run:",
+        view=ui.DebugTestView(),
+        ephemeral=True
+    )
+
+@client.tree.command(name="toggleheartbeat", description="Toggle the automatic conversation heartbeat.")
+async def toggleheartbeat_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
-        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+        return
+        
+    client.heartbeat_enabled = not client.heartbeat_enabled
+    state = "ENABLED" if client.heartbeat_enabled else "DISABLED"
+    await interaction.response.send_message(f"💓 Conversation Heartbeat is now **{state}**.")
+
+@client.tree.command(name="heartbeat", description="Trigger a conversation heartbeat immediately.")
+async def heartbeat_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
         return
 
-    # Confirmation dialog could be nice, but user asked for the command.
-    # We'll just do it but defer first as it might take a moment.
-    await interaction.response.defer(ephemeral=True)
-    
-    logger.warning(f"☢️ DATABASE NUKE INITIATED BY {interaction.user} ({interaction.user.id})")
-    
-    success = memory_manager.nuke_database()
-    
-    if success:
-        await interaction.followup.send("☢️ **DATABASE NUKED.** All data has been erased. Rebooting system...", ephemeral=True)
-        # Trigger reboot
-        await client.perform_shutdown_sequence(interaction, restart=True)
-    else:
-        await interaction.followup.send("❌ Database nuke failed. Check logs.", ephemeral=True)
+    await interaction.response.send_message("💓 Triggering heartbeat...", ephemeral=True)
+    await client.trigger_conversation_heartbeat()
+
+@client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
 
 @client.tree.command(name="backup", description="Run a backup for the specified target (Temple, WM, or Shrine).")
 @app_commands.describe(target="Target: 'temple', 'wm', or 'shrine'", upload_only="Skip download/export and only archive/upload existing files.")
@@ -3931,6 +4009,8 @@ async def on_message(message):
             "backupuploadonly": (backup_command, "target"),
             "debugtest": (debugtest_command, None),
             "debugscan": (debugscan_command, None),
+            "toggleheartbeat": (toggleheartbeat_command, None),
+            "heartbeat": (heartbeat_command, None),
             "help": (help_command, None),
             "killmyembeds": (killmyembeds_command, None),
             "suppressembedson": (suppressembedson_command, None),
