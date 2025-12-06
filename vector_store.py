@@ -27,6 +27,7 @@ class VectorStore:
                 self.client = chromadb.HttpClient(host=host, port=int(port))
             else:
                 # Fallback to local persistent (not shared with OpenWebUI easily, but safe fallback)
+                # PersistentClient takes 'path' as first arg
                 self.client = chromadb.PersistentClient(path=db_url)
 
             self.collection = self.client.get_or_create_collection(name=self.collection_name)
