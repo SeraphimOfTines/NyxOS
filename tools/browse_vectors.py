@@ -1,7 +1,13 @@
 
 import chromadb
-import config
+import sys
+import os
 import logging
+
+# Add parent directory to path so we can import config
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Browser")
