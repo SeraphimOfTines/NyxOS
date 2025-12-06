@@ -4154,6 +4154,8 @@ async def on_message(message):
             "speed1": (speed1_command, None),
             "speed2": (speed2_command, None),
             "console": (console_command, None),
+            "learn": (learn_command, "text"),
+            "recall": (recall_command, "query"),
         }
 
         if cmd in cmd_map:
@@ -4161,13 +4163,20 @@ async def on_message(message):
             
             kwargs = {}
             if arg_name:
-                if not args:
+                # Special handling for 'learn' where text is optional if file exists
+                if cmd == "learn" and not args and message.attachments:
+                    pass
+                elif not args:
                      await message.channel.send(f"❌ Usage: `&{cmd} <{arg_name}>`", delete_after=2.0)
                      return
-                kwargs[arg_name] = " ".join(args)
+                if args:
+                    kwargs[arg_name] = " ".join(args)
             
             if cmd == "backupuploadonly":
                 kwargs["upload_only"] = True
+                
+            if cmd == "learn" and message.attachments:
+                kwargs["file"] = message.attachments[0]
             
             # Create Mock Interaction
             mock_intr = MockInteraction(client, message.channel, message.author, message)
