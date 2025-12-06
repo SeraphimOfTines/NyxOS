@@ -38,22 +38,57 @@ class VectorStore:
             return False
 
     def add_text(self, text, source="user", metadata=None):
-        """Ingests text into the vector database."""
+        """Ingests text into the vector database, automatically chunking large inputs."""
         if not self.collection:
             if not self.connect(): return False
 
         try:
-            doc_id = str(uuid.uuid4())
-            meta = metadata or {}
-            meta["source"] = source
-            meta["timestamp"] = datetime.now().isoformat()
+            # Chunking Logic
+            CHUNK_SIZE = 1000
+            OVERLAP = 100
+            
+            chunks = []
+            if len(text) > CHUNK_SIZE:
+                # Simple sliding window chunking
+                start = 0
+                while start < len(text):
+                    end = start + CHUNK_SIZE
+                    # Try to find a newline or space to break at
+                    if end < len(text):
+                        # Look for last newline in the chunk to avoid breaking sentences
+                        last_newline = text.rfind('\n', start, end)
+                        if last_newline != -1 and last_newline > start + (CHUNK_SIZE // 2):
+                            end = last_newline + 1 # Include newline
+                        else:
+                            # Fallback to space
+                            last_space = text.rfind(' ', start, end)
+                            if last_space != -1 and last_space > start + (CHUNK_SIZE // 2):
+                                end = last_space + 1
+                    
+                    chunk = text[start:end]
+                    chunks.append(chunk)
+                    # Move start pointer, respecting overlap
+                    start = end - OVERLAP if end < len(text) else end
+            else:
+                chunks = [text]
+
+            # Prepare Batch
+            ids = [str(uuid.uuid4()) for _ in chunks]
+            metadatas = []
+            for i, _ in enumerate(chunks):
+                meta = (metadata or {}).copy()
+                meta["source"] = source
+                meta["timestamp"] = datetime.now().isoformat()
+                meta["chunk_index"] = i
+                meta["total_chunks"] = len(chunks)
+                metadatas.append(meta)
 
             self.collection.add(
-                documents=[text],
-                metadatas=[meta],
-                ids=[doc_id]
+                documents=chunks,
+                metadatas=metadatas,
+                ids=ids
             )
-            logger.info(f"Added document {doc_id} from {source}")
+            logger.info(f"Added {len(chunks)} chunks from {source}")
             return True
         except Exception as e:
             logger.error(f"Failed to add document: {e}")
