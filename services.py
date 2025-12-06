@@ -9,6 +9,7 @@ import memory_manager
 import logging
 import rate_limiter
 from collections import OrderedDict
+import vector_store
 
 logger = logging.getLogger("Services")
 
@@ -426,6 +427,21 @@ class APIService:
 
     async def query_lm_studio(self, user_prompt, username, identity_suffix, history_messages, channel_obj, image_data_uri=None, member_description=None, search_context=None, reply_context_str="", system_prompt_override=None):
         
+        # --- VECTOR DB RECALL ---
+        # Automatically search for relevant "long term memory" if configured.
+        # We append this to search_context or creating a new section.
+        
+        # Limit query length to avoid issues
+        search_query = user_prompt[:200]
+        recall_results = vector_store.store.search(search_query, n_results=2)
+        
+        if recall_results:
+            recall_text = "\n".join([f"- {r['text']} (Source: {r['metadata'].get('source', 'Unknown')})" for r in recall_results])
+            vector_context = f"\n\n<relevant_memories>\n{recall_text}\n</relevant_memories>\n"
+            # logger.info(f"Injected {len(recall_results)} memories into context.")
+        else:
+            vector_context = ""
+
         # Use override if provided (even empty string)
         if system_prompt_override is not None:
             formatted_system_prompt = system_prompt_override
@@ -462,6 +478,9 @@ class APIService:
             if member_description:
                 clean_desc = member_description.replace('[', '(').replace(']', ')')
                 base_prompt += f"\n\n(Context: The user '{username}' has the following description: {clean_desc})"
+
+            if vector_context:
+                base_prompt += vector_context
 
             if search_context:
                 base_prompt += f"\n\n<search_results>\nThe user requested a web search. Here are the results:\n{search_context}\n</search_results>\n\nINSTRUCTION: Use the above search results to answer the user's request accurately. YOU MUST CITE SOURCES. Use the format: [Source Title](URL) at the end of the relevant sentence or paragraph."

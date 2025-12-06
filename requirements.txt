@@ -4,4 +4,6 @@ python-dotenv
 PyNaCl
 asyncpg
 dropbox
-pytest
+pytestchromadb==1.3.5
+pypdf==6.4.0
+sentence-transformers==5.1.2

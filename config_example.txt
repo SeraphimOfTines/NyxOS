@@ -69,3 +69,6 @@ NOTIFICATION_EMOJI = "<a:SeraphExclamark:1317628268299554877>"
 
 # Heartbeat Configuration
 HEARTBEAT_PROMPT = "You are waking up and deciding to start a conversation with a specific user. You should come up with a topic to talk about, something fun, snarky, or interesting. It can be about anything, but try to make it engaging. You are starting the conversation, so don't act like you are replying to something. Just jump right in."
+
+# Vector Database
+VECTOR_DB_URL = "http://localhost:8000"

@@ -200,6 +200,9 @@ if os.getenv("TEMPLE_GUILD_ID"): TEMPLE_GUILD_ID = int(os.getenv("TEMPLE_GUILD_I
 if os.getenv("WM_GUILD_ID"): WM_GUILD_ID = int(os.getenv("WM_GUILD_ID"))
 if os.getenv("SHRINE_CHANNEL_ID"): SHRINE_CHANNEL_ID = int(os.getenv("SHRINE_CHANNEL_ID"))
 
+# Vector Database
+VECTOR_DB_URL = os.getenv("VECTOR_DB_URL", "http://localhost:8000")
+
 # --- PLURALKIT API CONFIGURATION ---
 # Check for overrides from Environment
 if os.getenv("USE_LOCAL_PLURALKIT"):

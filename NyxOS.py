@@ -79,6 +79,7 @@ import memory_manager
 import ui
 import backup_manager
 import terminal_utils
+import vector_store
 
 # ==========================================
 # BOT SETUP
@@ -3828,6 +3829,99 @@ async def global_command(interaction: discord.Interaction, text: str):
 @client.tree.command(name="darkangel", description="Set status to Dark Angel.")
 async def darkangel_command(interaction: discord.Interaction):
     await client.replace_bar_content(interaction, ui.DARK_ANGEL_CONTENT)
+
+@client.tree.command(name="learn", description="Ingest a document or text into the Vector Database.")
+@app_commands.describe(text="Text to learn", file="File to learn (.txt, .md, .pdf)")
+async def learn_command(interaction: discord.Interaction, text: str = None, file: discord.Attachment = None):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+        return
+
+    if not text and not file:
+        await interaction.response.send_message("❌ Please provide either text or a file.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    
+    content_to_ingest = ""
+    source_name = "User Input"
+    
+    if text:
+        content_to_ingest += text + "\n"
+        
+    if file:
+        # Check size (e.g. < 10MB)
+        if file.size > 10 * 1024 * 1024:
+             await interaction.followup.send("❌ File too large (Max 10MB).")
+             return
+
+        try:
+            file_bytes = await file.read()
+            source_name = file.filename
+            
+            if file.filename.lower().endswith(".pdf"):
+                import io
+                import pypdf
+                
+                try:
+                    reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                    extracted_text = ""
+                    for page in reader.pages:
+                        extracted_text += page.extract_text() + "\n"
+                    content_to_ingest += extracted_text
+                except Exception as e:
+                    await interaction.followup.send(f"❌ PDF Error: {e}")
+                    return
+            else:
+                # Assume text-based
+                try:
+                    content_to_ingest += file_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                     await interaction.followup.send("❌ File encoding not supported (UTF-8 only).")
+                     return
+
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to read file: {e}")
+            return
+
+    if not content_to_ingest.strip():
+         await interaction.followup.send("❌ Content was empty.")
+         return
+
+    # Ingest
+    success = vector_store.store.add_text(
+        content_to_ingest, 
+        source=source_name, 
+        metadata={"ingested_by": str(interaction.user.id), "filename": file.filename if file else "text_input"}
+    )
+    
+    if success:
+        await interaction.followup.send(f"✅ Successfully ingested **{source_name}** ({len(content_to_ingest)} chars) into Vector DB.")
+    else:
+        await interaction.followup.send("❌ Database ingestion failed. Check logs.")
+
+@client.tree.command(name="recall", description="Search the Vector Database.")
+@app_commands.describe(query="Query to search for")
+async def recall_command(interaction: discord.Interaction, query: str):
+    await interaction.response.defer(ephemeral=True)
+    
+    results = vector_store.store.search(query, n_results=3)
+    
+    if not results:
+        await interaction.followup.send("❌ No relevant memories found.")
+        return
+        
+    msg = f"🔍 **Search Results for:** `{query}`\n\n"
+    for i, res in enumerate(results, 1):
+        meta = res.get("metadata", {})
+        source = meta.get("source", "Unknown")
+        text = res.get("text", "")
+        dist = res.get("distance", 0)
+        
+        preview = text[:200].replace("\n", " ") + "..."
+        msg += f"**{i}. Source:** {source} (Dist: {dist:.3f})\n> {preview}\n\n"
+        
+    await interaction.followup.send(msg)
 
 @client.tree.command(name="debugscan", description="Diagnose why the bot can't see the status bar (Admin).")
 async def debugscan_command(interaction: discord.Interaction):
