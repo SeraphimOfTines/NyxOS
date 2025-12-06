@@ -112,7 +112,7 @@ class LMStudioBot(discord.Client):
         self.active_drop_tasks = set()
         self.pending_drops = set()
         
-        self.heartbeat_enabled = False
+        self.heartbeat_enabled = True
         self.last_interaction_time = time.time()
         self.waiting_for_ping_since = None
         self.next_heartbeat_threshold = time.time() + random.randint(5 * 60, 30 * 60)
@@ -1923,6 +1923,9 @@ class LMStudioBot(discord.Client):
         
         # Check commands
         await client.check_and_sync_commands()
+        
+        # Reset Heartbeat Timer on Boot
+        self.schedule_next_heartbeat()
 
         # Start API Server
         await self.api_server.start()
