@@ -396,6 +396,32 @@ class APIService:
                 else: return f"Error: Kagi API returned status {resp.status}"
         except Exception as e: return f"Error searching Kagi: {e}"
 
+    # --- TEXT TO SPEECH ---
+
+    async def generate_speech(self, text):
+        if not config.TTS_API_URL: raise Exception("TTS Configuration Missing")
+        
+        endpoint = f"{config.TTS_API_URL}/audio/speech"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "model": config.TTS_MODEL,
+            "input": text,
+            "voice": config.TTS_VOICE
+        }
+        
+        logger.info(f"[TTS] Generating speech for: {text[:30]}...")
+        
+        try:
+            async with self.http_session.post(endpoint, json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    return await resp.read() # Return binary data
+                else:
+                    error_text = await resp.text()
+                    raise Exception(f"TTS API Error {resp.status}: {error_text}")
+        except Exception as e:
+            logger.error(f"TTS Failed: {e}")
+            raise e
+
     # --- LLM INFERENCE ---
 
     async def query_lm_studio(self, user_prompt, username, identity_suffix, history_messages, channel_obj, image_data_uri=None, member_description=None, search_context=None, reply_context_str="", system_prompt_override=None):

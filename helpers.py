@@ -191,4 +191,32 @@ def restore_hyperlinks(text):
     # Allow optional space between (Text) and (URL)
     # Allow ) inside URL (by using [^\s]+ instead of [^\s)] and relying on backtracking)
     return re.sub(r'\((.+?)\)\s*\((https?://[^\s]+)\)', r'[\1](\2)', text)
+
+def clean_text_for_tts(text):
+    """
+    Aggressively sanitizes text for TTS.
+    Removes emojis, special characters, and keeps only alphanumeric, spaces, and basic punctuation.
+    """
+    if not text: return ""
+    
+    # 1. Remove Discord Markdown links [Text](URL) -> Text
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    
+    # 2. Remove raw URLs
+    text = re.sub(r'http[s]?://\S+', '', text)
+    
+    # 3. Remove Custom Emojis <:Name:ID> or <a:Name:ID>
+    text = re.sub(r'<a?:\w+:\d+>', '', text)
+    
+    # 4. Remove Blockquotes (>), Codeblocks (```), Inline Code (`)
+    text = text.replace('```', '').replace('`', '').replace('>', '')
+    
+    # 5. Whitelist Characters: Alphanumeric, Spaces, Punctuation
+    # Allowed: a-z, A-Z, 0-9, Space, .,!?'"-
+    text = re.sub(r"[^a-zA-Z0-9\s.,!?'\"-]", "", text)
+    
+    # 6. Collapse multiple spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
     

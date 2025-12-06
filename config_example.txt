@@ -61,3 +61,8 @@ MSG_ACTIVE_UPLINKS_HEADER = "# Active Uplinks"
 # Bar Configuration
 BAR_DEBOUNCE_SECONDS = 3.0
 NOTIFICATION_EMOJI = "<a:SeraphExclamark:1317628268299554877>"
+
+# --- TTS CONFIGURATION ---
+# TTS_API_URL = 'http://192.168.0.200:4123/v1'
+# TTS_VOICE = 'NyxOS'
+# TTS_MODEL = 'tts-1-hd'

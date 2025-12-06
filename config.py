@@ -27,6 +27,7 @@ COMMAND_STATE_FILE = get_path("command_state.hash")
 
 # API Endpoints
 KAGI_SEARCH_URL = "https://kagi.com/api/v0/search"
+TTS_API_URL = "http://192.168.0.200:4123/v1"
 
 # PluralKit Configuration
 USE_LOCAL_PLURALKIT = False
@@ -90,6 +91,10 @@ STARTUP_CHANNEL_ID = 0
 BOT_ROLE_IDS = []
 MODEL_TEMPERATURE = 0.6
 CONTEXT_WINDOW = 20
+
+# TTS Configuration
+TTS_VOICE = "NyxOS"
+TTS_MODEL = "tts-1-hd"
 
 # API Defaults
 CONTROL_API_PORT = 5555
@@ -173,6 +178,10 @@ if os.getenv("BUG_REPORT_CHANNEL_ID"): BUG_REPORT_CHANNEL_ID = int(os.getenv("BU
 if os.getenv("STARTUP_CHANNEL_ID"): STARTUP_CHANNEL_ID = int(os.getenv("STARTUP_CHANNEL_ID"))
 if os.getenv("MODEL_TEMPERATURE"): MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE"))
 if os.getenv("CONTEXT_WINDOW"): CONTEXT_WINDOW = int(os.getenv("CONTEXT_WINDOW"))
+
+if os.getenv("TTS_API_URL"): TTS_API_URL = os.getenv("TTS_API_URL")
+if os.getenv("TTS_VOICE"): TTS_VOICE = os.getenv("TTS_VOICE")
+if os.getenv("TTS_MODEL"): TTS_MODEL = os.getenv("TTS_MODEL")
 
 # New Configs
 BAR_DEBOUNCE_SECONDS = 3.0

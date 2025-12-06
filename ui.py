@@ -1,6 +1,7 @@
 import discord
 import asyncio
 import re
+import io
 from datetime import datetime
 import config
 import services
@@ -599,6 +600,33 @@ class ResponseView(discord.ui.View):
         button.disabled = True
         button.label = f"Good Bot: {count}" 
         await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="Voice", style=discord.ButtonStyle.secondary, custom_id="tts_btn", emoji="🗣️", row=0)
+    async def tts_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        # 1. Get Content
+        content = interaction.message.content
+        if not content:
+            await interaction.followup.send("❌ No text to read!", ephemeral=True)
+            return
+            
+        # 2. Clean Content
+        clean_text = helpers.clean_text_for_tts(content)
+        if not clean_text:
+            await interaction.followup.send("❌ Text contained only unreadable characters.", ephemeral=True)
+            return
+            
+        try:
+            # 3. Generate Audio
+            audio_data = await services.service.generate_speech(clean_text)
+            
+            # 4. Send File
+            file = discord.File(io.BytesIO(audio_data), filename="voice_message.mp3")
+            await interaction.followup.send(file=file)
+            
+        except Exception as e:
+            await interaction.followup.send(f"❌ Voice Generation Failed: {e}", ephemeral=True)
 
     @discord.ui.button(label=FLAVOR_TEXT["DELETE_BUTTON"], style=discord.ButtonStyle.danger, custom_id="delete_btn", row=0)
     async def delete_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
