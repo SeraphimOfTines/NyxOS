@@ -3857,9 +3857,9 @@ async def learn_command(interaction: discord.Interaction, text: str = None, file
         content_to_ingest += text + "\n"
         
     if file:
-        # Check size (e.g. < 50MB)
-        if file.size > 50 * 1024 * 1024:
-             await interaction.followup.send("❌ File too large (Max 50MB).")
+        # Check size (e.g. < 500MB)
+        if file.size > 500 * 1024 * 1024:
+             await interaction.followup.send("❌ File too large (Max 500MB).")
              return
 
         try:
