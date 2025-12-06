@@ -3863,6 +3863,15 @@ async def learn_command(interaction: discord.Interaction, text: str = None, file
              return
 
         try:
+            # Use save() to bytes or read directly. 
+            # discord.Attachment.read() is correct, but if 404, the URL might be stale.
+            # If MockInteraction is used, the attachment object might be from the message, which is fine.
+            # BUT for prefix commands, 'file' is passed as a discord.Attachment object from the original message.
+            # If the message was ephemeral-deleted (it's not, we delete the command message), the attachment dies.
+            # Wait, we delete the command message in on_message! 
+            # "try: await message.delete() except: pass"
+            # THIS IS THE BUG. We delete the message before processing the attachment.
+            
             file_bytes = await file.read()
             source_name = file.filename
             
@@ -4110,8 +4119,9 @@ async def on_message(message):
 
     # --- PREFIX COMMANDS ---
     if message.content.startswith("&"):
-        try: await message.delete()
-        except: pass
+        # try: await message.delete()
+        # except: pass
+        # MOVED DELETION TO END to protect attachments for &learn
 
         cmd_parts = message.content.split()
         cmd = cmd_parts[0].lower()[1:] # Remove '&'
@@ -4203,6 +4213,13 @@ async def on_message(message):
                 await command_func.callback(mock_intr, **kwargs)
             except Exception as e:
                 logger.error(f"Command {cmd} failed: {e}")
+            
+            # Cleanup (Delete User Command Message)
+            # Only if we didn't just ingest a file (to keep history?) or if we want it clean.
+            # Usually we delete. The file has been read by now.
+            try: await message.delete()
+            except: pass
+            
             return
 
     if message.id in client.processing_locks: return
