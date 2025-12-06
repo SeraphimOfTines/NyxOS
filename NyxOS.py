@@ -4080,7 +4080,7 @@ async def on_message(message):
                 
                 # Ghost Check (Restored & Enhanced)
                 # Wait to see if a webhook appears that replaces this message
-                await asyncio.sleep(3.5)
+                await asyncio.sleep(5.0)
                 try:
                     await message.channel.fetch_message(message.id)
                     # If we are here, the message STILL exists.
@@ -4088,7 +4088,7 @@ async def on_message(message):
                     async for recent in message.channel.history(limit=15):
                         if recent.webhook_id is not None:
                              diff = (recent.created_at - message.created_at).total_seconds()
-                             if abs(diff) < 4.0: 
+                             if abs(diff) < 6.0: 
                                  logger.info(f"👻 Ghost detected (Late Webhook): {message.id} replaced by {recent.id}")
                                  skip_reaction_remove = True
                                  return
@@ -4359,6 +4359,13 @@ async def on_message(message):
                     if message.id in client.abort_signals:
                         logger.info(f"🛑 Generation aborted for {message.id} before query.")
                         return
+
+                    # Final Ghost Check (Reduce Race Conditions)
+                    try:
+                        await message.channel.fetch_message(message.id)
+                    except discord.NotFound:
+                         logger.info(f"👻 Final Ghost Check caught {message.id} before generation.")
+                         return
 
                     # Query LLM
                     # ... existing logic ...

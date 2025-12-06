@@ -38,10 +38,10 @@ class TestGhostCheck(unittest.IsolatedAsyncioTestCase):
         # The logic snippet:
         skip_reaction_remove = False
         
-        # Simulate the sleep (we can't wait 3.5s in test, so we patch sleep)
+        # Simulate the sleep (we can't wait 5.0s in test, so we patch sleep)
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             try:
-                await mock_sleep(3.5) # Call the mock
+                await mock_sleep(5.0) # Call the mock
                 try:
                     await message.channel.fetch_message(message.id)
                     # ... history check ...
@@ -69,13 +69,13 @@ class TestGhostCheck(unittest.IsolatedAsyncioTestCase):
         skip_reaction_remove = False
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
              # Replicate Logic
-             await mock_sleep(3.5)
+             await mock_sleep(5.0)
              try:
                  await message.channel.fetch_message(message.id)
                  async for recent in message.channel.history(limit=15):
                      if recent.webhook_id is not None:
                          diff = (recent.created_at - message.created_at).total_seconds()
-                         if abs(diff) < 4.0:
+                         if abs(diff) < 6.0:
                              skip_reaction_remove = True
                              break # return
              except: pass
