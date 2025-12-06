@@ -3872,6 +3872,16 @@ async def learn_command(interaction: discord.Interaction, text: str = None, file
                 except Exception as e:
                     await interaction.followup.send(f"❌ PDF Error: {e}")
                     return
+            elif file.filename.lower().endswith(".json"):
+                try:
+                    import json
+                    # Decode -> Load -> Dump Pretty
+                    text_content = file_bytes.decode("utf-8")
+                    json_data = json.loads(text_content)
+                    content_to_ingest += json.dumps(json_data, indent=2)
+                except Exception as e:
+                    await interaction.followup.send(f"❌ JSON Error: {e}")
+                    return
             else:
                 # Assume text-based
                 try:
@@ -4155,6 +4165,7 @@ async def on_message(message):
             "speed2": (speed2_command, None),
             "console": (console_command, None),
             "learn": (learn_command, "text"),
+            "addknowledge": (learn_command, "text"),
             "recall": (recall_command, "query"),
         }
 
