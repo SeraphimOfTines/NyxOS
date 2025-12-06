@@ -601,7 +601,7 @@ class ResponseView(discord.ui.View):
         button.label = f"Good Bot: {count}" 
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="Voice", style=discord.ButtonStyle.secondary, custom_id="tts_btn", emoji="🗣️", row=0)
+    @discord.ui.button(label="", style=discord.ButtonStyle.secondary, custom_id="tts_btn", emoji="🗣️", row=0)
     async def tts_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         
