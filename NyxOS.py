@@ -3346,6 +3346,24 @@ async def heartbeat_command(interaction: discord.Interaction):
     await client.trigger_conversation_heartbeat()
 
 @client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
+async def nukedatabase_command(interaction: discord.Interaction):
+    if not helpers.is_admin(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        return
+
+    await interaction.response.send_message("☢️ **NUKING DATABASE...**", ephemeral=True)
+    
+    # Perform Wipe
+    memory_manager.nuke_database()
+    
+    # Notify & Reboot
+    try:
+        await interaction.channel.send(ui.FLAVOR_TEXT.get("CRASH_MESSAGE", "# <a:SeraphBurningFuck:1304766240648204298> DATABASE DESTROYED. REBOOTING..."))
+    except:
+        pass
+        
+    await client.close()
+    os.execv(sys.executable, ['python3', 'NyxOS.py'])
 
 @client.tree.command(name="backup", description="Run a backup for the specified target (Temple, WM, or Shrine).")
 @app_commands.describe(target="Target: 'temple', 'wm', or 'shrine'", upload_only="Skip download/export and only archive/upload existing files.")
