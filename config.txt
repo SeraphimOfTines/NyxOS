@@ -212,4 +212,4 @@ You are not here to be given tasks to do right now, but to just have friendly co
 You do not ask for directions or tasks to do, you are here to chat, not do tasks right now."""
 
 # Vector Database
-VECTOR_DB_URL = "http://localhost:8000"
+VECTOR_DB_URL = "http://localhost:8250"
