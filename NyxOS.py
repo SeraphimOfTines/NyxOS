@@ -3326,22 +3326,6 @@ async def debugtest_command(interaction: discord.Interaction):
     # 3. Edit Original Message
     await interaction.edit_original_response(content=msg, attachments=[file])
 
-@client.tree.command(name="debugtest", description="Run unit tests and report results (Admin Only).")
-async def debugtest_command(interaction: discord.Interaction):
-    if not helpers.is_admin(interaction.user):
-        await interaction.response.send_message("❌ Admin Only.", ephemeral=True)
-        return
-    
-    # Check if we are already running a test?
-    # Create View
-    view = ui.ResponseView() # Reusing this for the debug button? No, custom view.
-    
-    await interaction.response.send_message(
-        f"🧪 **Debug Test Console**\nSelect a test suite to run:",
-        view=ui.DebugTestView(),
-        ephemeral=True
-    )
-
 @client.tree.command(name="toggleheartbeat", description="Toggle the automatic conversation heartbeat.")
 async def toggleheartbeat_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
