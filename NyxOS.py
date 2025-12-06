@@ -113,6 +113,9 @@ class LMStudioBot(discord.Client):
         self.pending_drops = set()
         
         self.heartbeat_enabled = False
+        self.last_interaction_time = time.time()
+        self.waiting_for_ping_since = None
+        self.next_heartbeat_threshold = time.time() + random.randint(5 * 60, 30 * 60)
         
         self.terminal_channel = terminal_utils.TerminalChannel(self)
 
@@ -2150,21 +2153,39 @@ class LMStudioBot(discord.Client):
                 logger.warning(f"⚠️ Heartbeat failed: {e}")
             await asyncio.sleep(2) # Faster heartbeat for 3s detection
 
+    def schedule_next_heartbeat(self):
+        """Reschedules the next heartbeat to a random time in the future."""
+        delay = random.randint(5 * 60, 30 * 60)
+        self.next_heartbeat_threshold = time.time() + delay
+        # logger.info(f"💓 Next heartbeat scheduled in {delay / 60:.1f} minutes.")
+
     async def conversation_heartbeat_task(self):
         logger.info("Conversation Heartbeat task started.")
         await self.wait_until_ready()
         
         while not self.is_closed():
             try:
-                # Random interval 5-30 minutes
-                wait_time = random.randint(5 * 60, 30 * 60)
-                logger.info(f"Heartbeat: Sleeping for {wait_time / 60:.1f} minutes.")
-                await asyncio.sleep(wait_time)
+                await asyncio.sleep(60) # Check every minute
 
                 if not getattr(self, "heartbeat_enabled", False):
                     continue
 
-                await self.trigger_conversation_heartbeat()
+                now = time.time()
+
+                # 1. Check 8-hour timeout on "Waiting for Reply"
+                if self.waiting_for_ping_since:
+                    if (now - self.waiting_for_ping_since) > (8 * 3600):
+                        logger.info("💓 Heartbeat 8-hour timeout expired. Resetting wait.")
+                        self.waiting_for_ping_since = None
+                        self.schedule_next_heartbeat()
+                    else:
+                        # Still waiting for user to reply
+                        continue
+
+                # 2. Check Threshold
+                if now > self.next_heartbeat_threshold:
+                    await self.trigger_conversation_heartbeat()
+                    # trigger_conversation_heartbeat now sets waiting_for_ping_since
 
             except asyncio.CancelledError:
                 break
@@ -2174,6 +2195,9 @@ class LMStudioBot(discord.Client):
 
     async def trigger_conversation_heartbeat(self):
         logger.info("💓 Triggering Conversation Heartbeat...")
+        
+        # Set wait flag immediately to prevent double firing
+        self.waiting_for_ping_since = time.time()
         
         target_channel_id = 1222646289020223651
         target_users = [319878959649259533, 1224270358920822786]
@@ -2207,6 +2231,9 @@ class LMStudioBot(discord.Client):
             
         except Exception as e:
             logger.error(f"Heartbeat generation failed: {e}")
+            # If failed, clear wait so it retries later
+            self.waiting_for_ping_since = None
+            self.schedule_next_heartbeat()
 
     async def close(self):
         await self.api_server.stop()
@@ -4136,6 +4163,12 @@ async def on_message(message):
                         target_message_id = ref_msg.id
             except Exception as e:
                 logger.debug(f"Reply Check Error: {e}")
+
+        # --- HEARTBEAT RESET LOGIC ---
+        if should_respond:
+             client.last_interaction_time = time.time()
+             client.waiting_for_ping_since = None
+             client.schedule_next_heartbeat()
 
         # INSTANT REACTION
         # if should_respond:
