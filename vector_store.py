@@ -36,7 +36,9 @@ class VectorStore:
         try:
             # 1. List all collections
             collections = self.client.list_collections()
-            if not collections: return []
+            if not collections: 
+                logger.warning("Search: No collections found in DB.")
+                return []
 
             all_results = []
 
@@ -46,9 +48,12 @@ class VectorStore:
             for col_obj in collections:
                 try:
                     # We can't query if collection is empty, but query handles it gracefully usually
+                    count = col_obj.count()
+                    if count == 0: continue
+                    
                     res = col_obj.query(
                         query_texts=[query],
-                        n_results=2 # Get top 2 from each doc
+                        n_results=min(2, count) # Get top 2 from each doc
                     )
                     
                     if res['documents'] and res['documents'][0]:
@@ -65,14 +70,21 @@ class VectorStore:
                                 "distance": dist,
                                 "source": source
                             })
-                except Exception:
+                except Exception as e:
+                    # logger.warning(f"Collection {col_obj.name} query failed: {e}")
                     pass # Skip collections that fail query (e.g. different embedding dimension?)
 
             # 3. Sort & Prune
             # Chroma distances: Lower is better (usually L2 or Cosine distance)
             all_results.sort(key=lambda x: x['distance'])
             
-            return all_results[:n_results]
+            final_results = all_results[:n_results]
+            if final_results:
+                logger.info(f"Vector Search '{query[:30]}...' found {len(final_results)} matches. Top: {final_results[0]['source']} ({final_results[0]['distance']:.4f})")
+            else:
+                logger.info(f"Vector Search '{query[:30]}...' returned NO matches.")
+                
+            return final_results
 
         except Exception as e:
             logger.error(f"Global Vector search failed: {e}")
