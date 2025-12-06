@@ -2146,6 +2146,8 @@ class LMStudioBot(discord.Client):
                 logger.error(f"❌ Failed to sync commands: {e}")
         else:
             logger.info("✅ Command structure matched. Skipping sync to avoid rate limits.")
+            # Override: Force sync anyway if you suspect issues, but only manually
+            # await self.tree.sync()
 
     async def heartbeat_task(self):
         await self.wait_until_ready()
