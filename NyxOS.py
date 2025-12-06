@@ -3891,9 +3891,16 @@ async def learn_command(interaction: discord.Interaction, text: str = None, file
             elif file.filename.lower().endswith(".json"):
                 try:
                     import json
-                    # Decode -> Load -> Dump Pretty
+                    import re
+                    
                     text_content = file_bytes.decode("utf-8")
-                    json_data = json.loads(text_content)
+                    
+                    # Strip C-style comments (// ...) to support "JSONC" (JSON with comments)
+                    # We use a regex that attempts to ignore // inside strings, but simple stripping is often enough for configs.
+                    # This regex removes // ... until end of line
+                    text_content_clean = re.sub(r'(?<!:)//.*', '', text_content)
+                    
+                    json_data = json.loads(text_content_clean)
                     content_to_ingest += json.dumps(json_data, indent=2)
                 except Exception as e:
                     await interaction.followup.send(f"❌ JSON Error: {e}")
