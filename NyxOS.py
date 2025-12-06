@@ -3034,18 +3034,23 @@ class MockInteraction:
                 except: 
                     try: await self.parent.message.add_reaction("❌")
                     except: pass
-                return
-
-            # Text Output (Only if not effectively hidden/status)
-            # For "console", we want it to appear for 3s then delete.
-            # For "help"/"goodbot", we want it to persist.
+                # Fallthrough to send text if it has more content than just the emoji? 
+                # Actually, often we send text explanation with the X.
+                # If we react, should we also send text? 
+                # Current logic returns if it matches.
+                # Let's change logic: Send text ALWAYS if it's a mock interaction, 
+                # because "ephemeral" doesn't exist for prefix commands.
+                
+            # Text Output
+            # For Prefix commands, "ephemeral" means nothing (we can't hide messages).
+            # So we MUST send it to the channel.
+            # We preserve delete_after if set.
             
-            if not ephemeral or delete_after or kwargs.get('view'):
-                try:
-                    msg = await self.parent.channel.send(content=content, embed=embed, delete_after=delete_after, **kwargs)
-                    self.last_message = msg
-                except Exception as e:
-                    logger.error(f"MockInteraction send failed: {e}")
+            try:
+                msg = await self.parent.channel.send(content=content, embed=embed, delete_after=delete_after, **kwargs)
+                self.last_message = msg
+            except Exception as e:
+                logger.error(f"MockInteraction send failed: {e}")
         
         # Alias for followup.send
         async def send(self, content=None, **kwargs):
