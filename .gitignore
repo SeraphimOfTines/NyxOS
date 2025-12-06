@@ -42,3 +42,4 @@ open-webui/
 uploader.py
 viewer.py
 tools/test_ingest.py
+config.txt
