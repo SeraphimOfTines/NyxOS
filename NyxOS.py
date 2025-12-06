@@ -3895,15 +3895,34 @@ async def learn_command(interaction: discord.Interaction, text: str = None, file
                     
                     text_content = file_bytes.decode("utf-8")
                     
-                    # Strip C-style comments (// ...) to support "JSONC" (JSON with comments)
-                    # We use a regex that attempts to ignore // inside strings, but simple stripping is often enough for configs.
-                    # This regex removes // ... until end of line
-                    text_content_clean = re.sub(r'(?<!:)//.*', '', text_content)
+                    # Debug Logging
+                    # logger.info(f"JSON Raw Content: {text_content[:100]}...")
                     
-                    json_data = json.loads(text_content_clean)
-                    content_to_ingest += json.dumps(json_data, indent=2)
+                    # Robust Comment Stripping (Line by line)
+                    lines = text_content.splitlines()
+                    cleaned_lines = []
+                    for line in lines:
+                        # Remove // comments if not inside a URL (simple heuristic: checks for http:)
+                        if "//" in line:
+                            if "http:" in line or "https:" in line:
+                                pass # Risk of stripping URL, keep line as is (or use smarter regex)
+                            else:
+                                line = re.sub(r'//.*', '', line)
+                        cleaned_lines.append(line)
+                    
+                    text_content_clean = "\n".join(cleaned_lines)
+                    
+                    try:
+                        json_data = json.loads(text_content_clean)
+                        content_to_ingest += json.dumps(json_data, indent=2)
+                    except json.JSONDecodeError as json_err:
+                        logger.warning(f"JSON Parse Failed: {json_err}. Falling back to raw text.")
+                        # Fallback: Ingest as raw text, but maybe warn user
+                        content_to_ingest += text_content
+                        await interaction.followup.send(f"⚠️ JSON Syntax Error (Comments? Trailing commas?): {json_err}\n**Ingesting as raw text instead.**", ephemeral=True)
+
                 except Exception as e:
-                    await interaction.followup.send(f"❌ JSON Error: {e}")
+                    await interaction.followup.send(f"❌ JSON Processing Error: {e}")
                     return
             else:
                 # Assume text-based
