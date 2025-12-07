@@ -25,7 +25,8 @@ class APIService:
         self.MAX_CACHE_SIZE = 500
 
     async def start(self):
-        self.http_session = aiohttp.ClientSession()
+        timeout = aiohttp.ClientTimeout(total=60)
+        self.http_session = aiohttp.ClientSession(timeout=timeout)
         
         if config.USE_LOCAL_PLURALKIT and hasattr(config, 'PLURALKIT_DB_URI') and config.PLURALKIT_DB_URI:
             try:

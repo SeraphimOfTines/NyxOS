@@ -113,7 +113,7 @@ class LMStudioBot(discord.Client):
         self.active_drop_tasks = set()
         self.pending_drops = set()
         
-        self.heartbeat_enabled = True
+        self.heartbeat_enabled = False
         self.last_interaction_time = time.time()
         self.waiting_for_ping_since = None
         self.next_heartbeat_threshold = time.time() + random.randint(5 * 60, 30 * 60)

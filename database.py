@@ -20,6 +20,9 @@ class Database:
             with self._get_conn() as conn:
                 c = conn.cursor()
                 
+                # Enable WAL mode for better concurrency
+                c.execute("PRAGMA journal_mode=WAL;")
+                
                 # Context Buffer (One per channel)
                 # Stores the formatted text representation of the context window
                 c.execute("""CREATE TABLE IF NOT EXISTS context_buffers (
