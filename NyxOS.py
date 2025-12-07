@@ -3510,6 +3510,114 @@ async def backup_command(interaction: discord.Interaction, target: str, upload_o
         else:
             pass
 
+@client.tree.command(name="backuptext", description="Run a TEXT-ONLY backup for the specified target (No media/assets).")
+@app_commands.choices(target=[
+    app_commands.Choice(name="Temple", value="temple"),
+    app_commands.Choice(name="WM", value="wm"),
+    app_commands.Choice(name="Shrine", value="shrine")
+])
+@app_commands.describe(target="Target: 'temple', 'wm', or 'shrine'")
+async def backuptext_command(interaction: discord.Interaction, target: str):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        return
+
+    target = target.lower()
+    target_id = None
+    output_name = None
+    target_type = "guild"
+    
+    if target == "temple":
+        target_id = config.TEMPLE_GUILD_ID
+        output_name = "Temple"
+    elif target == "wm":
+        target_id = config.WM_GUILD_ID
+        output_name = "WM"
+    elif target == "shrine":
+        target_id = config.SHRINE_CHANNEL_ID
+        output_name = "Shrine"
+        target_type = "channel"
+    else:
+         await interaction.response.send_message("⚠️ Unknown target. Use `temple`, `wm`, or `shrine`.", ephemeral=True)
+         return
+         
+    if not target_id:
+         await interaction.response.send_message(f"❌ ID for {output_name} is not configured.", ephemeral=True)
+         return
+
+    # Estimate Total Channels
+    estimated_total = 0
+    if target_type == "guild":
+        try:
+            guild = client.get_guild(target_id)
+            if not guild:
+                guild = await client.fetch_guild(target_id)
+            if guild:
+                 channels = await guild.fetch_channels()
+                 estimated_total = len(channels)
+        except Exception as e:
+             logger.warning(f"Failed to fetch estimated channel count: {e}")
+    else:
+        estimated_total = 1
+
+    await interaction.response.send_message(f"🚀 Initializing **TEXT** backup for **{output_name}** ({target_type.capitalize()})...", ephemeral=False)
+    progress_msg = await interaction.original_response()
+    
+    # Create Cancel Event & View
+    cancel_event = asyncio.Event()
+    view = ui.BackupControlView(cancel_event)
+    
+    # Use a mutable container for the message so callback can update it if token expires
+    msg_container = {"msg": progress_msg}
+
+    try:
+        await progress_msg.edit(view=view)
+    except: pass
+    
+    async def progress_callback(pct, status):
+        try:
+            bar = helpers.generate_progress_bar(pct)
+            await msg_container["msg"].edit(content=f"**{output_name} TEXT Backup**\n{bar} {pct}%\n{status}", view=view)
+        except discord.HTTPException as e:
+            if e.code == 50027: # Invalid Webhook Token (Expired)
+                 logger.warning("Backup interaction token expired. Sending new status message.")
+                 try:
+                     new_msg = await interaction.channel.send(content=f"**{output_name} TEXT Backup (Continued)**\n{bar} {pct}%\n{status}", view=view)
+                     msg_container["msg"] = new_msg # Update reference
+                 except Exception as ex:
+                     logger.error(f"Failed to send fallback status message: {ex}")
+            else:
+                 pass # Other error
+        except Exception: pass
+        
+    success, result = await backup_manager.run_backup(
+        target_id, 
+        output_name, 
+        target_type=target_type, 
+        progress_callback=progress_callback, 
+        estimated_total_channels=estimated_total,
+        cancel_event=cancel_event,
+        text_only=True
+    )
+    
+    # Remove View on Finish
+    try:
+        if success:
+             await msg_container["msg"].edit(content=result, view=None)
+        else:
+             await msg_container["msg"].edit(content=f"❌ **Backup Failed:** {result}", view=None)
+    except discord.HTTPException as e:
+        if e.code == 50027:
+             # Expired at the very end
+             if success:
+                  await interaction.channel.send(content=result)
+             else:
+                  await interaction.channel.send(content=f"❌ **Backup Failed:** {result}")
+        else:
+            pass
+
+
+
 
 
 @client.tree.command(name="bar", description="Drop the bar (leaves checkmark behind).")

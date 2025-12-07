@@ -29,11 +29,12 @@ def get_human_readable_size(size_in_bytes):
     return f"{size_in_bytes:.2f} PB"
 
 
-async def run_backup(target_id, output_name, target_type="guild", progress_callback=None, cancel_event=None, estimated_total_channels=0, skip_download=False):
+async def run_backup(target_id, output_name, target_type="guild", progress_callback=None, cancel_event=None, estimated_total_channels=0, skip_download=False, text_only=False):
     """
     Runs a full backup of the specified guild OR channel.
     If target_type is 'channel', target_id is treated as a Channel ID.
     If target_type is 'guild', target_id is treated as a Guild ID.
+    If text_only is True, exports as PlainText without media.
     """
     
     if not config.BOT_TOKEN:
@@ -45,12 +46,13 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
     
     # 1. Setup Directories
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    backup_dir = os.path.join(base_dir, f"{output_name}Backup")
+    backup_suffix = "Text" if text_only else ""
+    backup_dir = os.path.join(base_dir, f"{output_name}Backup{backup_suffix}")
     
     if not os.path.exists(backup_dir):
         os.makedirs(backup_dir)
 
-    logger.info(f"Starting backup for {target_type} {target_id} to {backup_dir}")
+    logger.info(f"Starting backup for {target_type} {target_id} to {backup_dir} (Text Only: {text_only})")
     if progress_callback:
         await progress_callback(0, config.BACKUP_FLAVOR_TEXT.get("START", "Starting..."))
 
@@ -163,20 +165,25 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
             # Template: .../Category - Channel [ID].html (Handled by CLI automatically if directory given?)
             # Actually, if we give directory, CLI handles naming.
             # We want: "{backup_dir}/%c [%C].html"
-            output_path = os.path.join(backup_dir, "%c [%C].html")
+            
+            ext = ".txt" if text_only else ".html"
+            output_path = os.path.join(backup_dir, f"%c [%C]{ext}")
+            
+            export_format = "PlainText" if text_only else "HtmlDark"
             
             export_cmd = [
                 EXPORTER_CLI_PATH,
                 "export",
                 "-c", c_id,
                 "--output", output_path,
-                "--format", "HtmlDark",
-                "--media",
-                "--reuse-media",
+                "--format", export_format,
                 "--include-threads", "All",
                 "--utc",
                 "--locale", "en-US"
             ]
+            
+            if not text_only:
+                export_cmd.extend(["--media", "--reuse-media"])
             
             # --- DEBUG LOGGING ---
             debug_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -299,7 +306,10 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
 
     # Date Format: MM-DD-YYYY
     date_str = datetime.now(timezone.utc).strftime("%m-%d-%Y")
-    archive_name = f"{output_name}Backup-{date_str}.7z"
+    
+    # Text suffix for archive name
+    name_suffix = "Text" if text_only else ""
+    archive_name = f"{output_name}Backup{name_suffix}-{date_str}.7z"
     archive_path = os.path.join(base_dir, archive_name)
     
     # Remove existing archive if any

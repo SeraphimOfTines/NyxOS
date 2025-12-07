@@ -221,6 +221,86 @@ async def handle_prefix_command(client, message):
              
         return True
 
+    # &backuptxt
+    if cmd == "&backuptxt":
+        if not helpers.is_authorized(author_to_check):
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+            
+        args = message.content.split()
+        if len(args) < 2:
+             await message.channel.send("⚠️ Usage: `&backuptxt [temple|wm|shrine]`")
+             return True
+             
+        target = args[1].lower()
+        target_id = None
+        output_name = None
+        target_type = "guild"
+        
+        if target == "temple":
+            target_id = config.TEMPLE_GUILD_ID
+            output_name = "Temple"
+        elif target == "wm":
+            target_id = config.WM_GUILD_ID
+            output_name = "WM"
+        elif target == "shrine":
+            target_id = config.SHRINE_CHANNEL_ID
+            output_name = "Shrine"
+            target_type = "channel"
+        else:
+             await message.channel.send("⚠️ Unknown target. Use `temple`, `wm`, or `shrine`.")
+             return True
+             
+        if not target_id:
+             await message.channel.send(f"❌ ID for {output_name} is not configured.")
+             return True
+
+        # Estimate Total Channels
+        estimated_total = 0
+        if target_type == "guild":
+            try:
+                guild = client.get_guild(target_id)
+                if not guild:
+                    guild = await client.fetch_guild(target_id)
+                if guild:
+                     channels = await guild.fetch_channels()
+                     estimated_total = len(channels)
+            except Exception as e:
+                 logger.warning(f"Failed to fetch estimated channel count: {e}")
+        else:
+            estimated_total = 1
+
+        progress_msg = await message.channel.send(f"🚀 Initializing **TEXT** backup for **{output_name}** ({target_type.capitalize()})...")
+        
+        # Create Cancel Event & View
+        cancel_event = asyncio.Event()
+        view = ui.BackupControlView(cancel_event)
+        await progress_msg.edit(view=view)
+
+        async def progress_callback(pct, status):
+            try:
+                bar = helpers.generate_progress_bar(pct)
+                await progress_msg.edit(content=f"**{output_name} TEXT Backup**\n{bar} {pct}%\n{status}", view=view)
+            except: pass
+            
+        success, result = await backup_manager.run_backup(
+            target_id, 
+            output_name, 
+            target_type=target_type, 
+            progress_callback=progress_callback, 
+            estimated_total_channels=estimated_total,
+            cancel_event=cancel_event,
+            text_only=True
+        )
+        
+        # Remove View on Finish
+        if success:
+             await progress_msg.edit(content=result, view=None)
+        else:
+             await progress_msg.edit(content=f"❌ **Backup Failed:** {result}", view=None)
+             
+        return True
+
     # &synccommands
     if cmd == "&synccommands":
         if not helpers.is_authorized(author_to_check):
