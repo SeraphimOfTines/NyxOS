@@ -45,3 +45,5 @@ tools/test_ingest.py
 config.txt
 /TempleBackupText
 nyxos.db-*
+*.log
+*.bak

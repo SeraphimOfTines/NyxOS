@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NyxOS Database Viewer</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --text-color: #d4d4d4;
+            --accent-color: #007acc;
+            --border-color: #3e3e3e;
+            --panel-bg: #252526;
+            --header-bg: #333333;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        /* Toolbar */
+        #toolbar {
+            background-color: var(--header-bg);
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        button {
+            background-color: var(--border-color);
+            color: white;
+            border: none;
+            padding: 5px 12px;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        button:hover { background-color: #4e4e4e; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button.primary { background-color: var(--accent-color); }
+        button.danger { background-color: #ce3838; }
+        button.active { border: 1px solid var(--accent-color); }
+
+        /* Layout */
+        #main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        /* Sidebar (Tables) */
+        #sidebar {
+            width: 200px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+        .table-item {
+            padding: 8px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #2d2d2d;
+        }
+        .table-item:hover { background-color: #37373d; }
+        .table-item.active { background-color: #37373d; border-left: 3px solid var(--accent-color); }
+
+        /* Content Area */
+        #content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Data Grid (Upper) */
+        #grid-container {
+            flex: 1;
+            overflow: auto;
+            border-bottom: 5px solid var(--border-color); /* Resizer visual */
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: 4px 8px;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+        th { background-color: var(--header-bg); position: sticky; top: 0; }
+        tr:hover { background-color: #2a2d2e; cursor: pointer; }
+        tr.selected { background-color: #094771; color: white; }
+
+        /* Detail Editor (Lower) */
+        #editor-container {
+            height: 400px; /* Default height */
+            background-color: var(--panel-bg);
+            display: flex;
+            flex-direction: column;
+        }
+        #editor-header {
+            padding: 5px 10px;
+            background-color: var(--header-bg);
+            font-weight: bold;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        /* Column Tabs */
+        #column-tabs {
+            display: flex;
+            overflow-x: auto;
+            background-color: #2d2d2d;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .col-tab {
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            border-right: 1px solid var(--border-color);
+            background-color: #2d2d2d;
+            white-space: nowrap;
+        }
+        .col-tab.active {
+            background-color: var(--panel-bg);
+            border-top: 2px solid var(--accent-color);
+        }
+
+        /* Notepad Area */
+        #notepad-area {
+            flex: 1;
+            padding: 0;
+            position: relative;
+        }
+        textarea {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            color: #d4d4d4;
+            border: none;
+            padding: 10px;
+            box-sizing: border-box;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+        }
+        
+        .status-bar {
+            padding: 2px 10px;
+            font-size: 11px;
+            background-color: var(--accent-color);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+<div id="toolbar">
+    <strong style="margin-right: 10px;">NyxOS DB</strong>
+    <button onclick="refreshData()">🔄 Refresh</button>
+    <button id="btn-edit-mode" onclick="toggleEditMode()">🔒 Edit Mode: OFF</button>
+    <button id="btn-wrap" onclick="toggleWrap()">📝 Wrap: OFF</button>
+    <span style="flex:1"></span>
+    <button id="btn-delete" class="danger" disabled onclick="deleteRow()">❌ Delete Row</button>
+    <button id="btn-save" class="primary" disabled onclick="saveRow()">💾 Save Changes</button>
+</div>
+
+<div id="main-container">
+    <!-- Sidebar -->
+    <div id="sidebar" id="table-list">
+        <!-- Populated via JS -->
+    </div>
+
+    <!-- Content -->
+    <div id="content">
+        <div id="grid-container">
+            <table id="data-table">
+                <thead></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        
+        <div id="editor-container">
+            <div id="editor-header">
+                <span>DETAIL EDITOR</span>
+                <span id="row-id-display">No Row Selected</span>
+            </div>
+            <div id="column-tabs">
+                <!-- Tabs -->
+            </div>
+            <div id="notepad-area">
+                <textarea id="editor-textarea" disabled placeholder="Select a row to view content..."></textarea>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // State
+    let currentTable = null;
+    let tables = [];
+    let tableData = [];
+    let tableSchema = []; // {name, pk}
+    let currentRow = null; // Object
+    let currentPK = null; // Value
+    let pkColumn = null;
+    let editMode = false;
+    let wordWrap = false;
+    let activeColumn = null;
+    let originalData = {}; // For change detection
+
+    const API_BASE = "";
+
+    async function init() {
+        await loadTables();
+    }
+
+    async function loadTables() {
+        const res = await fetch('/api/tables');
+        const data = await res.json();
+        tables = data.tables;
+        
+        const sidebar = document.getElementById('sidebar');
+        sidebar.innerHTML = '';
+        tables.forEach(t => {
+            const div = document.createElement('div');
+            div.className = 'table-item';
+            div.innerText = t;
+            div.onclick = () => selectTable(t);
+            sidebar.appendChild(div);
+        });
+
+        if (tables.length > 0) selectTable(tables[0]);
+    }
+
+    async function selectTable(name) {
+        currentTable = name;
+        currentRow = null;
+        currentPK = null;
+        
+        // Highlight Sidebar
+        document.querySelectorAll('.table-item').forEach(el => {
+            el.classList.toggle('active', el.innerText === name);
+        });
+
+        await refreshData();
+        clearEditor();
+    }
+
+    async function refreshData() {
+        if (!currentTable) return;
+        
+        const res = await fetch(`/api/table/${currentTable}`);
+        const data = await res.json();
+        tableData = data.rows;
+        pkColumn = data.pk;
+        const columns = data.columns;
+
+        // Render Grid
+        const thead = document.querySelector('#data-table thead');
+        const tbody = document.querySelector('#data-table tbody');
+        
+        thead.innerHTML = '<tr>' + columns.map(c => `<th>${c}</th>`).join('') + '</tr>';
+        
+        tbody.innerHTML = tableData.map(row => {
+            // Find PK
+            const pkVal = row[pkColumn];
+            return `<tr onclick="selectRow('${pkVal}')" data-id="${pkVal}">` + 
+                columns.map(c => `<td>${escapeHtml(String(row[c] || ''))}</td>`).join('') + 
+                '</tr>';
+        }).join('');
+    }
+
+    function selectRow(pkVal) {
+        // String conversion for safety
+        pkVal = String(pkVal);
+        
+        // Visual Selection
+        document.querySelectorAll('tr').forEach(tr => tr.classList.remove('selected'));
+        const tr = document.querySelector(`tr[data-id="${pkVal}"]`);
+        if (tr) tr.classList.add('selected');
+
+        // Find Data
+        // Loose comparison because PK might be int in JSON but string in DOM
+        currentRow = tableData.find(r => String(r[pkColumn]) === pkVal);
+        currentPK = pkVal;
+        originalData = { ...currentRow }; // Clone
+
+        document.getElementById('row-id-display').innerText = `Row PK: ${pkVal}`;
+        
+        renderEditorTabs();
+        updateButtons();
+    }
+
+    function renderEditorTabs() {
+        if (!currentRow) return;
+        
+        const tabsContainer = document.getElementById('column-tabs');
+        tabsContainer.innerHTML = '';
+        
+        const columns = Object.keys(currentRow);
+        
+        // Default active column
+        if (!activeColumn || !columns.includes(activeColumn)) {
+            activeColumn = columns[0];
+        }
+
+        columns.forEach(col => {
+            const div = document.createElement('div');
+            div.className = `col-tab ${col === activeColumn ? 'active' : ''}`;
+            div.innerText = col;
+            div.onclick = () => switchTab(col);
+            tabsContainer.appendChild(div);
+        });
+
+        loadEditorContent();
+    }
+
+    function switchTab(col) {
+        // Save current buffer to currentRow before switching
+        if (activeColumn && editMode) {
+            const txt = document.getElementById('editor-textarea');
+            currentRow[activeColumn] = txt.value;
+        }
+        
+        activeColumn = col;
+        renderEditorTabs(); // Re-render to update active class
+    }
+
+    function loadEditorContent() {
+        const txt = document.getElementById('editor-textarea');
+        if (!currentRow) {
+            txt.value = "";
+            return;
+        }
+        txt.value = currentRow[activeColumn] || "";
+    }
+
+    // --- Controls ---
+
+    function toggleEditMode() {
+        editMode = !editMode;
+        const btn = document.getElementById('btn-edit-mode');
+        const txt = document.getElementById('editor-textarea');
+        
+        if (editMode) {
+            btn.innerText = "🔓 Edit Mode: ON";
+            btn.classList.add('active');
+            txt.disabled = false;
+        } else {
+            btn.innerText = "🔒 Edit Mode: OFF";
+            btn.classList.remove('active');
+            txt.disabled = true;
+            // Revert changes if cancelled? No, we keep buffer but disable.
+        }
+        updateButtons();
+    }
+
+    function toggleWrap() {
+        wordWrap = !wordWrap;
+        const txt = document.getElementById('editor-textarea');
+        const btn = document.getElementById('btn-wrap');
+        
+        txt.style.whiteSpace = wordWrap ? 'pre-wrap' : 'pre';
+        btn.innerText = wordWrap ? "📝 Wrap: ON" : "📝 Wrap: OFF";
+        btn.classList.toggle('active', wordWrap);
+    }
+
+    function updateButtons() {
+        document.getElementById('btn-save').disabled = !(editMode && currentRow);
+        document.getElementById('btn-delete').disabled = !(editMode && currentRow);
+    }
+
+    function clearEditor() {
+        document.getElementById('column-tabs').innerHTML = '';
+        document.getElementById('editor-textarea').value = '';
+        document.getElementById('row-id-display').innerText = 'No Row Selected';
+        currentRow = null;
+        updateButtons();
+    }
+
+    // --- Actions ---
+
+    async function saveRow() {
+        if (!currentRow || !editMode) return;
+        
+        // Capture current buffer
+        const txt = document.getElementById('editor-textarea');
+        currentRow[activeColumn] = txt.value;
+
+        // Optimistic UI update
+        // We send the Whole Row to backend
+        const payload = {
+            table: currentTable,
+            pk_col: pkColumn,
+            pk_val: currentPK,
+            data: currentRow
+        };
+
+        try {
+            const res = await fetch('/api/row', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json();
+            
+            if (json.success) {
+                alert("Saved successfully!");
+                await refreshData();
+                // Reselect to keep context
+                selectRow(currentPK);
+            } else {
+                alert("Error saving: " + json.error);
+            }
+        } catch (e) {
+            alert("Network Error: " + e);
+        }
+    }
+
+    async function deleteRow() {
+        if (!currentRow || !editMode) return;
+        if (!confirm(`Are you sure you want to delete row ${currentPK}?`)) return;
+
+        try {
+            const res = await fetch(`/api/row?table=${currentTable}&pk=${pkColumn}&val=${currentPK}`, {
+                method: 'DELETE'
+            });
+            const json = await res.json();
+            
+            if (json.success) {
+                clearEditor();
+                await refreshData();
+            } else {
+                alert("Error deleting: " + json.error);
+            }
+        } catch (e) {
+            alert("Network Error: " + e);
+        }
+    }
+
+    // --- Helpers ---
+    function escapeHtml(text) {
+        if (!text) return "";
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    // Live update of buffer to currentRow
+    document.getElementById('editor-textarea').addEventListener('input', (e) => {
+        if (currentRow && activeColumn) {
+            currentRow[activeColumn] = e.target.value;
+        }
+    });
+
+    init();
+</script>
+
+</body>
+</html>
