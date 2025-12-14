@@ -9,6 +9,7 @@ import ui
 import memory_manager
 import services
 import backup_manager
+import self_reflection
 import logging
 
 logger = logging.getLogger("CommandHandler")
@@ -430,11 +431,50 @@ async def handle_prefix_command(client, message):
             await message.channel.send("❌ Database nuke failed. Check logs.")
         return True
 
+    # &reflect
+    if cmd == "&reflect":
+        if not helpers.is_authorized(author_to_check):
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+        
+        await message.channel.send("🤔 Reflecting on today's events...")
+        try:
+            reflection = await self_reflection.generate_daily_reflection()
+            # Split if too long
+            if len(reflection) > 1900:
+                # Naive split
+                for i in range(0, len(reflection), 1900):
+                    await message.channel.send(reflection[i:i+1900])
+            else:
+                await message.channel.send(reflection)
+        except Exception as e:
+            await message.channel.send(f"❌ Reflection failed: {e}")
+        return True
+
+    # &debugreflect
+    if cmd == "&debugreflect":
+        if not helpers.is_authorized(author_to_check):
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+            
+        await message.channel.send("🧪 **Running Manual Nightly Reflection Cycle**...")
+        try:
+            # We can reuse the run_nightly_prompt_update function
+            new_prompt = await self_reflection.run_nightly_prompt_update()
+            if new_prompt:
+                 await message.channel.send("✅ **Cycle Complete.** System Prompt has been updated.")
+            else:
+                 await message.channel.send("⚠️ Cycle ran but no prompt update occurred (Check logs).")
+        except Exception as e:
+            logger.error(f"Debug Reflect Failed: {e}")
+            await message.channel.send(f"❌ Cycle Failed: {e}")
+        return True
+
     # &help
     if cmd == "&help":
         embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())
         embed.add_field(name="General Commands", value="`&killmyembeds` - Toggle auto-suppression of link embeds.\n`&goodbot` - Show the Good Bot leaderboard.\n`&reportbug` - How to report bugs.", inline=False)
-        embed.add_field(name="Admin Commands", value="`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&cleargoodbots` - Wipe Good Bot leaderboard.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
+        embed.add_field(name="Admin Commands", value="`&addchannel` - Whitelist channel.\n`&removechannel` - Blacklist channel.\n`&suppressembedson/off` - Toggle server-wide embed suppression.\n`&clearmemory` - Clear current channel memory.\n`&cleargoodbots` - Wipe Good Bot leaderboard.\n`&reflect` - Generate daily reflection.\n`&debugreflect` - Force nightly reflection cycle.\n`&reboot` - Restart bot.\n`&shutdown` - Shutdown bot.\n`&debug` - Toggle Debug Mode.\n`&testmessage` - Send test msg (Debug).\n`&clearallmemory` - Wipe ALL memories (Debug).\n`&wipelogs` - Wipe ALL logs (Debug).\n`&synccommands` - Force sync slash commands.", inline=False)
         await message.channel.send(embed=embed)
         return True
 

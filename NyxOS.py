@@ -80,6 +80,7 @@ import ui
 import backup_manager
 import terminal_utils
 import vector_store
+import self_reflection
 
 # ==========================================
 # BOT SETUP
@@ -3332,6 +3333,41 @@ async def wipelogs_command(interaction: discord.Interaction):
     memory_manager.wipe_all_logs()
     await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
+@client.tree.command(name="reflect", description="Generate daily reflection based on today's logs.")
+async def reflect_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user.id):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+
+    await interaction.response.send_message("🤔 Reflecting on today's events...", ephemeral=False)
+    try:
+        reflection = await self_reflection.generate_daily_reflection()
+        # Split if too long
+        if len(reflection) > 1900:
+            for i in range(0, len(reflection), 1900):
+                await interaction.followup.send(reflection[i:i+1900])
+        else:
+            await interaction.followup.send(reflection)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Reflection failed: {e}")
+
+@client.tree.command(name="debugreflect", description="Force Manual Nightly Reflection Cycle (Admin Only).")
+async def debugreflect_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user.id):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+
+    await interaction.response.send_message("🧪 **Running Manual Nightly Reflection Cycle**...", ephemeral=False)
+    try:
+        new_prompt = await self_reflection.run_nightly_prompt_update()
+        if new_prompt:
+             await interaction.followup.send("✅ **Cycle Complete.** System Prompt has been updated.")
+        else:
+             await interaction.followup.send("⚠️ Cycle ran but no prompt update occurred (Check logs).")
+    except Exception as e:
+        logger.error(f"Debug Reflect Failed: {e}")
+        await interaction.followup.send(f"❌ Cycle Failed: {e}")
+
 @client.tree.command(name="debugtest", description="Run unit tests and report results (Admin Only).")
 async def debugtest_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
@@ -4190,6 +4226,8 @@ async def on_message(message):
             "backupuploadonly": (backup_command, "target"),
             "debugtest": (debugtest_command, None),
             "debugscan": (debugscan_command, None),
+            "reflect": (reflect_command, None),
+            "debugreflect": (debugreflect_command, None),
             "toggleheartbeat": (toggleheartbeat_command, None),
             "heartbeat": (heartbeat_command, None),
             "help": (help_command, None),
