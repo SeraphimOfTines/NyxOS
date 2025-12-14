@@ -35,13 +35,10 @@ logs/
 *.7z
 nyxcontrolconfig.txt
 *injected_terminal_prompt.txt
-NyxControl.py
 chroma_db/
 chroma_data/
 open-webui/chroma_data/
 open-webui/
-uploader.py
-viewer.py
 tools/test_ingest.py
 config.txt
 /TempleBackupText
