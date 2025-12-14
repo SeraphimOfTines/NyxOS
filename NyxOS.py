@@ -4668,9 +4668,20 @@ async def on_message(message):
                             results = await services.service.search_kagi(q)
                             search_results_text += f"Query: {q}\n{results}\n\n"
                         search_context = search_results_text
+                    
+                    # YouTube Transcript Fetching
+                    youtube_context = None
+                    # Use the helper to check if there is a video ID in the prompt
+                    video_id = services.service.extract_video_id(clean_prompt)
+                    if video_id:
+                        logger.info(f"📹 YouTube Link detected (ID: {video_id}). Fetching transcript...")
+                        transcript_text = await services.service.fetch_youtube_transcript(video_id)
+                        if transcript_text:
+                            youtube_context = transcript_text
+                            logger.info(f"✅ Transcript fetched ({len(transcript_text)} chars).")
 
                     if not clean_prompt and image_data_uri: clean_prompt = "What is this image?"
-                    elif not clean_prompt and not search_queries:
+                    elif not clean_prompt and not search_queries and not youtube_context:
                         await message.channel.send("🤔 You just gonna stare at me orrrr...? 💀")
                         return
 
@@ -4707,6 +4718,7 @@ async def on_message(message):
                         image_data_uri,
                         member_description,
                         search_context=search_context,
+                        youtube_context=youtube_context,
                         reply_context_str=current_reply_context,
                         system_prompt_override=None
                     )

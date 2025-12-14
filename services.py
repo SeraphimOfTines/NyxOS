@@ -398,6 +398,72 @@ class APIService:
                 else: return f"Error: Kagi API returned status {resp.status}"
         except Exception as e: return f"Error searching Kagi: {e}"
 
+    # --- YOUTUBE TRANSCRIPTS ---
+
+    def extract_video_id(self, url):
+        """Extracts the YouTube video ID from a URL (standard, shorts, youtu.be)."""
+        # Regex to catch video IDs in various formats
+        # 1. Standard: youtube.com/watch?v=ID
+        # 2. Shortened: youtu.be/ID
+        # 3. Shorts: youtube.com/shorts/ID
+        patterns = [
+            r'(?:v=|\/)([0-9A-Za-z_-]{11}).*',
+            r'(?:youtu\.be\/)([0-9A-Za-z_-]{11})',
+            r'(?:shorts\/)([0-9A-Za-z_-]{11})'
+        ]
+        
+        # Clean URL of clutter (query params often confuse simple splitters, but regex should handle it)
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+
+    async def fetch_youtube_transcript(self, video_id):
+        """Fetches the transcript for a YouTube video ID asynchronously."""
+        
+        def _blocking_fetch():
+            try:
+                from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+                
+                # List of languages to try (English first, then others)
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                
+                # Try to get english or auto-generated english
+                try:
+                    transcript = transcript_list.find_transcript(['en'])
+                except:
+                    try:
+                        transcript = transcript_list.find_generated_transcript(['en'])
+                    except:
+                        # Fallback to whatever is available (and maybe translate later? For now just raw)
+                        transcript = next(iter(transcript_list))
+                
+                fetched = transcript.fetch()
+                
+                # Format: "00:00 Text..."
+                text_data = []
+                for item in fetched:
+                    start = int(item['start'])
+                    minutes = start // 60
+                    seconds = start % 60
+                    text = item['text']
+                    text_data.append(f"[{minutes:02d}:{seconds:02d}] {text}")
+                
+                return "\n".join(text_data)
+                
+            except ImportError:
+                return "Error: youtube_transcript_api not installed."
+            except Exception as e:
+                logger.warning(f"Failed to fetch transcript for {video_id}: {e}")
+                # Return a polite error message to context
+                if "Subtitles are disabled" in str(e):
+                    return "(Error: This video does not have captions/subtitles available.)"
+                return f"(Error fetching transcript: {str(e)})"
+
+        # Run blocking call in thread
+        return await asyncio.to_thread(_blocking_fetch)
+
     # --- TEXT TO SPEECH ---
 
     async def generate_speech(self, text):
@@ -426,7 +492,7 @@ class APIService:
 
     # --- LLM INFERENCE ---
 
-    async def query_lm_studio(self, user_prompt, username, identity_suffix, history_messages, channel_obj, image_data_uri=None, member_description=None, search_context=None, reply_context_str="", system_prompt_override=None):
+    async def query_lm_studio(self, user_prompt, username, identity_suffix, history_messages, channel_obj, image_data_uri=None, member_description=None, search_context=None, youtube_context=None, reply_context_str="", system_prompt_override=None):
         
         # --- VECTOR DB RECALL ---
         # Automatically search for relevant "long term memory" if configured.
@@ -485,6 +551,9 @@ class APIService:
 
             if search_context:
                 base_prompt += f"\n\n<search_results>\nThe user requested a web search. Here are the results:\n{search_context}\n</search_results>\n\nINSTRUCTION: Use the above search results to answer the user's request accurately. YOU MUST CITE SOURCES. Use the format: [Source Title](URL) at the end of the relevant sentence or paragraph."
+
+            if youtube_context:
+                base_prompt += f"\n\n<youtube_transcript>\nThe user linked a YouTube video. Here is the transcript/captions:\n{youtube_context}\n</youtube_transcript>\n\nINSTRUCTION: Use the transcript above to answer questions about the video."
 
             formatted_system_prompt = base_prompt
 

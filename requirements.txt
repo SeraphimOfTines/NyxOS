@@ -8,3 +8,4 @@ pytest
 chromadb==1.3.5
 pypdf==6.4.0
 sentence-transformers==5.1.2
+youtube-transcript-api
