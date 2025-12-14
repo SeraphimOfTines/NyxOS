@@ -4678,7 +4678,10 @@ async def on_message(message):
                         transcript_text = await services.service.fetch_youtube_transcript(video_id)
                         if transcript_text:
                             youtube_context = transcript_text
-                            logger.info(f"✅ Transcript fetched ({len(transcript_text)} chars).")
+                            if len(transcript_text) < 100:
+                                logger.info(f"✅ Transcript fetched (Short): {transcript_text}")
+                            else:
+                                logger.info(f"✅ Transcript fetched ({len(transcript_text)} chars).")
 
                     if not clean_prompt and image_data_uri: clean_prompt = "What is this image?"
                     elif not clean_prompt and not search_queries and not youtube_context:

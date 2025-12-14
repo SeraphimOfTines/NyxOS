@@ -553,7 +553,10 @@ class APIService:
                 base_prompt += f"\n\n<search_results>\nThe user requested a web search. Here are the results:\n{search_context}\n</search_results>\n\nINSTRUCTION: Use the above search results to answer the user's request accurately. YOU MUST CITE SOURCES. Use the format: [Source Title](URL) at the end of the relevant sentence or paragraph."
 
             if youtube_context:
-                base_prompt += f"\n\n<youtube_transcript>\nThe user linked a YouTube video. Here is the transcript/captions:\n{youtube_context}\n</youtube_transcript>\n\nINSTRUCTION: Use the transcript above to answer questions about the video."
+                if youtube_context.startswith("Error:") or youtube_context.startswith("(Error"):
+                     base_prompt += f"\n\n<system_notification>\nVideo Transcript Status: FAILED.\nReason: {youtube_context}\n</system_notification>\n\nINSTRUCTION: The user linked a video, but you could not read it. If asked to summarize or explain it, apologize and state that you cannot access the video content (captions are missing or disabled)."
+                else:
+                     base_prompt += f"\n\n<youtube_transcript>\nThe user linked a YouTube video. Here is the transcript/captions:\n{youtube_context}\n</youtube_transcript>\n\nINSTRUCTION: Use the transcript above to answer questions about the video. DO NOT Hallucinate content not present in the transcript."
 
             formatted_system_prompt = base_prompt
 
