@@ -1,5 +1,6 @@
 import discord
 from discord import app_commands
+from discord.ext import tasks
 import logging
 import asyncio
 import os
@@ -8,6 +9,7 @@ import base64
 import json
 import re
 import time
+import datetime
 import signal
 import hashlib
 import subprocess
@@ -119,6 +121,10 @@ class LMStudioBot(discord.Client):
         self.waiting_for_ping_since = None
         self.next_heartbeat_threshold = time.time() + random.randint(5 * 60, 30 * 60)
         
+        # Reflection Automation
+        self.auto_reflection_enabled = False
+        self.last_reflection_date = None
+
         self.terminal_channel = terminal_utils.TerminalChannel(self)
 
         # API Server
@@ -222,6 +228,27 @@ class LMStudioBot(discord.Client):
         
         asyncio.create_task(self.heartbeat_task())
         asyncio.create_task(self.conversation_heartbeat_task())
+        self.daily_reflection_task.start()
+
+    @tasks.loop(minutes=1)
+    async def daily_reflection_task(self):
+        """Checks if it's midnight to run the auto-reflection."""
+        if not self.auto_reflection_enabled:
+            return
+
+        now = datetime.datetime.now()
+        
+        # Check if it's close to midnight (00:00 to 00:05) and we haven't run yet
+        if now.hour == 0 and now.minute < 5:
+            current_date = now.date()
+            if self.last_reflection_date != current_date:
+                logger.info("🌚 Midnight detected. Initiating Auto-Reflection Cycle...")
+                self.last_reflection_date = current_date
+                
+                try:
+                    await self_reflection.run_nightly_prompt_update()
+                except Exception as e:
+                    logger.error(f"Auto-Reflection Failed: {e}")
 
     async def handle_bar_touch(self, channel_id, message=None, user_id=None):
         """
@@ -3415,6 +3442,16 @@ async def toggleheartbeat_command(interaction: discord.Interaction):
     state = "ENABLED" if client.heartbeat_enabled else "DISABLED"
     await interaction.response.send_message(f"💓 Conversation Heartbeat is now **{state}**.")
 
+@client.tree.command(name="togglereflection", description="Toggle automatic nightly reflection.")
+async def togglereflection_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+        return
+        
+    client.auto_reflection_enabled = not client.auto_reflection_enabled
+    state = "ENABLED" if client.auto_reflection_enabled else "DISABLED"
+    await interaction.response.send_message(f"🌚 Automatic Nightly Reflection is now **{state}**.")
+
 @client.tree.command(name="heartbeat", description="Trigger a conversation heartbeat immediately.")
 async def heartbeat_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
@@ -3952,7 +3989,7 @@ async def help_command(interaction: discord.Interaction):
     
     embed.add_field(
         name="System / Admin", 
-        value="`/console` - Jump to Console.\n`/addchannel` - Whitelist current channel.\n`/removechannel` - Blacklist current channel.\n`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/clearmemory` - Clear channel memory.\n`/cleargoodbots` - Wipe Good Bot leaderboard.\n`/clearallmemory` - Wipe ALL memories.\n`/wipelogs` - Wipe ALL logs.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test message.\n`/synccommands` - Force sync slash commands.\n`/suppressembedson/off` - Global embed suppression.", 
+        value="`/console` - Jump to Console.\n`/addchannel` - Whitelist current channel.\n`/removechannel` - Blacklist current channel.\n`/enableall` - Enable Global Chat (All Channels).\n`/disableall` - Disable Global Chat (Whitelist Only).\n`/reboot` - Restart bot.\n`/shutdown` - Shutdown bot.\n`/clearmemory` - Clear channel memory.\n`/cleargoodbots` - Wipe Good Bot leaderboard.\n`/clearallmemory` - Wipe ALL memories.\n`/wipelogs` - Wipe ALL logs.\n`/debug` - Toggle Debug Mode.\n`/testmessage` - Send test message.\n`/synccommands` - Force sync slash commands.\n`/suppressembedson/off` - Global embed suppression.\n`/togglereflection` - Toggle Auto Reflection.", 
         inline=False
     )
     
@@ -4228,6 +4265,7 @@ async def on_message(message):
             "debugscan": (debugscan_command, None),
             "reflect": (reflect_command, None),
             "debugreflect": (debugreflect_command, None),
+            "togglereflection": (togglereflection_command, None),
             "toggleheartbeat": (toggleheartbeat_command, None),
             "heartbeat": (heartbeat_command, None),
             "help": (help_command, None),
