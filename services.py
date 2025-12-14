@@ -424,10 +424,14 @@ class APIService:
         
         def _blocking_fetch():
             try:
-                from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+                from youtube_transcript_api import YouTubeTranscriptApi
+                
+                # Instantiate the API (Required for this version)
+                yt = YouTubeTranscriptApi()
                 
                 # List of languages to try (English first, then others)
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                # Use .list() method on the instance
+                transcript_list = yt.list(video_id)
                 
                 # Try to get english or auto-generated english
                 try:
@@ -444,10 +448,11 @@ class APIService:
                 # Format: "00:00 Text..."
                 text_data = []
                 for item in fetched:
-                    start = int(item['start'])
+                    # Access attributes directly (.start, .text)
+                    start = int(item.start)
                     minutes = start // 60
                     seconds = start % 60
-                    text = item['text']
+                    text = item.text
                     text_data.append(f"[{minutes:02d}:{seconds:02d}] {text}")
                 
                 return "\n".join(text_data)
