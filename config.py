@@ -18,7 +18,8 @@ def get_path(filename):
 # File/Directory Paths
 MEMORY_DIR = get_path("Memory")
 LOGS_DIR = get_path("Logs")
-RESTART_META_FILE = get_path("restart_metadata.json")
+RESTART_META_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "restart_meta.json")
+REFLECTION_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reflection_state.json")
 DATABASE_FILE = get_path("nyxos.db")
 BUFFER_FILE = get_path("buffer.txt")
 HEARTBEAT_FILE = get_path("heartbeat.txt")

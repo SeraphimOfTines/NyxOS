@@ -122,7 +122,7 @@ class LMStudioBot(discord.Client):
         self.next_heartbeat_threshold = time.time() + random.randint(5 * 60, 30 * 60)
         
         # Reflection Automation
-        self.auto_reflection_enabled = False
+        self.auto_reflection_enabled = True
         self.last_reflection_date = None
 
         self.terminal_channel = terminal_utils.TerminalChannel(self)
@@ -238,15 +238,32 @@ class LMStudioBot(discord.Client):
 
         now = datetime.datetime.now()
         
-        # Check if it's close to midnight (00:00 to 00:05) and we haven't run yet
+        # Check if it's close to midnight (00:00 to 00:05)
         if now.hour == 0 and now.minute < 5:
-            current_date = now.date()
-            if self.last_reflection_date != current_date:
+            # Check Persistent State (JSON)
+            should_run = True
+            if os.path.exists(config.REFLECTION_STATE_FILE):
+                try:
+                    with open(config.REFLECTION_STATE_FILE, "r") as f:
+                        data = json.load(f)
+                        last_run_str = data.get("last_run")
+                        if last_run_str:
+                            last_run = datetime.datetime.fromisoformat(last_run_str)
+                            # If ran within last 12 hours, skip
+                            if (now - last_run).total_seconds() < 43200:
+                                should_run = False
+                except: pass
+
+            # Check In-Memory State (for current session)
+            if self.last_reflection_date == now.date():
+                should_run = False
+
+            if should_run:
                 logger.info("🌚 Midnight detected. Initiating Auto-Reflection Cycle...")
-                self.last_reflection_date = current_date
+                self.last_reflection_date = now.date()
                 
                 try:
-                    await self_reflection.run_nightly_prompt_update()
+                    await self_reflection.process_missed_days()
                 except Exception as e:
                     logger.error(f"Auto-Reflection Failed: {e}")
 
@@ -3360,40 +3377,47 @@ async def wipelogs_command(interaction: discord.Interaction):
     memory_manager.wipe_all_logs()
     await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
 
-@client.tree.command(name="reflect", description="Generate daily reflection based on today's logs.")
+@client.tree.command(name="reflect", description="Run the full Nightly Reflection cycle (Catch-up & Update Identity).")
 async def reflect_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user.id):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
 
-    await interaction.response.send_message("🤔 Reflecting on today's events...", ephemeral=False)
+    await interaction.response.send_message("✨ **Initiating Reflection Cycle...** (Checking missed days)", ephemeral=False)
     try:
-        reflection = await self_reflection.generate_daily_reflection()
-        # Split if too long
-        if len(reflection) > 1900:
-            for i in range(0, len(reflection), 1900):
-                await interaction.followup.send(reflection[i:i+1900])
+        count = await self_reflection.process_missed_days()
+        if count > 0:
+            await interaction.followup.send(f"✅ Cycle Complete. Reflected on **{count}** days and updated System Prompt.")
         else:
-            await interaction.followup.send(reflection)
+            await interaction.followup.send("⚪ Cycle ran, but no new days/logs required reflection.")
     except Exception as e:
-        await interaction.followup.send(f"❌ Reflection failed: {e}")
+        await interaction.followup.send(f"❌ Reflection Cycle Failed: {e}")
 
-@client.tree.command(name="debugreflect", description="Force Manual Nightly Reflection Cycle (Admin Only).")
+@client.tree.command(name="debugreflect", description="Dry Run: Generate today's reflection WITHOUT updating the prompt.")
 async def debugreflect_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user.id):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
         return
 
-    await interaction.response.send_message("🧪 **Running Manual Nightly Reflection Cycle**...", ephemeral=False)
+    await interaction.response.send_message("🧪 **Generating Dry-Run Reflection (Today)...**", ephemeral=False)
     try:
-        new_prompt = await self_reflection.run_nightly_prompt_update()
-        if new_prompt:
-             await interaction.followup.send("✅ **Cycle Complete.** System Prompt has been updated.")
+        reflection = await self_reflection.generate_daily_reflection()
+        if not reflection:
+            await interaction.followup.send("⚪ No reflection generated (No logs?).")
+            return
+            
+        # Split if too long
+        header = "**[DRY RUN RESULT]**\n"
+        if len(reflection) > 1900:
+            await interaction.followup.send(header + reflection[:1900])
+            for i in range(1900, len(reflection), 1900):
+                await interaction.followup.send(reflection[i:i+1900])
         else:
-             await interaction.followup.send("⚠️ Cycle ran but no prompt update occurred (Check logs).")
+            await interaction.followup.send(header + reflection)
+            
     except Exception as e:
         logger.error(f"Debug Reflect Failed: {e}")
-        await interaction.followup.send(f"❌ Cycle Failed: {e}")
+        await interaction.followup.send(f"❌ Dry Run Failed: {e}")
 
 @client.tree.command(name="debugtest", description="Run unit tests and report results (Admin Only).")
 async def debugtest_command(interaction: discord.Interaction):
