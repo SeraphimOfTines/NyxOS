@@ -240,6 +240,8 @@ USER_TITLES = {}
 
 DEFAULT_TITLE = " (Mortal)"
 
+SERAPHIM_SYSTEM_TAG = "⛩ Seraphim ⛩"
+
 # --- ALLOWED CHANNELS ---
 # Now managed via Database
 

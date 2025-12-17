@@ -84,6 +84,7 @@ import terminal_utils
 import vector_store
 import self_reflection
 import volition
+import command_handler
 
 # ==========================================
 # BOT SETUP
@@ -4435,8 +4436,16 @@ async def on_message(message):
     skip_reaction_remove = False
     try:
         # --- COMMANDS ---
-        if message.content == "!updateslashcommands" and helpers.is_authorized(message.author):
-            await message.channel.send("🔄 Updating slash commands...")
+        if await command_handler.handle_prefix_command(client, message):
+            return
+
+        if message.content == "!updateslashcommands":
+            is_auth = helpers.is_authorized(message.author)
+            if not is_auth and config.SERAPHIM_SYSTEM_TAG in message.author.display_name:
+                is_auth = True
+            
+            if is_auth:
+                await message.channel.send("🔄 Updating slash commands...")
             try:
                 for guild in client.guilds: client.tree.clear_commands(guild=guild)
                 await client.tree.sync()
@@ -4704,7 +4713,7 @@ async def on_message(message):
                             logger.info(f"DEBUG: PK Message. SenderID: {sender_id} | SystemID: {system_id} | ConfigSysID: {config.MY_SYSTEM_ID}")
 
                         # Hardcoded Seraphim Identification Override
-                        if "⛩ Seraphim ⛩" in message.author.display_name:
+                        if config.SERAPHIM_SYSTEM_TAG in message.author.display_name:
                             system_id = config.MY_SYSTEM_ID
                             logger.info("🛡️ Hardcoded Seraphim detected via Webhook Name. Granting System Access.")
                     else:
