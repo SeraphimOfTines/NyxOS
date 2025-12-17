@@ -4702,6 +4702,11 @@ async def on_message(message):
                             system_id = pk_sys_id
                             member_description = pk_desc
                             logger.info(f"DEBUG: PK Message. SenderID: {sender_id} | SystemID: {system_id} | ConfigSysID: {config.MY_SYSTEM_ID}")
+
+                        # Hardcoded Seraphim Identification Override
+                        if "⛩ Seraphim ⛩" in message.author.display_name:
+                            system_id = config.MY_SYSTEM_ID
+                            logger.info("🛡️ Hardcoded Seraphim detected via Webhook Name. Granting System Access.")
                     else:
                         sender_id = message.author.id
                         user_sys_data = await services.service.get_pk_user_data(sender_id)
