@@ -36,6 +36,16 @@ class VolitionManager:
         # Semantic Interest
         self.interests = set()
         self.update_interests_from_prompt()
+        
+        # Diagnostics
+        self.last_breakdown = {
+            'activity': 0.0,
+            'semantic': 0.0,
+            'chaos': 0.0,
+            'mood_mod': 0.0,
+            'penalty': 0.0,
+            'raw': 0.0
+        }
 
     def update_interests_from_prompt(self):
         """Extracts key nouns/verbs from the system prompt to form dynamic interests."""
@@ -162,16 +172,26 @@ class VolitionManager:
         time_since_last = time.time() - self.last_speech_time
         cooldown_penalty = max(0, (300 - time_since_last) / 300) # Heavy penalty for 5 mins
         
-        urge = self.base_urge + (activity * self.w_activity) + (chaos * self.w_chaos) + (semantic * 0.3) - cooldown_penalty
+        raw_urge = self.base_urge + (activity * self.w_activity) + (chaos * self.w_chaos) + (semantic * 0.3) - cooldown_penalty
         
         # Mood Modifiers
-        if self.mood == "chatty": urge += 0.15
-        if self.mood == "reflective": urge -= 0.15
+        mood_mod = 0.0
+        if self.mood == "chatty": mood_mod = 0.15
+        if self.mood == "reflective": mood_mod = -0.15
+        
+        urge = raw_urge + mood_mod
         
         self.current_urge = max(0.0, min(1.0, urge))
         
-        # Debug Log Breakdown
-        # logger.debug(f"Calc: Base({self.base_urge}) + Act({activity:.2f}*{self.w_activity}) + Sem({semantic:.2f}*0.3) + Chaos({chaos:.2f}*{self.w_chaos}) - Cool({cooldown_penalty:.2f}) = {self.current_urge:.2f}")
+        # Store Breakdown for Diagnostics
+        self.last_breakdown = {
+            'activity': activity,
+            'semantic': semantic,
+            'chaos': chaos,
+            'mood_mod': mood_mod,
+            'penalty': cooldown_penalty,
+            'raw': urge
+        }
         
         return self.current_urge
 
