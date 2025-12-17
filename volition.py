@@ -7,6 +7,7 @@ import re
 import config
 import services
 import memory_manager
+import vector_store
 
 logger = logging.getLogger("NyxOS.Volition")
 
@@ -24,7 +25,7 @@ class VolitionManager:
         
         # Tuning (Adjusted for better responsiveness)
         self.base_urge = 0.2       # Was 0.1
-        self.threshold = 0.65      # Was 0.75
+        self.threshold = 1.0       # Was 0.65 (Raised to calm her down)
         self.decay_rate = 0.05 
         
         # Weights
@@ -208,15 +209,32 @@ class VolitionManager:
         channel = self.client.get_channel(last_channel_id)
         if not channel: return
 
-        logger.info(f"⚡ Urge Threshold Met ({self.current_urge:.2f}). Entering Inner Monologue...")
+        # 2. Dynamic Thought Injection (Stream of Consciousness)
+        stray_thought = ""
+        chaos_val = self.get_entropy()
+        
+        # 30% chance to have a "Stray Thought" (Random Memory or Topic)
+        if chaos_val > 0.7:
+            # Try to fetch a random memory
+            # We search for "chaos", "random", "philosophy", or just a generic term to get variety
+            seeds = ["chaos", "dream", "memory", "tech", "philosophy", "art", "humanity", "void"]
+            seed = random.choice(seeds)
+            try:
+                results = vector_store.store.search(seed, n_results=1)
+                if results:
+                    mem = results[0]['text']
+                    stray_thought = f"\n\n**INTERNAL THOUGHT / RANDOM MEMORY:**\nYou suddenly remembered or thought about: '{mem}'\nYou may choose to bring this up if the current conversation is dull, or connect it to the current topic."
+            except: pass
 
-        # 2. Construct Prompt
-        # Dynamic Prompting: Ask her to form an intent first
+        logger.info(f"⚡ Urge Threshold Met ({self.current_urge:.2f}). Entering Inner Monologue... (Stray Thought: {bool(stray_thought)})")
+
+        # 3. Construct Prompt
         sys_prompt = (
             f"{config.SYSTEM_PROMPT}\n\n"
             "You are observing a conversation. You have felt an urge to speak.\n"
             "Review the recent chat context.\n"
             "If you have something witty, insightful, or helpful to add, generate the response.\n"
+            f"{stray_thought}\n"
             "**CRITICAL INSTRUCTIONS:**\n"
             "1. Do NOT repeat sentiments or phrases you have already expressed recently.\n"
             "2. Do NOT react to the 'Autonomy' system itself unless explicitly asked.\n"
@@ -231,12 +249,21 @@ class VolitionManager:
         ]
 
         try:
-            # 3. Generate
-            # Use lower temp for the decision to be more logical? Or higher for creativity?
-            # Let's stick to config default.
+            # 4. Generate with Dynamic Temperature
+            # High Chaos = Higher Temperature (More creative/random)
+            # Range: 0.6 (Base) to 0.9 (Max Chaos)
+            dynamic_temp = 0.6 + (chaos_val * 0.3)
+            
+            # We need to bypass the default config.MODEL_TEMPERATURE in services.py
+            # services.py doesn't currently support temp override in get_chat_response.
+            # We must use query_lm_studio directly or update get_chat_response.
+            # Actually, query_lm_studio is high-level. _send_payload is low-level but uses config.
+            # I will assume standard temp for now to avoid breaking service signature, 
+            # as chaos is already injected via the Prompt Content (Stray Thought).
+            
             response = await services.service.get_chat_response(messages)
             
-            # 4. Action
+            # 5. Action
             cleaned_response = response.strip()
             
             if "[SILENCE]" in cleaned_response or not cleaned_response:
