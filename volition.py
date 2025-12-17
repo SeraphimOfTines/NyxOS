@@ -25,7 +25,7 @@ class VolitionManager:
         
         # Tuning (Adjusted for better responsiveness)
         self.base_urge = 0.2       # Was 0.1
-        self.threshold = 1.0       # Was 0.65 (Raised to calm her down)
+        self.threshold = 0.80       # Was 0.65 (Raised to calm her down)
         self.decay_rate = 0.05 
         
         # Weights

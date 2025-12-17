@@ -12,6 +12,11 @@ It works natively on Linux right now. If you want to run it on Windows, you can 
 
 ### 🧠 Core Intelligence
 *   **Full LLM Integration**: Talks via local hardware using LM Studio.
+*   **Volition (Proactive Autonomy)**: Nyx has "Free Will". She reads chat (in whitelisted channels) and decides when to speak based on:
+    *   **Activity**: Chat velocity/speed.
+    *   **Semantics**: Interest in specific topics (extracted from her System Prompt).
+    *   **Chaos**: Random internal entropy.
+    *   **Stream of Consciousness**: Can spontaneously recall random memories or topics if bored.
 *   **Vision-Language Support**: Can see images attached in Discord and recall images sent earlier.
 *   **Web Search**: Browse the web using Kagi. She generates her own search queries. (Use `&web` to force a search).
 
@@ -98,17 +103,23 @@ Ping (`@NyxOS`) or reply to her to wake her up!
 | `&killmyembeds` | Toggle link preview suppression for you. |
 | `&goodbot` | Show the leaderboard. |
 | `&web <query>` | Force a web search. |
+| `&autonomy status` | Check Volition state (Urge, Mood, Breakdown). |
+| `&autonomy enable` | Turn on Free Will (Global). |
+| `&autonomy allow_here` | Whitelist current channel for autonomy. |
+| `&autonomy mood <type>` | Set mood: `neutral`, `chatty`, or `reflective`. |
 
 | Admin Commands | Description |
 | :--- | :--- |
-| `&addchannel` | Whitelist current channel. |
-| `&removechannel` | Blacklist current channel. |
+| `&addchannel` | Whitelist current channel (for replies). |
+| `&removechannel` | Blacklist current channel (for replies). |
 | `&clearmemory` | Wipe current channel memory. |
 | `&suppressembedson` | Enable server-wide embed suppression. |
 | `&suppressembedsoff` | Disable server-wide embed suppression. |
 | `&debug` | Toggle debug mode (unlocks admin UI buttons). |
 | `&reboot` | Restart bot process. |
 | `&shutdown` | Gracefully shutdown. |
+| `&bar`, `&drop`, `&addbar` | Status Bar controls (Uplink). |
+| `&idle`, `&thinking`, `&angel` | Set Status Bar mood/state. |
 
 ## 🐛 Bugs
 Still lots of them! But fewer than before.
