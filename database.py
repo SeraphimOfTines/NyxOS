@@ -110,6 +110,11 @@ class Database:
                     channel_id TEXT PRIMARY KEY
                 )""")
 
+                # Volition Whitelist (Channels where autonomy is allowed)
+                c.execute("""CREATE TABLE IF NOT EXISTS volition_whitelist (
+                    channel_id TEXT PRIMARY KEY
+                )""")
+
                 # Location Registry (Bar and Checkmark positions)
                 c.execute("""CREATE TABLE IF NOT EXISTS location_registry (
                     channel_id TEXT PRIMARY KEY,
@@ -239,6 +244,36 @@ class Database:
                 return [row[0] for row in c.fetchall()]
         except Exception as e:
             logger.error(f"Failed to get bar whitelist: {e}")
+            return []
+
+    # --- Volition Whitelist Methods ---
+
+    def add_volition_whitelist(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("INSERT OR IGNORE INTO volition_whitelist (channel_id) VALUES (?)", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to add to volition whitelist: {e}")
+
+    def remove_volition_whitelist(self, channel_id):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM volition_whitelist WHERE channel_id = ?", (str(channel_id),))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to remove from volition whitelist: {e}")
+
+    def get_volition_whitelist(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT channel_id FROM volition_whitelist")
+                return [int(row[0]) for row in c.fetchall() if row[0].isdigit()]
+        except Exception as e:
+            logger.error(f"Failed to get volition whitelist: {e}")
             return []
 
     # --- Active Bars Methods ---

@@ -28,6 +28,10 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
         self.mock_client.good_bot_cooldowns = {}
         self.mock_client.active_views = {}
         self.mock_client.channel_cutoff_times = {}
+
+        # Mock Volition
+        self.mock_client.volition = MagicMock()
+        self.mock_client.volition.update_buffer = AsyncMock()
         
         # Mock config roles
         config.BOT_ROLE_IDS = [555]

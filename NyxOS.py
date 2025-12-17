@@ -83,6 +83,7 @@ import backup_manager
 import terminal_utils
 import vector_store
 import self_reflection
+import volition
 
 # ==========================================
 # BOT SETUP
@@ -126,6 +127,9 @@ class LMStudioBot(discord.Client):
         self.last_reflection_date = None
 
         self.terminal_channel = terminal_utils.TerminalChannel(self)
+
+        # Volition (Autonomy)
+        self.volition = volition.VolitionManager(self)
 
         # API Server
         self.api_server = NyxAPI.NyxAPI(self)
@@ -228,6 +232,7 @@ class LMStudioBot(discord.Client):
         
         asyncio.create_task(self.heartbeat_task())
         asyncio.create_task(self.conversation_heartbeat_task())
+        self.volition_loop.start()
         self.daily_reflection_task.start()
 
     @tasks.loop(minutes=1)
@@ -266,6 +271,14 @@ class LMStudioBot(discord.Client):
                     await self_reflection.process_missed_days()
                 except Exception as e:
                     logger.error(f"Auto-Reflection Failed: {e}")
+
+    @tasks.loop(seconds=config.VOLITION_INTERVAL)
+    async def volition_loop(self):
+        """Checks the 'Urge to Speak' every heartbeat."""
+        try:
+            await self.volition.check_and_act()
+        except Exception as e:
+            logger.error(f"Volition Loop Error: {e}")
 
     async def handle_bar_touch(self, channel_id, message=None, user_id=None):
         """
@@ -3485,6 +3498,68 @@ async def heartbeat_command(interaction: discord.Interaction):
     await interaction.response.send_message("💓 Triggering heartbeat...", ephemeral=True)
     await client.trigger_conversation_heartbeat()
 
+@client.tree.command(name="autonomy", description="Control the Volition (Free Will) system.")
+@app_commands.choices(action=[
+    app_commands.Choice(name="Status", value="status"),
+    app_commands.Choice(name="Enable (Global)", value="enable"),
+    app_commands.Choice(name="Disable (Global)", value="disable"),
+    app_commands.Choice(name="Mood: Chatty", value="chatty"),
+    app_commands.Choice(name="Mood: Reflective", value="reflective"),
+    app_commands.Choice(name="Mood: Neutral", value="neutral"),
+    app_commands.Choice(name="Allow Here (Whitelist)", value="allow_here"),
+    app_commands.Choice(name="Deny Here (Blacklist)", value="deny_here")
+])
+async def autonomy_command(interaction: discord.Interaction, action: str):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+        return
+
+    v = client.volition
+    
+    if action == "status":
+        status = "ENABLED" if v.enabled else "DISABLED"
+        urge = v.current_urge
+        bd = v.last_breakdown
+        
+        allowed_ids = memory_manager.get_volition_channels()
+        allowed_str = ", ".join([f"<#{cid}>" for cid in allowed_ids]) if allowed_ids else "(None)"
+        
+        # Breakdown String
+        details = (
+            f"**Breakdown:**\n"
+            f"> Base: `{v.base_urge:.2f}`\n"
+            f"> Activity: `{bd['activity']:.2f}` * {v.w_activity} = `{bd['activity']*v.w_activity:.2f}`\n"
+            f"> Semantic: `{bd['semantic']:.2f}` * 0.3 = `{bd['semantic']*0.3:.2f}`\n"
+            f"> Chaos: `{bd['chaos']:.2f}` * {v.w_chaos} = `{bd['chaos']*v.w_chaos:.2f}`\n"
+            f"> Mood ({v.mood}): `{bd['mood_mod']:+.2f}`\n"
+            f"> Penalty: `-{bd['penalty']:.2f}`\n"
+            f"> **Raw Total:** `{bd['raw']:.2f}`"
+        )
+        
+        await interaction.response.send_message(
+            f"🧠 **Volition Status**\n"
+            f"State: `{status}`\n"
+            f"Current Urge: `{urge:.2f}` (Threshold: {v.threshold})\n"
+            f"{details}\n\n"
+            f"**Allowed Channels:** {allowed_str}\n"
+            f"**Entropy:** `Software`"
+        )
+    elif action == "enable":
+        v.enabled = True
+        await interaction.response.send_message("🧠 Autonomy **ENABLED**. I am listening...", ephemeral=True)
+    elif action == "disable":
+        v.enabled = False
+        await interaction.response.send_message("🧠 Autonomy **DISABLED**.", ephemeral=True)
+    elif action in ["chatty", "reflective", "neutral"]:
+        v.mood = action
+        await interaction.response.send_message(f"🧠 Mood set to **{action.upper()}**.", ephemeral=True)
+    elif action == "allow_here":
+        memory_manager.add_volition_channel(interaction.channel_id)
+        await interaction.response.send_message(f"🧠 Autonomy **ALLOWED** in <#{interaction.channel_id}>.", ephemeral=True)
+    elif action == "deny_here":
+        memory_manager.remove_volition_channel(interaction.channel_id)
+        await interaction.response.send_message(f"🧠 Autonomy **DENIED** in <#{interaction.channel_id}>.", ephemeral=True)
+
 @client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
 async def nukedatabase_command(interaction: discord.Interaction):
     if not helpers.is_admin(interaction.user):
@@ -4225,6 +4300,9 @@ async def on_message_edit(before, after):
 
 @client.event
 async def on_message(message):
+    # Volition: Update Buffer (Tracks everyone, including self)
+    await client.volition.update_buffer(message)
+
     if message.author == client.user: return
 
     # --- STATUS BAR PERSISTENCE ---
@@ -4312,6 +4390,7 @@ async def on_message(message):
             "learn": (learn_command, "text"),
             "addknowledge": (learn_command, "text"),
             "recall": (recall_command, "query"),
+            "autonomy": (autonomy_command, "action"),
         }
 
         if cmd in cmd_map:
@@ -4483,75 +4562,75 @@ async def on_message(message):
             except Exception as e:
                 logger.error(f"Proxy Tag Check Failed: {e}") 
 
-        # --- GOOD BOT CHECK ---
-        if re.search(r'\bgood\s*bot\b', message.content, re.IGNORECASE):
-            is_ping = client.user in message.mentions
-            # If replying to me OR pinging me
-            if is_ping or target_message_id:
-                if not target_message_id:
-                    target_message_id = client.last_bot_message_id.get(message.channel.id)
+        # --- GOOD BOT CHECK (DEPRECATED: Button Only) ---
+        # if re.search(r'\bgood\s*bot\b', message.content, re.IGNORECASE):
+        #     is_ping = client.user in message.mentions
+        #     # If replying to me OR pinging me
+        #     if is_ping or target_message_id:
+        #         if not target_message_id:
+        #             target_message_id = client.last_bot_message_id.get(message.channel.id)
                 
-                # Determine sender ID for Good Bot
-                sender_id = message.author.id
-                real_name = message.author.display_name
+        #         # Determine sender ID for Good Bot
+        #         sender_id = message.author.id
+        #         real_name = message.author.display_name
                 
-                # Webhook / Proxy Resolution (Only for real ID)
-                if message.webhook_id:
-                    pk_name, _, _, _, pk_sender, _ = await services.service.get_pk_message_data(message.id)
-                    if pk_sender:
-                        try: sender_id = int(pk_sender)
-                        except: pass
-                    if pk_name:
-                        real_name = pk_name
+        #         # Webhook / Proxy Resolution (Only for real ID)
+        #         if message.webhook_id:
+        #             pk_name, _, _, _, pk_sender, _ = await services.service.get_pk_message_data(message.id)
+        #             if pk_sender:
+        #                 try: sender_id = int(pk_sender)
+        #                 except: pass
+        #             if pk_name:
+        #                 real_name = pk_name
 
-                now = discord.utils.utcnow().timestamp()
-                last_time = client.good_bot_cooldowns.get(sender_id, 0)
+        #         now = discord.utils.utcnow().timestamp()
+        #         last_time = client.good_bot_cooldowns.get(sender_id, 0)
                 
-                if now - last_time > 5:
-                    # Resolve Handle
-                    handle = message.author.name
-                    # If webhook, handle is the webhook name usually, but we want the USER handle if possible?
-                    # The user prompt said: "Displayname (@Handle) - score"
-                    # For proxies, the webhook author name is the display name. The handle is tricky if it's a webhook.
-                    # But we have sender_id. Let's try to fetch the user for the handle.
-                    try:
-                        user_obj = None
-                        if message.guild:
-                             user_obj = message.guild.get_member(sender_id)
-                             if not user_obj: user_obj = await message.guild.fetch_member(sender_id)
-                        else:
-                             user_obj = client.get_user(sender_id) or await client.fetch_user(sender_id)
+        #         if now - last_time > 5:
+        #             # Resolve Handle
+        #             handle = message.author.name
+        #             # If webhook, handle is the webhook name usually, but we want the USER handle if possible?
+        #             # The user prompt said: "Displayname (@Handle) - score"
+        #             # For proxies, the webhook author name is the display name. The handle is tricky if it's a webhook.
+        #             # But we have sender_id. Let's try to fetch the user for the handle.
+        #             try:
+        #                 user_obj = None
+        #                 if message.guild:
+        #                      user_obj = message.guild.get_member(sender_id)
+        #                      if not user_obj: user_obj = await message.guild.fetch_member(sender_id)
+        #                 else:
+        #                      user_obj = client.get_user(sender_id) or await client.fetch_user(sender_id)
                         
-                        if user_obj: handle = user_obj.name
-                    except: pass
+        #                 if user_obj: handle = user_obj.name
+        #             except: pass
 
-                    # Format: Display Name (@Handle)
-                    formatted_name = f"{real_name} (@{handle})"
+        #             # Format: Display Name (@Handle)
+        #             formatted_name = f"{real_name} (@{handle})"
 
-                    count = memory_manager.increment_good_bot(sender_id, formatted_name)
-                    client._update_lru_cache(client.good_bot_cooldowns, sender_id, now, limit=1000)
-                    try: await message.add_reaction(ui.FLAVOR_TEXT["GOOD_BOT_REACTION"])
-                    except: pass
+        #             count = memory_manager.increment_good_bot(sender_id, formatted_name)
+        #             client._update_lru_cache(client.good_bot_cooldowns, sender_id, now, limit=1000)
+        #             try: await message.add_reaction(ui.FLAVOR_TEXT["GOOD_BOT_REACTION"])
+        #             except: pass
                     
-                    if target_message_id and target_message_id in client.active_views:
-                        view = client.active_views[target_message_id]
-                        updated = False
-                        for child in view.children:
-                            if getattr(child, "custom_id", "") == "good_bot_btn":
-                                if not child.disabled:
-                                    child.disabled = True
-                                    child.style = discord.ButtonStyle.secondary
-                                    child.label = f"Good Bot: {count}"
-                                    updated = True
-                            if updated:
-                                try:
-                                    if message.reference and message.reference.message_id == target_message_id and message.reference.resolved:
-                                        ref_msg = message.reference.resolved
-                                    else:
-                                        ref_msg = await message.channel.fetch_message(target_message_id)
-                                    await ref_msg.edit(view=view)
-                                except: pass
-                    return
+        #             if target_message_id and target_message_id in client.active_views:
+        #                 view = client.active_views[target_message_id]
+        #                 updated = False
+        #                 for child in view.children:
+        #                     if getattr(child, "custom_id", "") == "good_bot_btn":
+        #                         if not child.disabled:
+        #                             child.disabled = True
+        #                             child.style = discord.ButtonStyle.secondary
+        #                             child.label = f"Good Bot: {count}"
+        #                             updated = True
+        #                     if updated:
+        #                         try:
+        #                             if message.reference and message.reference.message_id == target_message_id and message.reference.resolved:
+        #                                 ref_msg = message.reference.resolved
+        #                             else:
+        #                                 ref_msg = await message.channel.fetch_message(target_message_id)
+        #                             await ref_msg.edit(view=view)
+        #                         except: pass
+        #             return
 
         if should_respond:
             # Determine if this was an explicit trigger (Ping/Role) vs just a reply or keyword

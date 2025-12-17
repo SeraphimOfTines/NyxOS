@@ -56,6 +56,17 @@ def remove_bar_whitelist(channel_id):
 def get_bar_whitelist():
     return db.get_bar_whitelist()
 
+# --- Volition Whitelist (DB Facade) ---
+
+def add_volition_channel(channel_id):
+    db.add_volition_whitelist(channel_id)
+
+def remove_volition_channel(channel_id):
+    db.remove_volition_whitelist(channel_id)
+
+def get_volition_channels():
+    return db.get_volition_whitelist()
+
 # --- Active Bars (DB Facade) ---
 
 def save_bar(channel_id, guild_id, message_id, user_id, content, persisting, current_prefix=None, has_notification=False, checkmark_message_id=None):

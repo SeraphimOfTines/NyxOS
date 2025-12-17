@@ -35,6 +35,10 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client._update_lru_cache = MagicMock()
         # schedule_next_heartbeat is sync
         mock_client.schedule_next_heartbeat = MagicMock()
+        
+        # Volition
+        mock_client.volition = MagicMock()
+        mock_client.volition.update_buffer = AsyncMock()
 
         # Mock Message
         message = AsyncMock()
@@ -50,7 +54,10 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         # get_member is sync
         mock_member = MagicMock()
         mock_member.name = "testuser"
-        message.guild.get_member = MagicMock(return_value=mock_member)
+        # Mock typing context manager
+        message.channel.typing = MagicMock()
+        message.channel.typing.return_value.__aenter__ = AsyncMock()
+        message.channel.typing.return_value.__aexit__ = AsyncMock()
         
         # Setup History Mock
         message.channel.history = MagicMock(return_value=AsyncIter([]))
@@ -64,9 +71,9 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
                          # Run on_message
                          await NyxOS.on_message(message)
                          
-                         # Verify
-                         mock_inc.assert_called_with(123, "TestUser (@testuser)")
-                         message.add_reaction.assert_called_with(ui.FLAVOR_TEXT["GOOD_BOT_REACTION"])
+                         # Verify - Should NOT be called now (Logic Removed)
+                         mock_inc.assert_not_called()
+                         message.add_reaction.assert_not_called()
 
     async def test_good_bot_cooldown(self):
         # Mock Message
@@ -86,6 +93,10 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client.processing_locks = set()
         mock_client.abort_signals = set()
         mock_client._update_lru_cache = MagicMock()
+        
+        # Volition
+        mock_client.volition = MagicMock()
+        mock_client.volition.update_buffer = AsyncMock()
         
         # Set cooldown
         import time
