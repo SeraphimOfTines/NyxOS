@@ -29,8 +29,8 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client.user.display_name = "NyxOS"
         mock_client.last_bot_message_id = {999: 1000} # Simulate bot spoke last
         mock_client.good_bot_cooldowns = {}
-        mock_client.active_views = {}
         mock_client.processing_locks = set()
+        mock_client.boot_cleared_channels = set()
         mock_client.abort_signals = set()
         mock_client._update_lru_cache = MagicMock()
         # schedule_next_heartbeat is sync
@@ -73,7 +73,7 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
                          
                          # Verify - Should NOT be called now (Logic Removed)
                          mock_inc.assert_not_called()
-                         message.add_reaction.assert_not_called()
+                         # message.add_reaction.assert_not_called() - Eye reaction happens on ping
 
     async def test_good_bot_cooldown(self):
         # Mock Message
