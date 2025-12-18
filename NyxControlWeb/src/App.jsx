@@ -1,32 +1,76 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { checkStatus, getEmojis, syncEmojis, getPalette, savePalette, setGlobalState, updateGlobalText, getBars } from './api';
-import { RefreshCw, Power, Eye, EyeOff, Save, Trash2, Zap } from 'lucide-react';
+import { RefreshCw, Power, Eye, EyeOff, Save, Trash2, Zap, GripVertical } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  defaultDropAnimationSideEffects,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  rectSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
-// Simple Emoji Button Component
-const EmojiButton = React.memo(({ emoji, onClick }) => {
-  const isAnimated = emoji.animated;
-  const isLocal = emoji.source === 'local';
-  
-  // Construct URL: If local, use relative path (proxied). If discord, use full URL.
-  // API returns /emojis/name.png for local, which works with proxy.
-  const src = emoji.url; 
+// --- DRAGGABLE EMOJI COMPONENT ---
+const SortableEmoji = ({ id, emoji, onClick, disabled }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0 : 1,
+    touchAction: 'none', // Prevent scrolling while dragging
+  };
+
+  const isAnimated = emoji?.animated;
+  const src = emoji?.url; 
+
+  if (!emoji) return null;
 
   return (
-    <button 
-      onClick={() => onClick(emoji)}
-      className="p-2 hover:bg-gray-700 rounded transition-colors flex flex-col items-center justify-center w-12 h-12"
-      title={emoji.name}
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="relative group w-12 h-12"
+      {...attributes}
+      {...listeners}
     >
-      <img 
-        src={src} 
-        alt={emoji.name} 
-        className="w-8 h-8 object-contain pointer-events-none" 
-        loading="lazy"
-      />
-    </button>
+      <button 
+        onClick={(e) => {
+            // Prevent click if we were dragging (dnd-kit handles this usually, but safe to check)
+            if (!isDragging) onClick(emoji);
+        }}
+        className="w-full h-full p-2 hover:bg-gray-700 rounded transition-colors flex items-center justify-center cursor-grab active:cursor-grabbing"
+        title={emoji.name}
+      >
+        <img 
+          src={src} 
+          alt={emoji.name} 
+          className="w-8 h-8 object-contain pointer-events-none select-none" 
+          loading="lazy"
+        />
+      </button>
+    </div>
   );
-});
+};
 
+// --- APP COMPONENT ---
 function App() {
   // --- STATE ---
   const [status, setStatus] = useState({ status: 'offline', latency: 0 });
@@ -35,6 +79,15 @@ function App() {
   const [palette, setPalette] = useState({ categories: {}, hidden: [] });
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeTab, setActiveTab] = useState("quick"); // 'quick' or 'storage'
+  const [activeDragId, setActiveDragId] = useState(null);
+
+  // Sensors for DnD
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+        activationConstraint: { distance: 5 } // Require 5px movement to start drag (allows clicks)
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   // --- INITIALIZATION ---
   useEffect(() => {
@@ -74,13 +127,29 @@ function App() {
       // 3. Get Current Text (Optimistic)
       const barsResp = await getBars();
       if (barsResp.data.global_content) {
-          // Always update on initial fetch to ensure sync
           setInputText(barsResp.data.global_content);
       }
 
     } catch (e) {
       console.error("Init failed:", e);
     }
+  };
+
+  // --- PERSISTENCE ---
+  const handleSavePalette = async (newPaletteState) => {
+      setPalette(newPaletteState); // Optimistic Update
+      try {
+          // Flatten for API: categories + hidden
+          const payload = {
+              categories: newPaletteState.categories,
+              hidden: newPaletteState.hidden,
+              use_counts: {} // Preserve if we tracked it, but we don't right now
+          };
+          await savePalette(payload);
+      } catch (e) {
+          console.error("Failed to save palette:", e);
+          alert("Failed to save order.");
+      }
   };
 
   const handleSync = async () => {
@@ -95,12 +164,85 @@ function App() {
     setIsSyncing(false);
   };
 
+  // --- DRAG HANDLERS ---
+  const handleDragStart = (event) => {
+      setActiveDragId(event.active.id);
+  };
+
+  const handleDragEnd = (event) => {
+      const { active, over } = event;
+      setActiveDragId(null);
+
+      if (!over) return;
+
+      const activeId = active.id;
+      const overId = over.id;
+
+      // Find containers
+      const findContainer = (id) => {
+          if (id in palette.categories) return id;
+          if (id === 'hidden') return 'hidden';
+          
+          // Search inside
+          for (const cat in palette.categories) {
+              if (palette.categories[cat].includes(id)) return cat;
+          }
+          if (palette.hidden.includes(id)) return 'hidden';
+          return null;
+      };
+
+      const activeContainer = findContainer(activeId);
+      const overContainer = findContainer(overId);
+
+      if (!activeContainer || !overContainer) return;
+
+      // Move logic
+      if (activeContainer === overContainer) {
+          // Reorder within same container
+          const items = activeContainer === 'hidden' ? palette.hidden : palette.categories[activeContainer];
+          const oldIndex = items.indexOf(activeId);
+          const newIndex = items.indexOf(overId);
+
+          if (oldIndex !== newIndex) {
+              const newItems = arrayMove(items, oldIndex, newIndex);
+              const newPalette = { ...palette };
+              if (activeContainer === 'hidden') newPalette.hidden = newItems;
+              else newPalette.categories[activeContainer] = newItems;
+              
+              handleSavePalette(newPalette);
+          }
+      } else {
+          // Move between containers
+          const sourceItems = activeContainer === 'hidden' ? palette.hidden : palette.categories[activeContainer];
+          const destItems = overContainer === 'hidden' ? palette.hidden : palette.categories[overContainer];
+          
+          const oldIndex = sourceItems.indexOf(activeId);
+          const newIndex = overId in palette.categories || overId === 'hidden' 
+              ? destItems.length + 1 // Dropped on container placeholder
+              : destItems.indexOf(overId);
+
+          let newSource = [...sourceItems];
+          newSource.splice(oldIndex, 1);
+          
+          let newDest = [...destItems];
+          newDest.splice(newIndex >= 0 ? newIndex : newDest.length, 0, activeId);
+
+          const newPalette = { ...palette };
+          if (activeContainer === 'hidden') newPalette.hidden = newSource;
+          else newPalette.categories[activeContainer] = newSource;
+          
+          if (overContainer === 'hidden') newPalette.hidden = newDest;
+          else newPalette.categories[overContainer] = newDest;
+
+          handleSavePalette(newPalette);
+      }
+  };
+
   // --- ACTIONS ---
 
   const handleGlobalAction = async (action) => {
     try {
       await setGlobalState(action);
-      // Feedback?
     } catch (e) {
       alert(`Failed to set ${action}: ${e.message}`);
     }
@@ -129,35 +271,47 @@ function App() {
   };
 
   const addEmojiToBar = (emoji) => {
-    // Append the Discord string to text
-    const str = emoji.string || `<:${emoji.name}:${emoji.id}>`; // Fallback
+    const str = emoji.string || `<:${emoji.name}:${emoji.id}>`; 
     setInputText(prev => prev + " " + str + " ");
   };
-
-  // --- RENDER HELPERS ---
 
   const getEmojiObj = (name) => {
     return emojis.find(e => e.name === name);
   };
 
-  // Filter emojis based on palette categories
+  // --- RENDERERS ---
   const renderCategory = (catName, items) => {
     return (
-      <div key={catName} className="mb-4">
-        <h3 className="text-gray-400 font-bold uppercase text-xs tracking-wider mb-2 border-b border-gray-700 pb-1">{catName}</h3>
-        <div className="flex flex-wrap gap-1">
-          {items.map(name => {
-            const emo = getEmojiObj(name);
-            if (!emo) return null; // Skip if not found
-            return <EmojiButton key={name} emoji={emo} onClick={addEmojiToBar} />;
-          })}
-          {items.length === 0 && <span className="text-gray-600 text-xs italic p-2">Empty</span>}
+      <SortableContext 
+        id={catName} 
+        items={items} 
+        strategy={rectSortingStrategy}
+        key={catName}
+      >
+        <div className="mb-4">
+            <h3 className="text-gray-400 font-bold uppercase text-xs tracking-wider mb-2 border-b border-gray-700 pb-1 flex justify-between">
+                {catName}
+                {items.length === 0 && <span className="text-[10px] text-gray-600">Drop Here</span>}
+            </h3>
+            <div className="flex flex-wrap gap-1 min-h-[3rem] transition-colors rounded" style={{ backgroundColor: items.length === 0 ? 'rgba(0,0,0,0.1)' : 'transparent' }}>
+            {items.map(name => {
+                const emo = getEmojiObj(name);
+                if (!emo) return null; 
+                return <SortableEmoji key={name} id={name} emoji={emo} onClick={addEmojiToBar} />;
+            })}
+            </div>
         </div>
-      </div>
+      </SortableContext>
     );
   };
 
   return (
+    <DndContext 
+        sensors={sensors} 
+        collisionDetection={closestCenter} 
+        onDragStart={handleDragStart} 
+        onDragEnd={handleDragEnd}
+    >
     <div className="min-h-screen bg-[#1e2124] text-gray-100 font-sans p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         
@@ -265,7 +419,6 @@ function App() {
                                return <img key={i} src={emo.url} alt={name} className="w-6 h-6 object-contain inline-block mx-0.5" />;
                            }
                            // Fallback if emoji not found in our list but is a valid discord string
-                           // Try to construct URL from ID?
                            const idMatch = part.match(/:([0-9]+)>/);
                            if (idMatch) {
                                 const ext = part.startsWith("<a:") ? "gif" : "png";
@@ -323,25 +476,43 @@ function App() {
                    {renderCategory("Other", palette.categories.Other || [])}
                  </>
                ) : (
-                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                    {/* Render ALL known emojis that are NOT in categories? Or just the 'hidden' list?
-                        Let's render 'hidden' list here. */}
-                    {palette.hidden && palette.hidden.map(name => {
-                        const emo = getEmojiObj(name);
-                        if (!emo) return null;
-                        return <EmojiButton key={name} emoji={emo} onClick={addEmojiToBar} />;
-                    })}
-                    {(!palette.hidden || palette.hidden.length === 0) && (
-                      <p className="col-span-full text-center text-gray-500 text-sm py-4">Storage is empty.</p>
-                    )}
-                 </div>
+                 <SortableContext 
+                    id="hidden" 
+                    items={palette.hidden || []}
+                    strategy={rectSortingStrategy}
+                 >
+                    <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 min-h-[50px] p-2 rounded" style={{backgroundColor: 'rgba(0,0,0,0.1)'}}>
+                        {palette.hidden && palette.hidden.map(name => {
+                            const emo = getEmojiObj(name);
+                            if (!emo) return null;
+                            return <SortableEmoji key={name} id={name} emoji={emo} onClick={addEmojiToBar} />;
+                        })}
+                        {(!palette.hidden || palette.hidden.length === 0) && (
+                        <p className="col-span-full text-center text-gray-500 text-sm py-4">Storage is empty.</p>
+                        )}
+                    </div>
+                 </SortableContext>
                )}
             </div>
           </div>
 
         </div>
       </div>
+      
+      {/* Drag Overlay for Visuals */}
+      <DragOverlay>
+        {activeDragId ? (
+            <div className="w-12 h-12 p-2 bg-gray-700 rounded shadow-2xl opacity-90 scale-110 cursor-grabbing border border-[#7289da]">
+                <img 
+                    src={getEmojiObj(activeDragId)?.url} 
+                    alt={activeDragId} 
+                    className="w-full h-full object-contain" 
+                />
+            </div>
+        ) : null}
+      </DragOverlay>
     </div>
+    </DndContext>
   );
 }
 

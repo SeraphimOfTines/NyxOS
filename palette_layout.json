@@ -2,6 +2,7 @@
     "categories": {
         "Yami": [
             "VioletPresence",
+            "SeraphEspeon",
             "SeraphEyesShy",
             "MiaPresenceGuarding",
             "MiaHurt",
@@ -15,7 +16,6 @@
             "SeraphEyesYami",
             "SeraphEyesPeekLuminara",
             "SeraphEyesPeekYami",
-            "SeraphEspeon",
             "SacredEyeLuminara",
             "SeraphCuteHeels",
             "MiaPresenceFighting"
@@ -23,15 +23,19 @@
         "Calyptra": [
             "SeraphDying",
             "SeraphHeartDying",
+            "SeraphHeartBleeding",
             "LuminePresence",
             "JVPIT3R",
             "CalyptraPresence",
             "CalyptraPresenceLurking",
             "SeraphMothTable",
+            "SeraphHeartBleedingDrip",
             "AltaPresence"
         ],
         "Riven": [
             "FoxxyBoxxy",
+            "FoxxySpin1",
+            "FoxxySpin3",
             "FoxxySpin2",
             "RivenHyperPrismPresence",
             "FoxxySpin4",
@@ -45,13 +49,9 @@
             "FoxxyGold",
             "FoxxySleep",
             "FoxxyPresence",
-            "SeraphHeartBleeding",
-            "SeraphHeartBleedingDrip",
             "FoxxyTable",
             "FoxxyWag",
-            "FoxxySpin1",
-            "FoxxyEars",
-            "FoxxySpin3"
+            "FoxxyEars"
         ],
         "S\u039bTVRN": [
             "SATVRNCommand",
