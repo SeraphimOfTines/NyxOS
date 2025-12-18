@@ -93,9 +93,18 @@ BOT_ROLE_IDS = []
 MODEL_TEMPERATURE = 0.6
 CONTEXT_WINDOW = 20
 
+# Manual System Display Names
+# Maps System ID (str) -> Display Name (str)
+FORCE_SYSTEM_NAMES = {}
+
+# Hardcoded Proxy Tags (Prefixes to ignore immediately)
+HARDCODED_PROXY_TAGS = ["Cly:"]
+
+# Visual Debug / Reaction
+EYE_REACTION = "<a:SeraphEyesLooking:1297065068847960086>"
+
 # TTS Configuration
 TTS_VOICE = "NyxOS"
-TTS_MODEL = "tts-1-hd"
 
 # API Defaults
 CONTROL_API_PORT = 5555
@@ -139,7 +148,7 @@ WM_BACKUP_PROMPT = "Be snarky about the backup."
 HEARTBEAT_PROMPT = "You are waking up and deciding to start a conversation with a specific user. You should come up with a topic to talk about, something fun, snarky, or interesting. It can be about anything, but try to make it engaging. You are starting the conversation, so don't act like you are replying to something. Just jump right in."
 
 # Volition (Autonomy) Configuration
-VOLITION_ENABLED = False
+VOLITION_ENABLED = True
 VOLITION_INTERVAL = 10  # Seconds between heartbeat checks
 
 

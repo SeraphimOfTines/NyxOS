@@ -4225,6 +4225,19 @@ async def debugscan_command(interaction: discord.Interaction):
         file=discord.File(out_file, filename=f"debug_scan_{interaction.channel_id}.txt")
     )
 
+@client.tree.command(name="updateproxies", description="Force update PluralKit proxy tags from API.")
+async def updateproxies_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    success, msg = await services.service.update_proxy_tags_cache(config.MY_SYSTEM_ID)
+    if success:
+        await interaction.followup.send(f"✅ {msg}")
+    else:
+        await interaction.followup.send(f"❌ {msg}")
+
 # ==========================================
 # EVENTS
 # ==========================================
@@ -4238,8 +4251,8 @@ async def on_reaction_add(reaction, user):
     message = reaction.message
     if message.id not in client.processing_locks: return
     
-    # Check if it's the wake word reaction
-    if str(reaction.emoji) == ui.FLAVOR_TEXT["WAKE_WORD_REACTION"]:
+    # Check if it's the wake word reaction OR the Eye Reaction (Abort)
+    if str(reaction.emoji) == ui.FLAVOR_TEXT["WAKE_WORD_REACTION"] or str(reaction.emoji) == config.EYE_REACTION:
         # Check authorization (Message Author or Admin)
         # Note: message.author might be a webhook, so we check ID match if not webhook, or just Admin rights
         is_author = (message.author.id == user.id)
@@ -4485,6 +4498,17 @@ async def on_message(message):
             except Exception as e: await message.channel.send(f"❌ Error: {e}")
             return
         
+        # --- PROXY TRIGGER CHECK (AGGRESSIVE) ---
+        if message.webhook_id is None:
+            # Check ALL cached tags (Hardcoded + API)
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                # Visual Confirmation we saw it (Waits for webhook)
+                try: await message.add_reaction(config.EYE_REACTION)
+                except: pass
+                return # STRICT IGNORE
+        
         # --- PRE-CALCULATE RESPONSE TRIGGER ---
         should_respond = False
         target_message_id = None
@@ -4527,12 +4551,7 @@ async def on_message(message):
              client.waiting_for_ping_since = None
              client.schedule_next_heartbeat()
 
-        # INSTANT REACTION
-        # if should_respond:
-        #     try:
-        #         await message.add_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"])
-        #         reaction_added = True
-        #     except: pass
+
 
         # --- UPLINK NOTIFICATION CHECK ---
         # If this channel has an active uplink, and the message is not from me (the bot)
@@ -4544,32 +4563,7 @@ async def on_message(message):
                 # Update console to show the Exclamark
                 await client.update_console_status()
 
-        # --- PROXY/WEBHOOK CHECKS ---
-        if message.webhook_id is None:
-            try:
-                tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
-                if helpers.matches_proxy_tag(message.content, tags): return
-                
-                # Ghost Check (Restored & Enhanced)
-                # Wait to see if a webhook appears that replaces this message
-                await asyncio.sleep(5.0)
-                try:
-                    await message.channel.fetch_message(message.id)
-                    # If we are here, the message STILL exists.
-                    # Check if a webhook appeared nearby (race condition check)
-                    async for recent in message.channel.history(limit=15):
-                        if recent.webhook_id is not None:
-                             diff = (recent.created_at - message.created_at).total_seconds()
-                             if abs(diff) < 6.0: 
-                                 logger.info(f"👻 Ghost detected (Late Webhook): {message.id} replaced by {recent.id}")
-                                 skip_reaction_remove = True
-                                 return
-                except (discord.NotFound, discord.HTTPException): 
-                    # Message is gone -> It was ghosted (Proxied)
-                    skip_reaction_remove = True
-                    return 
-            except Exception as e:
-                logger.error(f"Proxy Tag Check Failed: {e}") 
+ 
 
         # --- GOOD BOT CHECK (DEPRECATED: Button Only) ---
         # if re.search(r'\bgood\s*bot\b', message.content, re.IGNORECASE):
@@ -4642,6 +4636,13 @@ async def on_message(message):
         #             return
 
         if should_respond:
+            # --- VISUAL CONFIRMATION ---
+            # React with Eye to show "I see you"
+            try:
+                await message.add_reaction(config.EYE_REACTION)
+                reaction_added = True
+            except: pass
+
             # Determine if this was an explicit trigger (Ping/Role) vs just a reply or keyword
             is_explicit_trigger = (client.user in message.mentions)
             if not is_explicit_trigger and message.role_mentions:
@@ -4737,6 +4738,11 @@ async def on_message(message):
                     
                     if not member_obj and not message.webhook_id: member_obj = message.author
                     
+                    # FORCE MAPPING: Override System ID if in config (Hardcoded Seraphim)
+                    if sender_id and sender_id in config.FORCE_SYSTEM_MAPPING:
+                        system_id = config.FORCE_SYSTEM_MAPPING[sender_id]
+                        logger.info(f"🛡️ Force-Mapped {sender_id} to System {system_id}")
+                    
                     if member_obj:
                         logger.info(f"DEBUG: Member Found: {member_obj.display_name} | Roles: {[r.name for r in member_obj.roles]}")
                     else:
@@ -4759,11 +4765,34 @@ async def on_message(message):
 
                     # History
                     history_messages = []
+                    
+                    # Identify active bar messages to exclude from memory
+                    active_bar_id = None
+                    active_check_id = None
+                    if message.channel.id in client.active_bars:
+                        bar_data = client.active_bars[message.channel.id]
+                        active_bar_id = bar_data.get("message_id")
+                        active_check_id = bar_data.get("checkmark_message_id")
+
                     async for prev_msg in message.channel.history(limit=config.CONTEXT_WINDOW + 5, before=message):
                         cutoff = client.channel_cutoff_times.get(message.channel.id)
                         if cutoff and prev_msg.created_at < cutoff: break
                         
+                        # Exclude Status Bar & Checkmark
+                        if prev_msg.id == active_bar_id or prev_msg.id == active_check_id:
+                            continue
+
                         if prev_msg.webhook_id is None:
+                                # 0. Check Hardcoded Proxy Tags (Memory Sanitization)
+                                # Filter out any message in history that starts with a hardcoded tag
+                                if hasattr(config, 'HARDCODED_PROXY_TAGS'):
+                                    should_skip = False
+                                    for tag in config.HARDCODED_PROXY_TAGS:
+                                        if prev_msg.content.strip().startswith(tag):
+                                            should_skip = True
+                                            break
+                                    if should_skip: continue
+
                                 # 1. Check My System Tags (Self-proxy)
                                 tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
                                 if helpers.matches_proxy_tag(prev_msg.content, tags): continue
@@ -4833,10 +4862,13 @@ async def on_message(message):
                         transcript_text = await services.service.fetch_youtube_transcript(video_id)
                         if transcript_text:
                             youtube_context = transcript_text
-                            if len(transcript_text) < 100:
-                                logger.info(f"✅ Transcript fetched (Short): {transcript_text}")
-                            else:
-                                logger.info(f"✅ Transcript fetched ({len(transcript_text)} chars).")
+                            try:
+                                if len(transcript_text) < 100:
+                                    logger.info(f"✅ Transcript fetched (Short): {transcript_text}")
+                                else:
+                                    logger.info(f"✅ Transcript fetched ({len(transcript_text)} chars).")
+                            except:
+                                logger.info(f"✅ Transcript fetched.")
 
                     if not clean_prompt and image_data_uri: clean_prompt = "What is this image?"
                     elif not clean_prompt and not search_queries and not youtube_context:
@@ -4855,13 +4887,6 @@ async def on_message(message):
                     if message.id in client.abort_signals:
                         logger.info(f"🛑 Generation aborted for {message.id} before query.")
                         return
-
-                    # Final Ghost Check (Reduce Race Conditions)
-                    try:
-                        await message.channel.fetch_message(message.id)
-                    except discord.NotFound:
-                         logger.info(f"👻 Final Ghost Check caught {message.id} before generation.")
-                         return
 
                     # Query LLM
                     # ... existing logic ...
@@ -4950,7 +4975,13 @@ async def on_message(message):
     finally:
         if reaction_added and not skip_reaction_remove:
             try:
+                # Remove Wake Word (Legacy)
                 await message.remove_reaction(ui.FLAVOR_TEXT["WAKE_WORD_REACTION"], client.user)
+            except: pass
+            
+            try:
+                # Remove Eye Reaction (Visual Processing Indicator)
+                await message.remove_reaction(config.EYE_REACTION, client.user)
             except: pass
         
         client.abort_signals.discard(message.id)

@@ -88,7 +88,11 @@ def get_identity_suffix(user_obj, system_id, member_name=None, my_system_members
         
     # 3. Check if they are part of the 'Own System' (Legacy Seraph Logic)
     is_system_member = False
-    if system_id == config.MY_SYSTEM_ID:
+    
+    # FORCE MAPPING CHECK
+    if user_id in config.FORCE_SYSTEM_MAPPING:
+        is_system_member = True
+    elif system_id == config.MY_SYSTEM_ID:
         is_system_member = True
     elif getattr(config, 'SECONDARY_SYSTEM_ID', None) and system_id == config.SECONDARY_SYSTEM_ID:
         is_system_member = True

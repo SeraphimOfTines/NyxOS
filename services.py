@@ -1,5 +1,6 @@
 import aiohttp
 import re
+import os
 import json
 import asyncio
 from datetime import datetime
@@ -20,6 +21,8 @@ class APIService:
         self.pk_user_cache = OrderedDict()   
         self.pk_message_cache = OrderedDict()
         self.pk_proxy_tags = OrderedDict()   
+        self.proxy_tags_cache = [] # Combined list of ALL system tags + hardcoded
+        self.proxy_tags_file = os.path.join(config.BASE_DIR, 'proxy_tags.json')
         self.my_system_members = set()  
         self.limiter = rate_limiter.limiter 
         self.MAX_CACHE_SIZE = 500
@@ -27,6 +30,8 @@ class APIService:
     async def start(self):
         timeout = aiohttp.ClientTimeout(total=60)
         self.http_session = aiohttp.ClientSession(timeout=timeout)
+        
+        self.load_proxy_tags_from_disk()
         
         if config.USE_LOCAL_PLURALKIT and hasattr(config, 'PLURALKIT_DB_URI') and config.PLURALKIT_DB_URI:
             try:
@@ -48,6 +53,86 @@ class APIService:
         if self.db_pool:
             await self.db_pool.close()
         logger.info("APIService closed.")
+
+    # --- PROXY TAG MANAGEMENT ---
+
+    def load_proxy_tags_from_disk(self):
+        """Loads proxy tags from local JSON file into memory cache."""
+        loaded_tags = []
+        if os.path.exists(self.proxy_tags_file):
+            try:
+                with open(self.proxy_tags_file, 'r', encoding='utf-8') as f:
+                    loaded_tags = json.load(f)
+                logger.info(f"Loaded {len(loaded_tags)} proxy tags from disk.")
+            except Exception as e:
+                logger.error(f"Failed to load proxy tags from disk: {e}")
+        
+        # Merge with Hardcoded (Hardcoded takes priority if needed, but we just merge lists)
+        # We ensure uniqueness
+        hardcoded = config.HARDCODED_PROXY_TAGS if hasattr(config, 'HARDCODED_PROXY_TAGS') else []
+        
+        # Structure of tags: {'prefix': 'x', 'suffix': 'y'}
+        # Hardcoded are simple strings (prefixes). Convert to dict format for consistency?
+        # Actually, `matches_proxy_tag` handles dicts.
+        # Let's standardize: `proxy_tags_cache` is a list of dicts.
+        
+        final_list = []
+        seen = set()
+        
+        # Add Hardcoded (as prefix-only tags)
+        for tag in hardcoded:
+            if tag not in seen:
+                final_list.append({'prefix': tag, 'suffix': None})
+                seen.add(tag)
+        
+        # Add Loaded
+        for tag in loaded_tags:
+            # tag is dict {'prefix': '...', 'suffix': '...'}
+            # Create a signature for uniqueness
+            sig = f"{tag.get('prefix')}|{tag.get('suffix')}"
+            if sig not in seen:
+                final_list.append(tag)
+                seen.add(sig)
+                
+        self.proxy_tags_cache = final_list
+
+    def get_all_proxy_tags(self):
+        """Returns the full cached list of proxy tags to ignore."""
+        return self.proxy_tags_cache
+
+    async def update_proxy_tags_cache(self, system_id=None):
+        """Fetches ALL proxy tags for the system and updates the cache/file."""
+        if not system_id: system_id = config.MY_SYSTEM_ID
+        if not system_id: return False, "No System ID configured."
+
+        url = config.PLURALKIT_SYSTEM_MEMBERS.format(system_id)
+        fetched_tags = []
+        
+        try:
+            async with self.http_session.get(url) as resp:
+                if resp.status == 200:
+                    members = await resp.json()
+                    for m in members:
+                        ptags = m.get('proxy_tags', [])
+                        for pt in ptags:
+                            # pt is {'prefix': ..., 'suffix': ...}
+                            fetched_tags.append(pt)
+                else:
+                    return False, f"API Error: {resp.status}"
+        except Exception as e:
+            logger.error(f"Failed to fetch proxy tags: {e}")
+            return False, f"Exception: {e}"
+
+        # Save to Disk
+        try:
+            with open(self.proxy_tags_file, 'w', encoding='utf-8') as f:
+                json.dump(fetched_tags, f, indent=2)
+        except Exception as e:
+            return False, f"Failed to write file: {e}"
+
+        # Reload Cache
+        self.load_proxy_tags_from_disk()
+        return True, f"Updated. Now tracking {len(self.proxy_tags_cache)} tags."
 
     # --- PLURALKIT ---
 
