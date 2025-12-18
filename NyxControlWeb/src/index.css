@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-discord-bg text-white font-sans;
+}
+
+/* PERFORMANCE HACK: 
+   When dragging starts, disable pointer events on all draggable items 
+   except the active drag overlay. This stops the browser from calculating 
+   hovers for hundreds of items.
+*/
+body.dragging-active .draggable-item {
+  pointer-events: none !important;
+}
+
+/* Ensure the drop targets (shelf, categories) still accept events */
+body.dragging-active .droppable-area {
+  pointer-events: auto !important;
+}
