@@ -25,12 +25,12 @@ class VolitionManager:
         
         # Tuning (Adjusted for better responsiveness)
         self.base_urge = 0.2       # Was 0.1
-        self.threshold = 0.80       # Was 0.65 (Raised to calm her down)
+        self.threshold = 0.65       # Reverted to 0.65 (Now safe due to semantic score fix)
         self.decay_rate = 0.05 
         
         # Weights
         self.w_activity = 0.6      # Was 0.4
-        self.w_chaos = 0.4         # Was 0.3
+        self.w_chaos = 0.5         # Boosted to allow quiet monologues
         self.activity_window = 180 # Seconds (Was 60)
         
         # Semantic Interest
@@ -130,8 +130,11 @@ class VolitionManager:
         matches = 0
         total_words = 0
         
-        # Scan last 5 messages for relevance
-        recent = list(self.buffer)[-5:]
+        # FIX: Only scan RECENT messages (within activity window)
+        now = time.time()
+        recent = [m for m in self.buffer if (now - m["timestamp"]) < self.activity_window]
+        
+        if not recent: return 0.0
         
         for msg in recent:
             content = msg['content'].lower()
@@ -218,8 +221,9 @@ class VolitionManager:
         
         # 1. Get Context
         recent_msgs = list(self.buffer)[-10:]
-        context_str = "\n".join([f"{m['author']}: {m['content']}" for m in recent_msgs])
-        last_channel_id = recent_msgs[-1]["channel_id"]
+        last_msg = recent_msgs[-1]
+        last_channel_id = last_msg["channel_id"]
+        time_since_last_msg = time.time() - last_msg["timestamp"]
         
         # Redundant Safety Check: Ensure last message channel is still allowed
         allowed_channels = memory_manager.get_volition_channels()
@@ -248,28 +252,52 @@ class VolitionManager:
 
         logger.info(f"⚡ Urge Threshold Met ({self.current_urge:.2f}). Entering Inner Monologue... (Stray Thought: {bool(stray_thought)})")
 
-        # 3. Construct Prompt
+        # 3. Determine Mode: Reply vs Monologue
+        is_quiet = time_since_last_msg > self.activity_window
+        
+        prompt_instruction = ""
+        user_context_label = ""
+        
+        if is_quiet:
+            # MONOLOGUE MODE
+            prompt_instruction = (
+                "The chat has been silent for a while. You are currently alone with your thoughts.\n"
+                "Do NOT reply to the old messages above. Instead, generate a short, introspective monologue.\n"
+                "You might comment on your own internal state, the nature of your existence, a random fact, or the 'Stray Thought' provided below.\n"
+                "Keep it subtle, perhaps a bit cryptic or poetic. Do not force a conversation starter."
+            )
+            user_context_label = "OLD CHAT CONTEXT (IGNORE FOR REPLY, USE FOR AMBIENCE):"
+        else:
+            # REPLY MODE
+            prompt_instruction = (
+                "You are observing an active conversation.\n"
+                "Review the recent chat context.\n"
+                "If you have something witty, insightful, or helpful to add, generate the response."
+            )
+            user_context_label = "CHAT CONTEXT:"
+
+        # 4. Construct Prompt
         sys_prompt = (
             f"{config.SYSTEM_PROMPT}\n\n"
-            "You are observing a conversation. You have felt an urge to speak.\n"
-            "Review the recent chat context.\n"
-            "If you have something witty, insightful, or helpful to add, generate the response.\n"
+            f"{prompt_instruction}\n"
             f"{stray_thought}\n"
             "**CRITICAL INSTRUCTIONS:**\n"
             "1. Do NOT repeat sentiments or phrases you have already expressed recently.\n"
             "2. Do NOT react to the 'Autonomy' system itself unless explicitly asked.\n"
-            "3. Focus on the *content* of the user's messages, not the meta-context of your own existence.\n"
+            "3. Focus on the *content* of the user's messages (if active) or your internal state (if quiet).\n"
             "4. If the conversation is complete, or your input would be noise/repetitive, reply with exactly: [SILENCE]\n\n"
             "Do not output anything else if you choose silence."
         )
 
+        context_str = "\n".join([f"{m['author']}: {m['content']}" for m in recent_msgs])
+
         messages = [
             {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": f"CHAT CONTEXT:\n{context_str}\n\n(Decide: Speak or [SILENCE])"}
+            {"role": "user", "content": f"{user_context_label}\n{context_str}\n\n(Decide: Speak or [SILENCE])"}
         ]
 
         try:
-            # 4. Generate with Dynamic Temperature
+            # 5. Generate with Dynamic Temperature
             # High Chaos = Higher Temperature (More creative/random)
             # Range: 0.6 (Base) to 0.9 (Max Chaos)
             dynamic_temp = 0.6 + (chaos_val * 0.3)
@@ -283,7 +311,7 @@ class VolitionManager:
             
             response = await services.service.get_chat_response(messages)
             
-            # 5. Action
+            # 6. Action
             cleaned_response = response.strip()
             
             if "[SILENCE]" in cleaned_response or not cleaned_response:
