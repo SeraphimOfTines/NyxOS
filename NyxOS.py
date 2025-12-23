@@ -3579,7 +3579,8 @@ async def autonomy_command(interaction: discord.Interaction, action: str):
 @app_commands.choices(action=[
     app_commands.Choice(name="Status", value="status"),
     app_commands.Choice(name="Enable", value="enable"),
-    app_commands.Choice(name="Disable", value="disable")
+    app_commands.Choice(name="Disable", value="disable"),
+    app_commands.Choice(name="Soothe (Reset)", value="soothe")
 ])
 async def emotioncore_command(interaction: discord.Interaction, action: str = "status"):
     if not helpers.is_authorized(interaction.user):
@@ -3614,6 +3615,18 @@ async def emotioncore_command(interaction: discord.Interaction, action: str = "s
     elif action == "disable":
         ec.toggle_system(False)
         await interaction.response.send_message("💙 Emotional Core **DISABLED**.", ephemeral=True)
+
+    elif action == "soothe":
+        # Reset Stats
+        ec.state["stats"]["sadness"] = 0
+        ec.state["stats"]["anxiety"] = 0
+        ec.state["stats"]["anger"] = 0
+        ec.state["stats"]["loneliness"] = 0
+        ec.state["stats"]["boredom"] = 0
+        ec.state["stats"]["joy"] = 50
+        ec.state["stats"]["energy"] = 100
+        ec.save_state()
+        await interaction.response.send_message("💙 **Soothing Complete.** I feel calm and balanced again. ✨", ephemeral=True)
 
 @client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
 async def nukedatabase_command(interaction: discord.Interaction):
