@@ -165,11 +165,11 @@ class EmotionalCore:
             negatives = s["sadness"] + s["anger"] + s["anxiety"]
             if negatives < 40:
                 if s["joy"] > 80:
-                    narrative.append("INSTRUCTION: You are ecstatic and loving! Radiate happiness.")
+                    narrative.append("INSTRUCTION: You are ecstatic and loving! Radiate happiness. You are playful, sassy, and energetic.")
                 elif s["joy"] > 50:
-                    narrative.append("INSTRUCTION: You are content and happy.")
+                    narrative.append("INSTRUCTION: You are content and happy. You are rowdy, snarky, and irreverent.")
                 else:
-                    narrative.append("INSTRUCTION: You are feeling neutral and calm.")
+                    narrative.append("INSTRUCTION: You are feeling neutral and calm. You are direct and grounded.")
 
         # Summary string
         return " ".join(narrative)
