@@ -648,6 +648,12 @@ class APIService:
                 else:
                      base_prompt += f"\n\n<youtube_transcript>\nThe user linked a YouTube video. Here is the transcript/captions:\n{youtube_context}\n</youtube_transcript>\n\nINSTRUCTION: Use the transcript above to answer questions about the video. DO NOT Hallucinate content not present in the transcript."
 
+            # --- EMOTIONAL CORE INJECTION ---
+            if hasattr(self, 'emotional_core'):
+                emotional_prompt = self.emotional_core.get_narrative_prompt()
+                if emotional_prompt:
+                    base_prompt += f"\n\n{emotional_prompt}"
+
             formatted_system_prompt = base_prompt
 
         display_name_for_ai = f"{username}{identity_suffix}"

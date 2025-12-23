@@ -276,9 +276,15 @@ class VolitionManager:
             )
             user_context_label = "CHAT CONTEXT:"
 
+        # --- EMOTIONAL INJECTION ---
+        emotional_prompt = ""
+        if hasattr(self.client, 'emotional_core'):
+            emotional_prompt = self.client.emotional_core.get_narrative_prompt()
+
         # 4. Construct Prompt
         sys_prompt = (
             f"{config.SYSTEM_PROMPT}\n\n"
+            f"{emotional_prompt}\n\n"
             f"{prompt_instruction}\n"
             f"{stray_thought}\n"
             "**CRITICAL INSTRUCTIONS:**\n"

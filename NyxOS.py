@@ -85,6 +85,7 @@ import vector_store
 import self_reflection
 import volition
 import command_handler
+import emotional_core
 
 # ==========================================
 # BOT SETUP
@@ -134,6 +135,10 @@ class LMStudioBot(discord.Client):
 
         # API Server
         self.api_server = NyxAPI.NyxAPI(self)
+
+        # Emotional Core
+        self.emotional_core = emotional_core.EmotionalCore()
+        services.service.emotional_core = self.emotional_core
 
     def get_tree_hash(self):
         """Generates a hash of the current command tree structure."""
@@ -235,6 +240,7 @@ class LMStudioBot(discord.Client):
         asyncio.create_task(self.conversation_heartbeat_task())
         self.volition_loop.start()
         self.daily_reflection_task.start()
+        self.emotional_tick_task.start()
 
     @tasks.loop(minutes=1)
     async def daily_reflection_task(self):
@@ -272,6 +278,14 @@ class LMStudioBot(discord.Client):
                     await self_reflection.process_missed_days()
                 except Exception as e:
                     logger.error(f"Auto-Reflection Failed: {e}")
+
+    @tasks.loop(minutes=15)
+    async def emotional_tick_task(self):
+        """Updates emotional state (decay/boredom) periodically."""
+        try:
+            self.emotional_core.tick()
+        except Exception as e:
+            logger.error(f"Emotional Tick Failed: {e}")
 
     @tasks.loop(seconds=config.VOLITION_INTERVAL)
     async def volition_loop(self):
@@ -3561,6 +3575,43 @@ async def autonomy_command(interaction: discord.Interaction, action: str):
         memory_manager.remove_volition_channel(interaction.channel_id)
         await interaction.response.send_message(f"🧠 Autonomy **DENIED** in <#{interaction.channel_id}>.", ephemeral=True)
 
+@client.tree.command(name="emotioncore", description="Control the Emotional Core system.")
+@app_commands.choices(action=[
+    app_commands.Choice(name="Status", value="status"),
+    app_commands.Choice(name="Enable", value="enable"),
+    app_commands.Choice(name="Disable", value="disable")
+])
+async def emotioncore_command(interaction: discord.Interaction, action: str):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+        return
+
+    ec = client.emotional_core
+    
+    if action == "status":
+        state = ec.state
+        stats = state["stats"]
+        enabled_str = "ENABLED" if state.get("enabled") else "DISABLED"
+        
+        # Build Stats Block
+        stats_str = "\n".join([f"> **{k.capitalize()}:** `{v}`" for k, v in stats.items()])
+        narrative = ec.get_narrative_prompt().replace("\n", " ").strip()
+        
+        await interaction.response.send_message(
+            f"💙 **Emotional Core Status**\n"
+            f"System: `{enabled_str}`\n"
+            f"**Statistics:**\n{stats_str}\n\n"
+            f"**Narrative Prompt:**\n*{narrative}*"
+        , ephemeral=True)
+        
+    elif action == "enable":
+        ec.toggle_system(True)
+        await interaction.response.send_message("💙 Emotional Core **ENABLED**. I am feeling...", ephemeral=True)
+        
+    elif action == "disable":
+        ec.toggle_system(False)
+        await interaction.response.send_message("💙 Emotional Core **DISABLED**.", ephemeral=True)
+
 @client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
 async def nukedatabase_command(interaction: discord.Interaction):
     if not helpers.is_admin(interaction.user):
@@ -4319,6 +4370,9 @@ async def on_message(message):
 
     if message.author == client.user: return
 
+    # Register Interaction for Emotional Core
+    client.emotional_core.register_interaction()
+
     # --- STATUS BAR PERSISTENCE ---
     if message.channel.id in client.active_bars:
         bar_data = client.active_bars[message.channel.id]
@@ -4364,6 +4418,7 @@ async def on_message(message):
             "disableall": (disableall_command, None),
             "reboot": (reboot_command, None),
             "shutdown": (shutdown_command, None),
+            "emotioncore": (emotioncore_command, "action"),
             "clearmemory": (clearmemory_command, None),
             "bugreport": (bugreport_command, None),
             "reportbug": (bugreport_command, None), # Alias

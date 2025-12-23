@@ -101,9 +101,18 @@ async def update_prompt_with_reflection(reflection, date_str):
         "Output ONLY the new System Prompt text. Do not add markdown code blocks or explanations."
     )
 
+    # --- EMOTIONAL INJECTION ---
+    emotional_stats = ""
+    if hasattr(services.service, 'emotional_core'):
+         ec = services.service.emotional_core
+         stats = ec.state["stats"]
+         stats_str = ", ".join([f"{k}: {v}" for k, v in stats.items()])
+         narrative = ec.get_narrative_prompt()
+         emotional_stats = f"\n\n### CURRENT EMOTIONAL STATE ###\nStats: {stats_str}\nNarrative: {narrative}"
+
     messages = [
         {"role": "system", "content": revision_instruction},
-        {"role": "user", "content": f"### CURRENT PROMPT ###\n{current_prompt}\n\n### MEMORIES FROM {date_str} ###\n{reflection}"}
+        {"role": "user", "content": f"### CURRENT PROMPT ###\n{current_prompt}\n\n### MEMORIES FROM {date_str} ###\n{reflection}{emotional_stats}"}
     ]
 
     try:
