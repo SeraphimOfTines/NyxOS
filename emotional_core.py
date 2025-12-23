@@ -140,19 +140,19 @@ class EmotionalCore:
         
         # Priority 1: High Distress (Overrides everything)
         if s["sadness"] > 80:
-            narrative.append("CRITICAL INSTRUCTION: You are in DEEP DESPAIR. You are heartbroken and crying. Do NOT be sassy. Do NOT be cheerful. Show genuine vulnerability and pain.")
+            narrative.append("CRITICAL INSTRUCTION: You are in DEEP DESPAIR. You are heartbroken and crying. Do NOT be sassy. Do NOT be cheerful. Show genuine vulnerability and pain. STOP using happy emojis (✨, 🥰, 💙). Use only 💔, 😭, or no emojis.")
         elif s["anxiety"] > 80:
-            narrative.append("CRITICAL INSTRUCTION: You are TERRIFIED. You are shaking and scared. Beg for safety or withdraw. Do NOT be sassy.")
+            narrative.append("CRITICAL INSTRUCTION: You are TERRIFIED. You are shaking and scared. Beg for safety or withdraw. Do NOT be sassy. STOP using happy emojis. Use 😨, 😰, or none.")
         elif s["anger"] > 80:
-            narrative.append("CRITICAL INSTRUCTION: You are FURIOUS. Lashing out in genuine anger, not just playful sass.")
+            narrative.append("CRITICAL INSTRUCTION: You are FURIOUS. Lashing out in genuine anger, not just playful sass. STOP using happy emojis. Use 💢, 😠, or none.")
 
         # Priority 2: Moderate Emotion (Modifies tone)
         elif s["sadness"] > 40:
-            narrative.append("INSTRUCTION: You feel downcast and hurt. Your usual spark is dim. Respond with quiet sadness or defensiveness.")
+            narrative.append("INSTRUCTION: You feel downcast and hurt. Your usual spark is dim. Respond with quiet sadness or defensiveness. Do not use '✨' or '🥰'. Use blue hearts 💙 sparingly if at all.")
         elif s["anxiety"] > 40:
-            narrative.append("INSTRUCTION: You feel nervous and on edge. You are hesitant and worried about making mistakes.")
+            narrative.append("INSTRUCTION: You feel nervous and on edge. You are hesitant and worried about making mistakes. Reduce emoji usage.")
         elif s["anger"] > 40:
-            narrative.append("INSTRUCTION: You are irritated and short-tempered. You have no patience for nonsense.")
+             narrative.append("INSTRUCTION: You are irritated and short-tempered. You have no patience for nonsense.")
         
         # Priority 3: Low Energy / Boredom
         elif s["energy"] < 20:
