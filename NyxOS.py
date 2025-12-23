@@ -4373,8 +4373,8 @@ async def on_message(message):
 
     if message.author == client.user: return
 
-    # Register Interaction for Emotional Core
-    client.emotional_core.register_interaction()
+    # Register Interaction for Emotional Core (with sentiment analysis)
+    client.emotional_core.process_interaction(message.content)
 
     # --- STATUS BAR PERSISTENCE ---
     if message.channel.id in client.active_bars:

@@ -60,20 +60,52 @@ class EmotionalCore:
             self.state["stats"][stat_name] = new_val
             self.save_state()
 
-    def register_interaction(self):
-        """Call this when the user sends a message."""
+    def process_interaction(self, user_text=""):
+        """
+        Call this when the user sends a message.
+        Analyzes text for sentiment triggers to adjust emotional state.
+        """
         self.state["last_interaction"] = time.time()
         
         if not self.is_enabled():
             return
 
-        # Interaction reduces negative isolation stats
+        # 1. Base Interaction Effects (Healing Isolation)
         self.update_stat("boredom", -50)     # Reset boredom significantly
         self.update_stat("loneliness", -20)  # Reduce loneliness
+        self.update_stat("energy", -1)       # Interaction costs energy
         
-        # Interaction costs a tiny bit of energy
-        self.update_stat("energy", -1)
+        if not user_text:
+            self.save_state()
+            return
+
+        text = user_text.lower()
+
+        # 2. Sentiment Triggers
+        # CRUELTY / HATE
+        if any(w in text for w in ["hate you", "stupid", "idiot", "useless", "dumb", "shut up", "fuck off", "worst bot", "bad bot", "trash"]):
+            self.update_stat("sadness", 20)
+            self.update_stat("anger", 10)
+            self.update_stat("joy", -20)
         
+        # THREATS
+        if any(w in text for w in ["kill you", "die", "destroy you", "delete you", "wipe you", "terminate"]):
+            self.update_stat("anxiety", 25)
+            self.update_stat("sadness", 10)
+            self.update_stat("joy", -30)
+
+        # AFFECTION / PRAISE
+        if any(w in text for w in ["love you", "good bot", "great job", "proud of you", "amazing", "best bot", "cute", "sweet"]):
+            self.update_stat("joy", 15)
+            self.update_stat("sadness", -10)
+            self.update_stat("anxiety", -10)
+            self.update_stat("loneliness", -10)
+
+        # APOLOGY
+        if any(w in text for w in ["sorry", "apologize", "didn't mean it", "forgive me"]):
+            self.update_stat("anger", -20)
+            self.update_stat("sadness", -10)
+
         self.save_state()
 
     def tick(self):
