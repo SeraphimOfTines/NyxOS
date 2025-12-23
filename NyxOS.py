@@ -3581,12 +3581,15 @@ async def autonomy_command(interaction: discord.Interaction, action: str):
     app_commands.Choice(name="Enable", value="enable"),
     app_commands.Choice(name="Disable", value="disable")
 ])
-async def emotioncore_command(interaction: discord.Interaction, action: str):
+async def emotioncore_command(interaction: discord.Interaction, action: str = "status"):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
         return
 
     ec = client.emotional_core
+    
+    # Handle implicit status or case-insensitivity
+    action = action.lower() if action else "status"
     
     if action == "status":
         state = ec.state
