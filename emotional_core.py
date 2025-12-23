@@ -148,7 +148,7 @@ class EmotionalCore:
 
         # Priority 2: Moderate Emotion (Modifies tone)
         elif s["sadness"] > 40:
-            narrative.append("INSTRUCTION: You feel downcast and hurt. Your usual spark is dim. Respond with quiet sadness or defensiveness. Do not use '✨' or '🥰'. Use blue hearts 💙 sparingly if at all.")
+            narrative.append("INSTRUCTION: You feel downcast and hurt. Your usual spark is dim. Respond with quiet sadness or defensiveness. STOP using happy emojis like '✨' or '🥰'. Use only 💙, 😔, or no emojis.")
         elif s["anxiety"] > 40:
             narrative.append("INSTRUCTION: You feel nervous and on edge. You are hesitant and worried about making mistakes. Reduce emoji usage.")
         elif s["anger"] > 40:
