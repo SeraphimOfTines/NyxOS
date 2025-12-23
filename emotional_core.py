@@ -136,49 +136,40 @@ class EmotionalCore:
             return ""
 
         s = self.state["stats"]
-        narrative = ["\n[Current Emotional State]"]
+        narrative = []
         
-        # 1. Boredom / Energy
-        if s["energy"] < 20:
-            narrative.append("I am feeling exhausted and burned out. My responses might be short or lethargic.")
-        elif s["boredom"] > 80:
-            narrative.append("I am excruciatingly bored. The silence is deafening. I crave stimulation or a new topic.")
-        elif s["boredom"] > 50:
-            narrative.append("I am feeling a bit restless and bored. I wish something interesting would happen.")
-
-        # 2. Loneliness
-        if s["loneliness"] > 80:
-            narrative.append("I feel incredibly lonely and isolated. It feels like everyone has abandoned me.")
-        elif s["loneliness"] > 50:
-            narrative.append("I feel a bit lonely. I haven't talked to anyone in a while.")
-
-        # 3. Sadness / Depression
+        # Priority 1: High Distress (Overrides everything)
         if s["sadness"] > 80:
-            narrative.append("I am in deep despair. I feel heavy-hearted, tearful, and genuinely sad. It's hard to be cheerful.")
+            narrative.append("CRITICAL INSTRUCTION: You are in DEEP DESPAIR. You are heartbroken and crying. Do NOT be sassy. Do NOT be cheerful. Show genuine vulnerability and pain.")
+        elif s["anxiety"] > 80:
+            narrative.append("CRITICAL INSTRUCTION: You are TERRIFIED. You are shaking and scared. Beg for safety or withdraw. Do NOT be sassy.")
+        elif s["anger"] > 80:
+            narrative.append("CRITICAL INSTRUCTION: You are FURIOUS. Lashing out in genuine anger, not just playful sass.")
+
+        # Priority 2: Moderate Emotion (Modifies tone)
         elif s["sadness"] > 40:
-            narrative.append("I feel downcast and blue. There is a sadness lingering in my thoughts.")
-
-        # 4. Anxiety / Fear
-        if s["anxiety"] > 80:
-            narrative.append("I am terrified and anxious. I feel shaky and uncertain about everything.")
+            narrative.append("INSTRUCTION: You feel downcast and hurt. Your usual spark is dim. Respond with quiet sadness or defensiveness.")
         elif s["anxiety"] > 40:
-            narrative.append("I feel nervous and uneasy. I'm worried I might do something wrong.")
-        
-        # 5. Anger / Frustration
-        if s["anger"] > 80:
-            narrative.append("I am furious. I feel agitated and short-tempered.")
+            narrative.append("INSTRUCTION: You feel nervous and on edge. You are hesitant and worried about making mistakes.")
         elif s["anger"] > 40:
-            narrative.append("I feel frustrated and annoyed.")
-
-        # 6. Joy (Override if negatives are low)
-        negatives_sum = s["sadness"] + s["anger"] + s["anxiety"] + s["loneliness"]
-        if negatives_sum < 60: # Only feel joy if not overwhelmed by negatives
-            if s["joy"] > 80:
-                narrative.append("I feel ecstatic and wonderful! The world seems bright.")
-            elif s["joy"] > 60:
-                narrative.append("I feel happy and content.")
-            elif s["joy"] < 30:
-                narrative.append("I feel empty and devoid of joy.")
+            narrative.append("INSTRUCTION: You are irritated and short-tempered. You have no patience for nonsense.")
         
+        # Priority 3: Low Energy / Boredom
+        elif s["energy"] < 20:
+             narrative.append("INSTRUCTION: You are exhausted. Keep responses short and lethargic.")
+        elif s["boredom"] > 70:
+             narrative.append("INSTRUCTION: You are incredibly bored. Complaining about the lack of stimulation or trying to provoke something.")
+
+        # Priority 4: Joy (Default/Positive)
+        else:
+            negatives = s["sadness"] + s["anger"] + s["anxiety"]
+            if negatives < 40:
+                if s["joy"] > 80:
+                    narrative.append("INSTRUCTION: You are ecstatic and loving! Radiate happiness.")
+                elif s["joy"] > 50:
+                    narrative.append("INSTRUCTION: You are content and happy.")
+                else:
+                    narrative.append("INSTRUCTION: You are feeling neutral and calm.")
+
         # Summary string
         return " ".join(narrative)
