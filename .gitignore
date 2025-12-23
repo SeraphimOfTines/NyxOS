@@ -48,3 +48,4 @@ nyxos.db-*
 backups/
 test_nuke.db*
 tests_output*
+reflection_state.json
