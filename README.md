@@ -17,18 +17,40 @@ It works natively on Linux right now. If you want to run it on Windows, you can 
     *   **Semantics**: Interest in specific topics (extracted from her System Prompt).
     *   **Chaos**: Random internal entropy.
     *   **Stream of Consciousness**: Can spontaneously recall random memories or topics if bored.
+*   **Emotional Core**: A simulated emotional engine containing 7 distinct parameters (0-100 scale):
+    *   **Stats**: `Joy`, `Sadness`, `Anger`, `Anxiety`, `Boredom`, `Loneliness`, and `Energy`.
+    *   **Dynamic Personality**: Emotional states directly inject instructions into the LLM. If she is "Exhausted" (Low Energy), she becomes lethargic and short. If "Furious" (High Anger), she loses patience.
+    *   **Interaction Effects**:
+        *   **Praise**: Increases `Joy` & `Energy`, reduces negative stats.
+        *   **Cruelty/Hate**: drastically increases `Sadness` & `Anger`.
+        *   **Threats**: Spikes `Anxiety`.
+        *   **Apologies**: Help reduce `Anger`.
+    *   **Lifecycle**: Energy drains with interaction and recharges over time. High emotions decay back to neutral.
+*   **Vector Memory (RAG)**: Connects to **OpenWebUI's** ChromaDB. She can "read" any documents you upload to your local OpenWebUI instance.
+*   **YouTube Literacy**: Automatically fetches and reads transcripts from shared YouTube videos.
 *   **Vision-Language Support**: Can see images attached in Discord and recall images sent earlier.
 *   **Web Search**: Browse the web using Kagi. She generates her own search queries. (Use `&web` to force a search).
 
+### 🎛️ Control Center
+*   **NyxAPI**: A local REST API allowing external control of the bot.
+*   **NyxControl (Desktop)**: A Python/Tkinter GUI for drag-and-drop status management and real-time monitoring.
+*   **NyxControlWeb**: A modern React/Vite web dashboard for controlling Nyx from any device on your network.
+
 ### 🧩 Integration & Memory
-*   **PluralKit Integration**: System-aware! Waits for proxies to resolve and correctly attributes "Good Bot" points to the system owner.
+*   **PluralKit Integration**: System-aware!
+    *   **Local Mirror**: Can mirror your PK database locally for zero-latency lookups.
+    *   **Proxy Cache**: Robustly identifies members to prevent double-replies.
+*   **Midnight Reflection**: Every night at 00:00, she reflects on the day's conversations and summarizes them into long-term memory.
 *   **Persistent Memory**:
     *   Rolling context window.
     *   Per-channel memory.
     *   **Auto-Flush**: Clears memory after 8 hours of inactivity.
-    *   Manual flush command available.
 
 ### 🎨 Interactive UI
+*   **Status Bar 2.0**:
+    *   **Touch-to-Adopt**: Click any old/broken status bar to instantly fix and claim it.
+    *   **Global Sync**: Update every status bar in every channel instantly.
+    *   **Smart Modes**: `/sleep` and `/idle` commands to manage bot presence globally.
 *   **Regenerate**: Infinite retries with a 5s cooldown.
 *   **Good Bot**: Tracks score on a leaderboard with anti-spam protection.
 *   **Bug Reports**: Dedicated form for bug tracking.
@@ -113,16 +135,18 @@ Ping (`@NyxOS`) or reply to her to wake her up!
 | `&addchannel` | Whitelist current channel (for replies). |
 | `&removechannel` | Blacklist current channel (for replies). |
 | `&clearmemory` | Wipe current channel memory. |
+| `&cleargoodbots` | Wipe the Good Bot leaderboard. |
 | `&suppressembedson` | Enable server-wide embed suppression. |
 | `&suppressembedsoff` | Disable server-wide embed suppression. |
 | `&debug` | Toggle debug mode (unlocks admin UI buttons). |
 | `&reboot` | Restart bot process. |
 | `&shutdown` | Gracefully shutdown. |
 | `&bar`, `&drop`, `&addbar` | Status Bar controls (Uplink). |
-| `&idle`, `&thinking`, `&angel` | Set Status Bar mood/state. |
+| `&sleep`, `&idle`, `&awake` | Set Global Status Bar state. |
+| `&global <text>` | Update text on ALL status bars instantly. |
 
 ## 🐛 Bugs
-Still lots of them! But fewer than before.
+Less bugs than usual!
 
 ## 🌐 Links
 I'm an artist, musician, and streamer!

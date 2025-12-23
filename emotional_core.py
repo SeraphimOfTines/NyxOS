@@ -100,6 +100,7 @@ class EmotionalCore:
             self.update_stat("sadness", -10)
             self.update_stat("anxiety", -10)
             self.update_stat("loneliness", -10)
+            self.update_stat("energy", 5)
 
         # APOLOGY
         if any(w in text for w in ["sorry", "apologize", "didn't mean it", "forgive me"]):
@@ -116,7 +117,7 @@ class EmotionalCore:
         # Natural Decay / Growth over time
         self.update_stat("boredom", 5)       # Boredom grows
         self.update_stat("loneliness", 2)    # Loneliness grows slowly
-        self.update_stat("energy", 5)        # Energy recharges over time
+        self.update_stat("energy", 10)       # Energy recharges over time
         
         # Emotions tend to drift toward neutral (0 for negatives, 50 for joy)
         # Decay High Anxiety/Anger/Sadness
