@@ -160,6 +160,39 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
              
              mock_query.assert_not_called()
 
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
+    @patch('memory_manager.log_conversation')
+    @patch('memory_manager.clear_channel_memory')
+    @patch('memory_manager.get_allowed_channels', return_value=[100])
+    @patch('memory_manager.get_server_setting', return_value=False)
+    @patch('helpers.clean_name_logic', return_value="TestUser") 
+    async def test_reply_bypasses_whitelist(self, mock_clean, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
+        """Test that replying to the bot bypasses channel whitelist."""
+        
+        # Message in non-whitelisted channel (200)
+        msg = self.create_mock_message("replying to you", 888, 200)
+        
+        # Mock Reply Reference
+        ref_msg = MagicMock()
+        ref_msg.id = 999
+        ref_msg.author.id = self.mock_client.user.id # Bot is author of original message
+        
+        msg.reference = MagicMock()
+        msg.reference.resolved = ref_msg
+        
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+        
+        # Mock services
+        with patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response") as mock_query, \
+             patch('helpers.is_authorized', return_value=True): 
+             
+             await NyxOS.on_message(msg)
+             
+             mock_query.assert_called()
 
 
 if __name__ == '__main__':

@@ -4724,6 +4724,10 @@ async def on_message(message):
             if not is_explicit_trigger and message.role_mentions:
                  for role in message.role_mentions:
                      if role.id in TRIGGER_ROLES: is_explicit_trigger = True; break
+            
+            # Treat direct replies to the bot as explicit triggers
+            if target_message_id:
+                is_explicit_trigger = True
 
             global_chat = memory_manager.get_server_setting("global_chat_enabled", False)
             allowed_ids = memory_manager.get_allowed_channels()
