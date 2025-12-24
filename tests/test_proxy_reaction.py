@@ -21,7 +21,12 @@ class TestProxyReaction(unittest.IsolatedAsyncioTestCase):
         mock_client.volition.update_buffer = AsyncMock()
         mock_client.abort_signals = set()
         
-        message = AsyncMock()
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
+        
+        message = MagicMock()
+        message.add_reaction = AsyncMock()
         message.content = "Cly: Hi!"
         message.webhook_id = None # Is human
         message.author.id = 123
@@ -49,12 +54,16 @@ class TestProxyReaction(unittest.IsolatedAsyncioTestCase):
         mock_client.user.id = 888
         mock_client.processing_locks = set()
         mock_client.active_bars = {} # Not persisting
-        mock_client.boot_cleared_channels = set()
         mock_client.volition = MagicMock()
         mock_client.volition.update_buffer = AsyncMock()
         mock_client.abort_signals = set()
         
-        message = AsyncMock()
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
+        
+        message = MagicMock()
+        message.add_reaction = AsyncMock()
         message.content = "Hi!"
         message.webhook_id = 99999 # Is Webhook
         message.author.id = 99999
@@ -88,7 +97,12 @@ class TestProxyReaction(unittest.IsolatedAsyncioTestCase):
         mock_client.volition.update_buffer = AsyncMock()
         mock_client.abort_signals = set()
         
-        message = AsyncMock()
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
+        
+        message = MagicMock()
+        message.add_reaction = AsyncMock()
         message.content = "GitHub Notification"
         message.webhook_id = 88888 # Is Webhook
         message.author.id = 88888

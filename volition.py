@@ -25,7 +25,7 @@ class VolitionManager:
         
         # Tuning (Adjusted for better responsiveness)
         self.base_urge = 0.2       # Was 0.1
-        self.threshold = 0.8       # Reverted to 0.65 (Now safe due to semantic score fix)
+        self.threshold = 0.65       # Reverted to 0.65 (Now safe due to semantic score fix)
         self.decay_rate = 0.05 
         
         # Weights

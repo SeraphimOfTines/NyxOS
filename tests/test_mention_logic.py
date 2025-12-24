@@ -17,6 +17,10 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
         self.client_patcher = patch('NyxOS.client')
         self.mock_client = self.client_patcher.start()
         
+        # Patch extract_video_id to prevent accidental trigger
+        self.video_patcher = patch('services.service.extract_video_id', return_value=None)
+        self.video_patcher.start()
+        
         # Setup Mock Client Attributes
         self.mock_client.user = MagicMock()
         self.mock_client.user.id = 12345
@@ -39,6 +43,7 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self):
         self.client_patcher.stop()
+        self.video_patcher.stop()
         
     # Helper to create an async iterator for history
     class AsyncIterator:

@@ -31,6 +31,10 @@ class TestSeraphWebhook(unittest.IsolatedAsyncioTestCase):
         # Volition
         mock_client.volition = MagicMock()
         mock_client.volition.update_buffer = AsyncMock()
+        
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
 
         # Mock Message (Webhook with Seraphim Tag)
         message = AsyncMock()
@@ -95,6 +99,10 @@ class TestSeraphWebhook(unittest.IsolatedAsyncioTestCase):
         
         mock_client.volition = MagicMock()
         mock_client.volition.update_buffer = AsyncMock()
+        
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
 
         message = AsyncMock()
         message.content = "Hello Bot"

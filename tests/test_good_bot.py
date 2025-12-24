@@ -39,6 +39,10 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         # Volition
         mock_client.volition = MagicMock()
         mock_client.volition.update_buffer = AsyncMock()
+        
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
 
         # Mock Message
         message = AsyncMock()
@@ -97,6 +101,10 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         # Volition
         mock_client.volition = MagicMock()
         mock_client.volition.update_buffer = AsyncMock()
+        
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
         
         # Set cooldown
         import time

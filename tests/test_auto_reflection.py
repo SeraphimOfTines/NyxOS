@@ -24,9 +24,9 @@ class TestAutoReflection:
         # Access the underlying coroutine of the loop
         task_coro = NyxOS.LMStudioBot.daily_reflection_task.coro
         
-        with patch('NyxOS.self_reflection.run_nightly_prompt_update', new_callable=AsyncMock) as mock_run:
+        with patch('NyxOS.self_reflection.process_missed_days', new_callable=AsyncMock) as mock_process:
              await task_coro(mock_bot)
-             mock_run.assert_not_called()
+             mock_process.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_reflection_enabled_not_midnight(self, mock_bot):
@@ -38,9 +38,9 @@ class TestAutoReflection:
             mock_dt_mod.datetime.now.return_value = mock_now
             
             task_coro = NyxOS.LMStudioBot.daily_reflection_task.coro
-            with patch('NyxOS.self_reflection.run_nightly_prompt_update', new_callable=AsyncMock) as mock_run:
+            with patch('NyxOS.self_reflection.process_missed_days', new_callable=AsyncMock) as mock_process:
                 await task_coro(mock_bot)
-                mock_run.assert_not_called()
+                mock_process.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_reflection_enabled_midnight_run(self, mock_bot):
@@ -53,9 +53,9 @@ class TestAutoReflection:
              mock_dt_mod.datetime.now.return_value = mock_now
              
              task_coro = NyxOS.LMStudioBot.daily_reflection_task.coro
-             with patch('NyxOS.self_reflection.run_nightly_prompt_update', new_callable=AsyncMock) as mock_run:
+             with patch('NyxOS.self_reflection.process_missed_days', new_callable=AsyncMock) as mock_process:
                 await task_coro(mock_bot)
-                mock_run.assert_called_once()
+                mock_process.assert_called_once()
                 assert mock_bot.last_reflection_date == mock_now.date()
 
     @pytest.mark.asyncio
@@ -68,6 +68,6 @@ class TestAutoReflection:
              mock_dt_mod.datetime.now.return_value = mock_now
              
              task_coro = NyxOS.LMStudioBot.daily_reflection_task.coro
-             with patch('NyxOS.self_reflection.run_nightly_prompt_update', new_callable=AsyncMock) as mock_run:
+             with patch('NyxOS.self_reflection.process_missed_days', new_callable=AsyncMock) as mock_process:
                 await task_coro(mock_bot)
-                mock_run.assert_not_called()
+                mock_process.assert_not_called()
