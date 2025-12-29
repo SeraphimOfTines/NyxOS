@@ -448,8 +448,8 @@ async def run_backup(target_id, output_name, target_type="guild", progress_callb
     if progress_callback:
         await progress_callback(99, config.BACKUP_FLAVOR_TEXT.get("FINISH", "Finishing..."))
 
-    # Calculate Next Due (6 Months)
-    future_date = datetime.now(timezone.utc) + timedelta(days=30*6)
+    # Calculate Next Due (1 Month)
+    future_date = datetime.now(timezone.utc) + timedelta(days=30)
     next_due_timestamp = int(future_date.timestamp())
     next_due_date = f"<t:{next_due_timestamp}:R>"
     
