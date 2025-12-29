@@ -466,9 +466,10 @@ async def handle_prefix_command(client, message):
         await message.channel.send("🧪 **Running Manual Nightly Reflection Cycle**...")
         try:
             # We can reuse the run_nightly_prompt_update function
-            new_prompt = await self_reflection.run_nightly_prompt_update()
-            if new_prompt:
-                 await message.channel.send("✅ **Cycle Complete.** System Prompt has been updated.")
+            update_count = await self_reflection.run_nightly_prompt_update()
+            if update_count:
+                 client.volition.update_interests_from_prompt()
+                 await message.channel.send(f"✅ **Cycle Complete.** System Prompt updated {update_count} time(s). Volition interests refreshed.")
             else:
                  await message.channel.send("⚠️ Cycle ran but no prompt update occurred (Check logs).")
         except Exception as e:

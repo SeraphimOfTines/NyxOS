@@ -275,7 +275,10 @@ class LMStudioBot(discord.Client):
                 self.last_reflection_date = now.date()
                 
                 try:
-                    await self_reflection.process_missed_days()
+                    count = await self_reflection.process_missed_days()
+                    if count > 0:
+                        logger.info(f"🔄 Reflection updated {count} times. Refreshing Volition Interests...")
+                        self.volition.update_interests_from_prompt()
                 except Exception as e:
                     logger.error(f"Auto-Reflection Failed: {e}")
 

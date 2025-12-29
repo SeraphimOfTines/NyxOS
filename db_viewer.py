@@ -3,6 +3,9 @@ import sqlite3
 import shutil
 import os
 import json
+import threading
+import time
+import glob
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, send_from_directory
 import config
@@ -16,6 +19,27 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def cleanup_backups():
+    """Keeps only the 5 most recent backups."""
+    try:
+        # Find all files matching nyxos.db.*.bak
+        pattern = f"{DB_PATH}.*.bak"
+        backups = glob.glob(pattern)
+        
+        # Sort by name (timestamp matches sort order)
+        backups.sort()
+        
+        if len(backups) > 5:
+            to_delete = backups[:-5]
+            for f in to_delete:
+                try:
+                    os.remove(f)
+                    print(f"🧹 Pruned old backup: {f}")
+                except Exception as e:
+                    print(f"❌ Failed to delete {f}: {e}")
+    except Exception as e:
+        print(f"❌ Backup cleanup failed: {e}")
+
 def backup_database():
     if not os.path.exists(DB_PATH):
         return
@@ -24,8 +48,16 @@ def backup_database():
     try:
         shutil.copy(DB_PATH, backup_path)
         print(f"✅ Safety Backup created: {backup_path}")
+        cleanup_backups()
     except Exception as e:
         print(f"❌ Backup Failed: {e}")
+
+def backup_scheduler():
+    """Runs backup every 6 hours."""
+    while True:
+        time.sleep(6 * 3600) # 6 hours
+        print("⏰ Scheduled Backup Triggered")
+        backup_database()
 
 # --- API ---
 
@@ -125,6 +157,11 @@ def delete_row():
 if __name__ == '__main__':
     print("🚀 Starting NyxOS Database Viewer Web Server...")
     backup_database()
+    
+    # Start Scheduler
+    t = threading.Thread(target=backup_scheduler, daemon=True)
+    t.start()
+    
     print(f"🌍 Serving at http://localhost:5942")
     # Using 0.0.0.0 allows internal network access if firewall permits
     app.run(host='0.0.0.0', port=5942, debug=True)
