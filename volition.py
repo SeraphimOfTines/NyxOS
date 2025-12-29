@@ -244,7 +244,16 @@ class VolitionManager:
         real_history = []
         try:
             cutoff = self.client.channel_cutoff_times.get(channel.id)
+            first_msg = True
             async for msg in channel.history(limit=10):
+                # Double-post Prevention: If last message is ours, don't speak.
+                if first_msg:
+                    if msg.author.id == self.client.user.id:
+                        logger.info("🤫 Last message was mine. Choosing internal monologue (Silence).")
+                        self.last_speech_time = time.time() - 250 # Partial reset
+                        return
+                    first_msg = False
+
                 # Cutoff Check
                 if cutoff and msg.created_at < cutoff:
                     break
@@ -274,7 +283,11 @@ class VolitionManager:
         if chaos_val > 0.7:
             # Try to fetch a random memory
             # We search for "chaos", "random", "philosophy", or just a generic term to get variety
+            # DYNAMIC SEEDS: Use the current semantic interests if available
             seeds = ["chaos", "dream", "memory", "tech", "philosophy", "art", "humanity", "void"]
+            if self.interests:
+                seeds = list(self.interests)
+            
             seed = random.choice(seeds)
             try:
                 results = vector_store.store.search(seed, n_results=1)
