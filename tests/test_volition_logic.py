@@ -10,6 +10,15 @@ class TestVolitionLogic(unittest.TestCase):
         # Manually set interests for testing
         self.vm.interests = {"nyx", "bot", "code"}
         self.vm.activity_window = 180
+
+        # Setup Emotional Core Mock
+        self.mock_client.emotional_core = MagicMock()
+        self.mock_client.emotional_core.is_enabled.return_value = True
+        self.mock_client.emotional_core.state = {
+            "stats": {
+                "energy": 100 # Default to high energy so it doesn't trigger penalty
+            }
+        }
         
     def test_semantic_score_time_window(self):
         # 1. Add an "interesting" message that is RECENT
@@ -63,6 +72,23 @@ class TestVolitionLogic(unittest.TestCase):
         
         # Base (0.2) + Chaos(0.5 * 0.1 = 0.05) = 0.25
         self.assertLess(urge, self.vm.threshold, "Low chaos should NOT trigger urge in silence")
+
+    def test_urge_exhaustion_penalty(self):
+        # Setup Quiet State, High Chaos (normally would trigger)
+        self.vm.buffer.clear()
+        self.vm.last_speech_time = time.time() - 400
+        self.vm.rng_source.random = MagicMock(return_value=0.95)
+        
+        # Set Energy to Low
+        self.mock_client.emotional_core.state["stats"]["energy"] = 10
+        
+        urge = self.vm.calculate_urge()
+        
+        # Base (0.2) + Chaos (0.475) = 0.675
+        # Penalty (-0.3)
+        # Result = 0.375
+        
+        self.assertLess(urge, self.vm.threshold, "Exhaustion should suppress urge even with high chaos")
 
 if __name__ == '__main__':
     unittest.main()

@@ -181,6 +181,12 @@ class VolitionManager:
         mood_mod = 0.0
         if self.mood == "chatty": mood_mod = 0.15
         if self.mood == "reflective": mood_mod = -0.15
+
+        # Exhaustion Penalty
+        if hasattr(self.client, 'emotional_core') and self.client.emotional_core.is_enabled():
+            energy = self.client.emotional_core.state["stats"].get("energy", 100)
+            if energy < 40:
+                mood_mod -= 0.3 # Heavy penalty to silence her when tired
         
         urge = raw_urge + mood_mod
         
@@ -219,11 +225,11 @@ class VolitionManager:
         """
         if not self.buffer: return
         
-        # 1. Get Context
-        recent_msgs = list(self.buffer)[-10:]
-        last_msg = recent_msgs[-1]
-        last_channel_id = last_msg["channel_id"]
-        time_since_last_msg = time.time() - last_msg["timestamp"]
+        # 1. Determine Target Channel
+        # We use the buffer primarily to know "something happened recently" and where.
+        last_msg_entry = self.buffer[-1]
+        last_channel_id = last_msg_entry["channel_id"]
+        time_since_last_msg = time.time() - last_msg_entry["timestamp"]
         
         # Redundant Safety Check: Ensure last message channel is still allowed
         allowed_channels = memory_manager.get_volition_channels()
@@ -233,7 +239,34 @@ class VolitionManager:
         channel = self.client.get_channel(last_channel_id)
         if not channel: return
 
-        # 2. Dynamic Thought Injection (Stream of Consciousness)
+        # 2. Fetch REAL History (Parity with Main Chat)
+        # This ensures we respect /clearmemory and see our own messages.
+        real_history = []
+        try:
+            cutoff = self.client.channel_cutoff_times.get(channel.id)
+            async for msg in channel.history(limit=10):
+                # Cutoff Check
+                if cutoff and msg.created_at < cutoff:
+                    break
+                
+                # Content Cleaning (Basic)
+                content = msg.clean_content
+                if not content and not msg.attachments: continue
+                
+                author_name = msg.author.display_name
+                if msg.author.id == self.client.user.id:
+                    author_name = "You (Nyx)"
+                
+                real_history.append(f"{author_name}: {content}")
+            
+            real_history.reverse() # Oldest first
+        except Exception as e:
+            logger.error(f"Volition History Fetch Failed: {e}")
+            return
+
+        if not real_history: return
+
+        # 3. Dynamic Thought Injection (Stream of Consciousness)
         stray_thought = ""
         chaos_val = self.get_entropy()
         
@@ -252,7 +285,7 @@ class VolitionManager:
 
         logger.info(f"⚡ Urge Threshold Met ({self.current_urge:.2f}). Entering Inner Monologue... (Stray Thought: {bool(stray_thought)})")
 
-        # 3. Determine Mode: Reply vs Monologue
+        # 4. Determine Mode: Reply vs Monologue
         is_quiet = time_since_last_msg > self.activity_window
         
         prompt_instruction = ""
@@ -280,8 +313,10 @@ class VolitionManager:
         emotional_prompt = ""
         if hasattr(self.client, 'emotional_core'):
             emotional_prompt = self.client.emotional_core.get_narrative_prompt()
+            if self.client.emotional_core.is_enabled() and self.client.emotional_core.state["stats"].get("energy", 100) < 40:
+                emotional_prompt += "\nINSTRUCTION: You are too tired to chat idly. Prefer [SILENCE] unless directly addressed or the topic is critical."
 
-        # 4. Construct Prompt
+        # 5. Construct Prompt
         sys_prompt = (
             f"{config.SYSTEM_PROMPT}\n\n"
             f"{emotional_prompt}\n\n"
@@ -295,7 +330,7 @@ class VolitionManager:
             "Do not output anything else if you choose silence."
         )
 
-        context_str = "\n".join([f"{m['author']}: {m['content']}" for m in recent_msgs])
+        context_str = "\n".join(real_history)
 
         messages = [
             {"role": "system", "content": sys_prompt},
@@ -303,7 +338,7 @@ class VolitionManager:
         ]
 
         try:
-            # 5. Generate with Dynamic Temperature
+            # 6. Generate with Dynamic Temperature
             # High Chaos = Higher Temperature (More creative/random)
             # Range: 0.6 (Base) to 0.9 (Max Chaos)
             dynamic_temp = 0.6 + (chaos_val * 0.3)
@@ -317,7 +352,7 @@ class VolitionManager:
             
             response = await services.service.get_chat_response(messages)
             
-            # 6. Action
+            # 7. Action
             cleaned_response = response.strip()
             
             if "[SILENCE]" in cleaned_response or not cleaned_response:

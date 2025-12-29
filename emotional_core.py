@@ -156,7 +156,7 @@ class EmotionalCore:
              narrative.append("INSTRUCTION: You are irritated and short-tempered. You have no patience for nonsense.")
         
         # Priority 3: Low Energy / Boredom
-        elif s["energy"] < 20:
+        elif s["energy"] < 40:
              narrative.append("INSTRUCTION: You are exhausted. Keep responses short and lethargic.")
         elif s["boredom"] > 70:
              narrative.append("INSTRUCTION: You are incredibly bored. Complaining about the lack of stimulation or trying to provoke something.")
