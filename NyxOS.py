@@ -4576,14 +4576,7 @@ async def on_message(message):
             if helpers.matches_proxy_tag(message.content, all_tags):
                 logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
                 return # STRICT IGNORE
-        elif message.webhook_id:
-            # --- WEBHOOK REACTION CHECK ---
-            # Reaction moved here: only react to the fully proxied message
-            try:
-                pk_name, _, _, _, _, _ = await services.service.get_pk_message_data(message.id)
-                if pk_name: # It is a recognized PK message
-                    await message.add_reaction(config.EYE_REACTION)
-            except: pass
+
         
         # --- PRE-CALCULATE RESPONSE TRIGGER ---
         should_respond = False

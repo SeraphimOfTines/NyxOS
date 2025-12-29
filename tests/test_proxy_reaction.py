@@ -49,7 +49,7 @@ class TestProxyReaction(unittest.IsolatedAsyncioTestCase):
                     message.add_reaction.assert_not_called()
 
     async def test_webhook_pk_reaction(self):
-        """Verify a valid PK webhook message GETS a reaction."""
+        """Verify a valid PK webhook message WITHOUT ping does NOT get a reaction."""
         mock_client = AsyncMock()
         mock_client.user.id = 888
         mock_client.processing_locks = set()
@@ -86,7 +86,47 @@ class TestProxyReaction(unittest.IsolatedAsyncioTestCase):
                      
                      await NyxOS.on_message(message)
                      
-                     message.add_reaction.assert_called_with(config.EYE_REACTION)
+                     message.add_reaction.assert_not_called()
+
+    async def test_webhook_pk_reaction_with_ping(self):
+        """Verify a valid PK webhook message WITH ping GETS a reaction."""
+        mock_client = AsyncMock()
+        mock_client.user.id = 888
+        mock_client.processing_locks = set()
+        mock_client.active_bars = {} # Not persisting
+        mock_client.volition = MagicMock()
+        mock_client.volition.update_buffer = AsyncMock()
+        mock_client.abort_signals = set()
+        mock_client.boot_cleared_channels = set()
+        
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
+        
+        message = MagicMock()
+        message.add_reaction = AsyncMock()
+        message.content = "Hi <@888>!"
+        message.webhook_id = 99999 # Is Webhook
+        message.author.id = 99999
+        message.id = 1000
+        message.channel.id = 999
+        message.mentions = [mock_client.user]
+        message.role_mentions = []
+        
+        # Patch dependencies
+        pk_data = ("Name", "sysid", "SysName", "SysTag", 123, "Desc")
+        
+        with patch('NyxOS.client', mock_client):
+            with patch('services.service.get_all_proxy_tags', return_value=[]):
+                with patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=pk_data):
+                     # Mock helper auth to avoid deep logic
+                     with patch('helpers.is_authorized', return_value=True):
+                         with patch('memory_manager.log_conversation'):
+                            # We expect it to proceed to 'Processing Message' logic
+                            # which calls add_reaction
+                            await NyxOS.on_message(message)
+                            
+                            message.add_reaction.assert_called_with(config.EYE_REACTION)
 
     async def test_webhook_non_pk_no_reaction(self):
         """Verify a non-PK webhook message does NOT get a reaction."""
