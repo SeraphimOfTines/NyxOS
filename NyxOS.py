@@ -4405,10 +4405,43 @@ async def on_message_edit(before, after):
 
 @client.event
 async def on_message(message):
-    # Volition: Update Buffer (Tracks everyone, including self)
-    await client.volition.update_buffer(message)
+    if message.author == client.user:
+        # Volition tracks self-messages for cooldowns
+        await client.volition.update_buffer(message)
+        return
 
-    if message.author == client.user: return
+    # --- PROXY TAG CHECK (Aggressive) ---
+    # Ignore messages that match known proxy tags immediately.
+    # This prevents them from hitting memory or Volition.
+    if message.webhook_id is None:
+        all_tags = services.service.get_all_proxy_tags()
+        if helpers.matches_proxy_tag(message.content, all_tags):
+            logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+            return
+
+    # --- GHOST CHECK (Wait for Autoproxy) ---
+    # If user is a system (and not webhook), they might autoproxy.
+    # We poll briefly to see if the message is deleted by PK.
+    if message.webhook_id is None:
+        is_system = await services.service.check_local_pk_system(message.author.id)
+        if is_system:
+            # Poll for deletion (Ghosting)
+            # 5 checks over 2.5 seconds (0.5s interval)
+            for i in range(5):
+                await asyncio.sleep(0.5)
+                try:
+                    await message.channel.fetch_message(message.id)
+                except discord.NotFound:
+                    logger.info(f"👻 Message {message.id} from {message.author.name} ghosted (proxied). Ignoring.")
+                    return
+                except Exception:
+                    pass # Network error, keep waiting or proceed
+
+    # --- MEMORY & VOLITION INGESTION ---
+    # Only ingest if it survived the checks above.
+    
+    # Volition: Update Buffer (Tracks everyone)
+    await client.volition.update_buffer(message)
 
     # Register Interaction for Emotional Core (with sentiment analysis)
     client.emotional_core.process_interaction(message.content)
@@ -4417,16 +4450,10 @@ async def on_message(message):
     if message.channel.id in client.active_bars:
         bar_data = client.active_bars[message.channel.id]
         if bar_data["persisting"]:
-             # Check if user is a system (potential ghost)
-             is_system = False
-             if message.webhook_id is None:
-                 is_system = await services.service.check_local_pk_system(message.author.id)
-             
-             if is_system:
-                 client.loop.create_task(client.wait_for_ghost_and_drop(message.channel.id, message.id))
-             else:
-                 # Not a system (or is webhook), safe to drop immediately
-                 client.request_bar_drop(message.channel.id)
+             # We already did a wait loop above if it was a system.
+             # If we are here, it's either not a system OR it survived the wait.
+             # So we can request drop safely.
+             client.request_bar_drop(message.channel.id)
 
     # --- PREFIX COMMANDS ---
     if message.content.startswith("&"):
@@ -4593,15 +4620,6 @@ async def on_message(message):
             except Exception as e: await message.channel.send(f"❌ Error: {e}")
             return
         
-        # --- PROXY TRIGGER CHECK (AGGRESSIVE) ---
-        if message.webhook_id is None:
-            # Check ALL cached tags (Hardcoded + API)
-            all_tags = services.service.get_all_proxy_tags()
-            if helpers.matches_proxy_tag(message.content, all_tags):
-                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
-                return # STRICT IGNORE
-
-        
         # --- PRE-CALCULATE RESPONSE TRIGGER ---
         should_respond = False
         target_message_id = None
@@ -4643,24 +4661,6 @@ async def on_message(message):
              client.last_interaction_time = time.time()
              client.waiting_for_ping_since = None
              client.schedule_next_heartbeat()
-
-             # --- GHOST CHECK (Wait for Autoproxy) ---
-             # If user is a system (and not webhook), they might autoproxy.
-             # We wait briefly to see if the message is deleted by PK.
-             if message.webhook_id is None:
-                 is_system = await services.service.check_local_pk_system(message.author.id)
-                 if is_system:
-                     # logger.debug(f"⏳ System detected ({message.author.name}), waiting for potential proxy...")
-                     await asyncio.sleep(1.0) # Wait for PK to delete
-                     try:
-                         # Verify message still exists
-                         await message.channel.fetch_message(message.id)
-                     except discord.NotFound:
-                         logger.info(f"👻 Message {message.id} from {message.author.name} ghosted (proxied). Ignoring.")
-                         return
-                     except: pass # Other errors, proceed safe
-
-
 
         # --- UPLINK NOTIFICATION CHECK ---
         # If this channel has an active uplink, and the message is not from me (the bot)

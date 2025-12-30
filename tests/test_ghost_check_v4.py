@@ -41,12 +41,14 @@ async def test_ghost_check_logic_ghosted():
             await client.on_message(message)
             
             # Assertions
-            mock_sleep.assert_called_with(1.0)
+            # Should have polled multiple times (up to 5, but returns early on NotFound)
+            # In our mock, it fails on first call, so 1 sleep call.
+            mock_sleep.assert_called_with(0.5)
             message.channel.fetch_message.assert_called_with(999)
-            # Should NOT add to processing locks if returned early
-            assert 999 not in client.processing_locks
-            # Should NOT have typed
-            message.channel.typing.assert_not_called()
+            
+            # CRITICAL: Should NOT have hit Volition or Memory
+            client.volition.update_buffer.assert_not_called()
+            # client.emotional_core.process_interaction.assert_not_called() (Need to mock emotional core to check this)
 
 @pytest.mark.asyncio
 async def test_ghost_check_logic_survived():
@@ -81,11 +83,6 @@ async def test_ghost_check_logic_survived():
                  # Mock typing context manager
                  message.channel.typing.return_value.__aenter__.return_value = None
                  
-                 await client.on_message(message)
-                 
-                 # Should have proceeded to query (or at least lock)
-                 # Since we mocked query, check if it was called?
-                 # Wait, on_message calls command_handler first.
                  # Mock command handler
                  with patch('command_handler.handle_prefix_command', new_callable=AsyncMock) as mock_cmd:
                      mock_cmd.return_value = False
@@ -93,5 +90,8 @@ async def test_ghost_check_logic_survived():
                      # Re-run with command handler mocked
                      await client.on_message(message)
                      
-                     # Check fetch was called
-                     message.channel.fetch_message.assert_called_with(888)
+                     # Check fetch was called (5 times because it survived loop)
+                     assert message.channel.fetch_message.call_count == 5
+                     
+                     # CRITICAL: Should HAVE hit Volition
+                     client.volition.update_buffer.assert_called()
