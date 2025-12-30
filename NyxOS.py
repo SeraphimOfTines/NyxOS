@@ -10,6 +10,7 @@ import json
 import re
 import time
 import datetime
+from datetime import timedelta
 import signal
 import hashlib
 import subprocess
@@ -4878,6 +4879,7 @@ async def on_message(message):
 
                     # History
                     history_messages = []
+                    detected_proxies = [] # List of (content, timestamp) tuples for heuristics
                     
                     # Identify active bar messages to exclude from memory
                     active_bar_id = None
@@ -4899,12 +4901,29 @@ async def on_message(message):
                         if prev_msg.id == active_bar_id or prev_msg.id == active_check_id:
                             continue
 
-                        if prev_msg.webhook_id is None:
+                        if prev_msg.webhook_id:
+                            # Is a Proxy Result (Webhook). Store for heuristic checking.
+                            # We store (content, timestamp)
+                            detected_proxies.append((prev_msg.clean_content.strip(), prev_msg.created_at))
+                        elif prev_msg.webhook_id is None:
                                 # AGGRESSIVE PROXY STRIP: Check against ALL known tags
-                                # This ensures we don't accidentally include "Trigger" messages in context
-                                # even if the user lookup fails or if it's a hardcoded tag.
                                 all_known_tags = services.service.get_all_proxy_tags()
                                 if helpers.matches_proxy_tag(prev_msg.content, all_known_tags): 
+                                    continue
+                                
+                                # HEURISTIC DE-GHOSTING (Deduplication)
+                                # Check if this message looks like it triggered a recent webhook
+                                is_duplicate = False
+                                for p_content, p_time in detected_proxies:
+                                    # Time Check: Within 5 seconds?
+                                    if abs((prev_msg.created_at - p_time).total_seconds()) < 5:
+                                        # Content Check: Does trigger contain result?
+                                        # "M: Hey!" contains "Hey!"
+                                        # Ignore case for robustness
+                                        if p_content.lower() in prev_msg.clean_content.strip().lower():
+                                            is_duplicate = True
+                                            break
+                                if is_duplicate:
                                     continue
 
                         p_content = prev_msg.clean_content.strip()
