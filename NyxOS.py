@@ -4900,28 +4900,12 @@ async def on_message(message):
                             continue
 
                         if prev_msg.webhook_id is None:
-                                # 0. Check Hardcoded Proxy Tags (Memory Sanitization)
-                                # Filter out any message in history that starts with a hardcoded tag
-                                if hasattr(config, 'HARDCODED_PROXY_TAGS'):
-                                    should_skip = False
-                                    for tag in config.HARDCODED_PROXY_TAGS:
-                                        if prev_msg.content.strip().startswith(tag):
-                                            should_skip = True
-                                            break
-                                    if should_skip: continue
-
-                                # 1. Check My System Tags (Self-proxy)
-                                tags = await services.service.get_system_proxy_tags(config.MY_SYSTEM_ID)
-                                if helpers.matches_proxy_tag(prev_msg.content, tags): continue
-
-                                # 2. Check Author's System Tags (Other-proxy)
-                                # This prevents "double vision" where the bot sees both the user's trigger command AND the resulting webhook
-                                try:
-                                    user_sys = await services.service.get_pk_user_data(prev_msg.author.id)
-                                    if user_sys and user_sys.get('system_id'):
-                                        user_tags = await services.service.get_system_proxy_tags(user_sys['system_id'])
-                                        if helpers.matches_proxy_tag(prev_msg.content, user_tags): continue
-                                except: pass
+                                # AGGRESSIVE PROXY STRIP: Check against ALL known tags
+                                # This ensures we don't accidentally include "Trigger" messages in context
+                                # even if the user lookup fails or if it's a hardcoded tag.
+                                all_known_tags = services.service.get_all_proxy_tags()
+                                if helpers.matches_proxy_tag(prev_msg.content, all_known_tags): 
+                                    continue
 
                         p_content = prev_msg.clean_content.strip()
                         has_image_history = any(att.content_type and att.content_type.startswith('image/') for att in prev_msg.attachments)
