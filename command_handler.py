@@ -399,6 +399,8 @@ async def handle_prefix_command(client, message):
         if not helpers.is_authorized(author_to_check) and not is_seraph_override:
             await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
             return True
+        
+        client.global_cutoff_time = message.created_at
         memory_manager.wipe_all_memories()
         await message.channel.send(ui.FLAVOR_TEXT["MEMORY_WIPED"])
         return True

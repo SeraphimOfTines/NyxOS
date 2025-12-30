@@ -119,6 +119,8 @@ class LMStudioBot(discord.Client):
         self.active_drop_tasks = set()
         self.pending_drops = set()
         
+        self.global_cutoff_time = None  # For /clearallmemory
+        
         self.heartbeat_enabled = False
         self.last_interaction_time = time.time()
         self.waiting_for_ping_since = None
@@ -3397,8 +3399,12 @@ async def clearallmemory_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
         await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
         return
+    
+    # Set Global Cutoff
+    client.global_cutoff_time = interaction.created_at
+    
     memory_manager.wipe_all_memories()
-    await interaction.response.send_message("✅", ephemeral=True, delete_after=0.5)
+    await interaction.response.send_message("✅ Global memory wiped. Rolling window reset.", ephemeral=True, delete_after=2.0)
 
 @client.tree.command(name="wipelogs", description="Wipe ALL logs (Admin/Debug Only).")
 async def wipelogs_command(interaction: discord.Interaction):
@@ -4638,6 +4644,22 @@ async def on_message(message):
              client.waiting_for_ping_since = None
              client.schedule_next_heartbeat()
 
+             # --- GHOST CHECK (Wait for Autoproxy) ---
+             # If user is a system (and not webhook), they might autoproxy.
+             # We wait briefly to see if the message is deleted by PK.
+             if message.webhook_id is None:
+                 is_system = await services.service.check_local_pk_system(message.author.id)
+                 if is_system:
+                     # logger.debug(f"⏳ System detected ({message.author.name}), waiting for potential proxy...")
+                     await asyncio.sleep(1.0) # Wait for PK to delete
+                     try:
+                         # Verify message still exists
+                         await message.channel.fetch_message(message.id)
+                     except discord.NotFound:
+                         logger.info(f"👻 Message {message.id} from {message.author.name} ghosted (proxied). Ignoring.")
+                         return
+                     except: pass # Other errors, proceed safe
+
 
 
         # --- UPLINK NOTIFICATION CHECK ---
@@ -4866,8 +4888,12 @@ async def on_message(message):
                         active_check_id = bar_data.get("checkmark_message_id")
 
                     async for prev_msg in message.channel.history(limit=config.CONTEXT_WINDOW + 5, before=message):
+                        # Check Channel Cutoff
                         cutoff = client.channel_cutoff_times.get(message.channel.id)
                         if cutoff and prev_msg.created_at < cutoff: break
+                        
+                        # Check Global Cutoff
+                        if client.global_cutoff_time and prev_msg.created_at < client.global_cutoff_time: break
                         
                         # Exclude Status Bar & Checkmark
                         if prev_msg.id == active_bar_id or prev_msg.id == active_check_id:
