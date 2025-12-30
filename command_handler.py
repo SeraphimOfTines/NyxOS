@@ -477,6 +477,20 @@ async def handle_prefix_command(client, message):
             await message.channel.send(f"❌ Cycle Failed: {e}")
         return True
 
+    # &caffeinate
+    if cmd == "&caffeinate":
+        if not helpers.is_authorized(author_to_check) and not is_seraph_override:
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+
+        if not client.emotional_core.is_enabled():
+             await message.channel.send("💙 Emotional Core is DISABLED.")
+             return True
+             
+        client.emotional_core.update_stat("energy", 100)
+        await message.channel.send("☕ **Energy Restored.** I feel wide awake! ✨")
+        return True
+
     # &help
     if cmd == "&help":
         embed = discord.Embed(title="NyxOS Help Index", color=discord.Color.blue())

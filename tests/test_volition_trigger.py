@@ -54,6 +54,7 @@ class TestVolitionTrigger(unittest.IsolatedAsyncioTestCase):
         now = datetime.now()
         t1 = now - timedelta(minutes=5) # Old
         t2 = now - timedelta(minutes=1) # New
+        t3 = now # Newest (User)
         
         msg1 = MagicMock()
         msg1.clean_content = "Old Message"
@@ -69,10 +70,17 @@ class TestVolitionTrigger(unittest.IsolatedAsyncioTestCase):
         msg2.created_at = t2
         msg2.attachments = []
         
+        msg3 = MagicMock()
+        msg3.clean_content = "Latest User Msg"
+        msg3.author.display_name = "User2"
+        msg3.author.id = 102
+        msg3.created_at = t3
+        msg3.attachments = []
+        
         # Mock history returns NEWEST first usually in Discord API, 
         # but our code processes them and then reverses.
         # channel.history yields most recent first.
-        mock_channel.history.return_value = AsyncIter([msg2, msg1]) 
+        mock_channel.history.return_value = AsyncIter([msg3, msg2, msg1]) 
         
         # 3. Set Cutoff to filter out msg1 (Old Message)
         cutoff_time = now - timedelta(minutes=2)
@@ -109,13 +117,19 @@ class TestVolitionTrigger(unittest.IsolatedAsyncioTestCase):
         mock_channel.id = 123
         self.mock_client.get_channel.return_value = mock_channel
         
+        msg_user = MagicMock()
+        msg_user.clean_content = "User Trigger"
+        msg_user.author.id = 100
+        msg_user.created_at = datetime.now()
+        msg_user.attachments = []
+
         msg_self = MagicMock()
         msg_self.clean_content = "My own words"
         msg_self.author.id = 999
         msg_self.created_at = datetime.now()
         msg_self.attachments = []
         
-        mock_channel.history.return_value = AsyncIter([msg_self])
+        mock_channel.history.return_value = AsyncIter([msg_user, msg_self])
         
         await self.vm.trigger_thought_process()
         

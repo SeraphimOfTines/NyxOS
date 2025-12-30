@@ -3631,6 +3631,21 @@ async def emotioncore_command(interaction: discord.Interaction, action: str = "s
         ec.save_state()
         await interaction.response.send_message("💙 **Soothing Complete.** I feel calm and balanced again. ✨", ephemeral=True)
 
+@client.tree.command(name="caffeinate", description="Instantly restore Energy to 100%.")
+async def caffeinate_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message(ui.FLAVOR_TEXT["NOT_AUTHORIZED"], ephemeral=True, delete_after=2.0)
+        return
+
+    ec = client.emotional_core
+    if not ec.is_enabled():
+            await interaction.response.send_message("💙 Emotional Core is DISABLED.", ephemeral=True)
+            return
+            
+    # Max out energy
+    ec.update_stat("energy", 100) 
+    await interaction.response.send_message("☕ **Energy Restored.** I feel wide awake! ✨", ephemeral=True)
+
 @client.tree.command(name="nukedatabase", description="NUCLEAR: Wipes the entire database and reboots. (Admin Only)")
 async def nukedatabase_command(interaction: discord.Interaction):
     if not helpers.is_admin(interaction.user):
