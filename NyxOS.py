@@ -4881,6 +4881,10 @@ async def on_message(message):
                     history_messages = []
                     detected_proxies = [] # List of (content, timestamp) tuples for heuristics
                     
+                    # Seed heuristics with CURRENT message if it is a webhook (The Result)
+                    if message.webhook_id:
+                        detected_proxies.append((message.clean_content.strip(), message.created_at))
+                    
                     # Identify active bar messages to exclude from memory
                     active_bar_id = None
                     active_check_id = None
