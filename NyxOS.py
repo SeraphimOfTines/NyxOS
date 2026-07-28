@@ -128,7 +128,7 @@ class LMStudioBot(discord.Client):
         self.next_heartbeat_threshold = time.time() + random.randint(5 * 60, 30 * 60)
         
         # Reflection Automation
-        self.auto_reflection_enabled = True
+        self.auto_reflection_enabled = False
         self.last_reflection_date = None
 
         self.terminal_channel = terminal_utils.TerminalChannel(self)
