@@ -279,3 +279,9 @@ def get_worship_leaderboard_weekly():
 
 def get_worship_leaderboard_total():
     return db.get_worship_leaderboard_total()
+
+def get_worship_grand_total_weekly():
+    return db.get_worship_grand_total_weekly()
+
+def get_worship_grand_total_all_time():
+    return db.get_worship_grand_total_all_time()

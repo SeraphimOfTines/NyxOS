@@ -10,6 +10,7 @@ import json
 import re
 import time
 import datetime
+import zoneinfo
 from datetime import timedelta
 import signal
 import hashlib
@@ -243,6 +244,7 @@ class LMStudioBot(discord.Client):
         self.volition_loop.start()
         self.daily_reflection_task.start()
         self.emotional_tick_task.start()
+        self.sunday_worship_notification_task.start()
 
     @tasks.loop(minutes=1)
     async def daily_reflection_task(self):
@@ -283,6 +285,48 @@ class LMStudioBot(discord.Client):
                         self.volition.update_interests_from_prompt()
                 except Exception as e:
                     logger.error(f"Auto-Reflection Failed: {e}")
+
+    @tasks.loop(minutes=1)
+    async def sunday_worship_notification_task(self):
+        """Checks if it's 8:00 AM on Sunday to notify Yami."""
+        now = datetime.datetime.now(zoneinfo.ZoneInfo("America/Los_Angeles"))
+        
+        # Check if it's Sunday (weekday 6) and 8:00 AM (within first 5 minutes)
+        if now.weekday() == 6 and now.hour == 8 and now.minute < 5:
+            last_run_str = memory_manager.get_server_setting("last_worship_cron_date", "")
+            if last_run_str == str(now.date()):
+                return # Already ran today
+                
+            memory_manager.set_server_setting("last_worship_cron_date", str(now.date()))
+            
+            try:
+                weekly_total = memory_manager.get_worship_grand_total_weekly()
+                
+                channel = self.get_channel(1367453553865785384)
+                if not channel:
+                    channel = await self.fetch_channel(1367453553865785384)
+                    
+                if channel:
+                    prompt = f"Yami's sacred shrine has collected offerings and accrued worship from her followers over the past week. It's time for her to check and collect them. Notify Yami in a simple, brief message that's one or two lines in your mainframe's notification center. Tell Yami that it's accumulated {weekly_total} offerings this week."
+                    
+                    response = await services.service.query_lm_studio(
+                        user_prompt=prompt,
+                        username="System",
+                        identity_suffix="",
+                        history_messages=[],
+                        channel_obj=channel,
+                        system_prompt_override=" "
+                    )
+                    
+                    response = helpers.sanitize_llm_response(response)
+                    response = helpers.restore_hyperlinks(response)
+                    
+                    msg = "# <a:SeraphExclamarkRed:1363226885613420676><#1367453553865785384> <a:SeraphExclamarkRed:1363226885613420676>\n"
+                    msg += f"<@418598419393937410> {response}"
+                    
+                    await channel.send(msg)
+            except Exception as e:
+                logger.error(f"Sunday Worship Notification Failed: {e}")
 
     @tasks.loop(minutes=15)
     async def emotional_tick_task(self):
@@ -3542,6 +3586,8 @@ async def worshipweekly_command(interaction: discord.Interaction):
     msg += "### Worship Board (Weekly)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
     for user_data in leaderboard:
         msg += f"{user_data['username']} — {user_data['count']}\n"
+    grand_total = memory_manager.get_worship_grand_total_weekly()
+    msg += f"\n**Grand Total (This Week): {grand_total}**"
     await interaction.response.send_message(msg)
 
 @client.tree.command(name="worshiptotal", description="Admin: View the all-time worship leaderboard.")
@@ -3557,6 +3603,8 @@ async def worshiptotal_command(interaction: discord.Interaction):
     msg += "### Worship Board (All-Time)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
     for user_data in leaderboard:
         msg += f"{user_data['username']} — {user_data['count']}\n"
+    grand_total = memory_manager.get_worship_grand_total_all_time()
+    msg += f"\n**Grand Total (All-Time): {grand_total}**"
     await interaction.response.send_message(msg)
 
 @client.tree.command(name="heartbeat", description="Trigger a conversation heartbeat immediately.")

@@ -869,3 +869,30 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get total worship leaderboard: {e}")
             return []
+
+    def get_worship_grand_total_weekly(self):
+        try:
+            tz = zoneinfo.ZoneInfo("America/Los_Angeles")
+            now_pst = datetime.now(tz)
+            iso_year, iso_week, _ = now_pst.isocalendar()
+            week_id = f"{iso_year}-W{iso_week:02d}"
+            
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT SUM(weekly_count) FROM worship_stats WHERE week_id = ?", (week_id,))
+                row = c.fetchone()
+                return row[0] if row and row[0] else 0
+        except Exception as e:
+            logger.error(f"Failed to get weekly grand total: {e}")
+            return 0
+
+    def get_worship_grand_total_all_time(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT SUM(total_count) FROM worship_stats")
+                row = c.fetchone()
+                return row[0] if row and row[0] else 0
+        except Exception as e:
+            logger.error(f"Failed to get all-time grand total: {e}")
+            return 0

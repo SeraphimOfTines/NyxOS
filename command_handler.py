@@ -178,6 +178,8 @@ async def handle_prefix_command(client, message):
         msg += "### Worship Board (Weekly)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
         for user_data in leaderboard:
             msg += f"{user_data['username']} — {user_data['count']}\n"
+        grand_total = memory_manager.get_worship_grand_total_weekly()
+        msg += f"\n**Grand Total (This Week): {grand_total}**"
         await message.channel.send(msg)
         return True
 
@@ -194,6 +196,8 @@ async def handle_prefix_command(client, message):
         msg += "### Worship Board (All-Time)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
         for user_data in leaderboard:
             msg += f"{user_data['username']} — {user_data['count']}\n"
+        grand_total = memory_manager.get_worship_grand_total_all_time()
+        msg += f"\n**Grand Total (All-Time): {grand_total}**"
         await message.channel.send(msg)
         return True
 
