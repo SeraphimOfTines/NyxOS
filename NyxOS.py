@@ -82,7 +82,6 @@ import memory_manager
 import ui
 import backup_manager
 import terminal_utils
-import vector_store
 import self_reflection
 import volition
 import command_handler
@@ -4215,32 +4214,7 @@ async def global_command(interaction: discord.Interaction, text: str):
 async def darkangel_command(interaction: discord.Interaction):
     await client.replace_bar_content(interaction, ui.DARK_ANGEL_CONTENT)
 
-@client.tree.command(name="learn", description="Info: Please use OpenWebUI to upload documents.")
-async def learn_command(interaction: discord.Interaction, text: str = None, file: discord.Attachment = None):
-    await interaction.response.send_message("ℹ️ **Knowledge Base Update:**\nPlease upload documents directly via the **OpenWebUI** interface.\n\nNyx will automatically read anything you upload there!", ephemeral=True)
 
-@client.tree.command(name="recall", description="Search the Vector Database.")
-@app_commands.describe(query="Query to search for")
-async def recall_command(interaction: discord.Interaction, query: str):
-    await interaction.response.defer(ephemeral=True)
-    
-    results = vector_store.store.search(query, n_results=3)
-    
-    if not results:
-        await interaction.followup.send("❌ No relevant memories found.")
-        return
-        
-    msg = f"🔍 **Search Results for:** `{query}`\n\n"
-    for i, res in enumerate(results, 1):
-        meta = res.get("metadata", {})
-        source = meta.get("source", "Unknown")
-        text = res.get("text", "")
-        dist = res.get("distance", 0)
-        
-        preview = text[:200].replace("\n", " ") + "..."
-        msg += f"**{i}. Source:** {source} (Dist: {dist:.3f})\n> {preview}\n\n"
-        
-    await interaction.followup.send(msg)
 
 @client.tree.command(name="debugscan", description="Diagnose why the bot can't see the status bar (Admin).")
 async def debugscan_command(interaction: discord.Interaction):
@@ -4624,19 +4598,7 @@ async def on_message(message):
         # --- PRE-CALCULATE RESPONSE TRIGGER ---
         should_respond = False
         target_message_id = None
-        
         if client.user in message.mentions: should_respond = True
-        
-        # Combine all trigger roles (Admin, Special)
-        TRIGGER_ROLES = set(config.ADMIN_ROLE_IDS + config.SPECIAL_ROLE_IDS)
-
-        if not should_respond:
-            if message.role_mentions:
-                for role in message.role_mentions:
-                    if role.id in TRIGGER_ROLES: should_respond = True; break
-            if not should_respond:
-                for rid in TRIGGER_ROLES:
-                    if f"<@&{rid}>".format(rid) in message.content: should_respond = True; break
         
         # Check Reply (Robust)
         if message.reference:
@@ -4755,9 +4717,6 @@ async def on_message(message):
 
             # Determine if this was an explicit trigger (Ping/Role) vs just a reply or keyword
             is_explicit_trigger = (client.user in message.mentions)
-            if not is_explicit_trigger and message.role_mentions:
-                 for role in message.role_mentions:
-                     if role.id in TRIGGER_ROLES: is_explicit_trigger = True; break
             
             # Treat direct replies to the bot as explicit triggers
             if target_message_id:

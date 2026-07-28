@@ -7,7 +7,6 @@ import re
 import config
 import services
 import memory_manager
-import vector_store
 
 logger = logging.getLogger("NyxOS.Volition")
 
@@ -281,20 +280,7 @@ class VolitionManager:
         
         # 30% chance to have a "Stray Thought" (Random Memory or Topic)
         if chaos_val > 0.7:
-            # Try to fetch a random memory
-            # We search for "chaos", "random", "philosophy", or just a generic term to get variety
-            # DYNAMIC SEEDS: Use the current semantic interests if available
-            seeds = ["chaos", "dream", "memory", "tech", "philosophy", "art", "humanity", "void"]
-            if self.interests:
-                seeds = list(self.interests)
-            
-            seed = random.choice(seeds)
-            try:
-                results = vector_store.store.search(seed, n_results=1)
-                if results:
-                    mem = results[0]['text']
-                    stray_thought = f"\n\n**INTERNAL THOUGHT / RANDOM MEMORY:**\nYou suddenly remembered or thought about: '{mem}'\nYou may choose to bring this up if the current conversation is dull, or connect it to the current topic."
-            except: pass
+            pass
 
         logger.info(f"⚡ Urge Threshold Met ({self.current_urge:.2f}). Entering Inner Monologue... (Stray Thought: {bool(stray_thought)})")
 
