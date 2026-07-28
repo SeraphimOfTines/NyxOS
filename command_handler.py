@@ -149,6 +149,54 @@ async def handle_prefix_command(client, message):
             await message.channel.send("❌ Failed to wipe Good Bot leaderboard.")
         return True
 
+    # &worship
+    if cmd == "&worship":
+        if message.channel.id != 1367453553865785384:
+            return True # Silently do nothing
+            
+        success, midnight_unix = memory_manager.process_worship(message.author.id, message.author.display_name)
+        if success:
+            msg = "# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n"
+            msg += f"Your worship and devotion honors me, <@{message.author.id}>."
+            await message.channel.send(msg)
+        else:
+            msg = "# <a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\n\n"
+            msg += f"You've already worshipped me today! Try again <t:{midnight_unix}:R>"
+            await message.channel.send(msg)
+        return True
+
+    # &worshipweekly
+    if cmd == "&worshipweekly":
+        if not helpers.is_authorized(author_to_check) and not is_seraph_override:
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+        leaderboard = memory_manager.get_worship_leaderboard_weekly()
+        if not leaderboard:
+            await message.channel.send("No worships yet this week.")
+            return True
+        msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
+        msg += "### Worship Board (Weekly)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
+        for user_data in leaderboard:
+            msg += f"{user_data['username']} — {user_data['count']}\n"
+        await message.channel.send(msg)
+        return True
+
+    # &worshiptotal
+    if cmd == "&worshiptotal":
+        if not helpers.is_authorized(author_to_check) and not is_seraph_override:
+            await message.channel.send(ui.FLAVOR_TEXT["NOT_AUTHORIZED"])
+            return True
+        leaderboard = memory_manager.get_worship_leaderboard_total()
+        if not leaderboard:
+            await message.channel.send("No worships yet.")
+            return True
+        msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
+        msg += "### Worship Board (All-Time)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
+        for user_data in leaderboard:
+            msg += f"{user_data['username']} — {user_data['count']}\n"
+        await message.channel.send(msg)
+        return True
+
     # &backup
     if cmd == "&backup":
         if not helpers.is_authorized(author_to_check) and not is_seraph_override:

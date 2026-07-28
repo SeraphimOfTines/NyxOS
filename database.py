@@ -2,7 +2,8 @@ import sqlite3
 import json
 import logging
 import os
-from datetime import datetime
+import zoneinfo
+from datetime import datetime, timedelta
 
 logger = logging.getLogger("Database")
 
@@ -55,6 +56,17 @@ class Database:
                     message_id TEXT PRIMARY KEY,
                     data TEXT,
                     timestamp TIMESTAMP
+                )""")
+                
+                # Worship Stats
+                c.execute("""CREATE TABLE IF NOT EXISTS worship_stats (
+                    user_id TEXT PRIMARY KEY,
+                    username TEXT,
+                    total_count INTEGER DEFAULT 0,
+                    weekly_count INTEGER DEFAULT 0,
+                    week_id TEXT,
+                    last_worship_date TEXT,
+                    first_worship_time TIMESTAMP
                 )""")
                 
                 # Active Bars (Status Stickers)
@@ -781,3 +793,79 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to nuke database: {e}")
             return False
+
+    # --- Worship Methods ---
+
+    def process_worship(self, user_id, username):
+        try:
+            tz = zoneinfo.ZoneInfo("America/Los_Angeles")
+            now_pst = datetime.now(tz)
+            date_str = now_pst.strftime("%Y-%m-%d")
+            # ISO calendar week: e.g. 2026-W31
+            iso_year, iso_week, _ = now_pst.isocalendar()
+            week_id = f"{iso_year}-W{iso_week:02d}"
+            
+            # Next midnight calculation
+            tomorrow = now_pst + timedelta(days=1)
+            midnight_pst = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
+            midnight_unix = int(midnight_pst.timestamp())
+            
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT last_worship_date, week_id, weekly_count, total_count FROM worship_stats WHERE user_id = ?", (str(user_id),))
+                row = c.fetchone()
+                
+                if row:
+                    last_date, last_week_id, w_count, t_count = row
+                    
+                    if last_date == date_str:
+                        # Already worshipped today
+                        return False, midnight_unix
+                    
+                    # Not today. Update counts
+                    new_w_count = w_count + 1 if last_week_id == week_id else 1
+                    new_t_count = t_count + 1
+                    
+                    c.execute("""
+                        UPDATE worship_stats
+                        SET username = ?, total_count = ?, weekly_count = ?, week_id = ?, last_worship_date = ?
+                        WHERE user_id = ?
+                    """, (username, new_t_count, new_w_count, week_id, date_str, str(user_id)))
+                else:
+                    # First time ever
+                    c.execute("""
+                        INSERT INTO worship_stats (user_id, username, total_count, weekly_count, week_id, last_worship_date, first_worship_time)
+                        VALUES (?, ?, 1, 1, ?, ?, ?)
+                    """, (str(user_id), username, week_id, date_str, now_pst.isoformat()))
+                conn.commit()
+                return True, midnight_unix
+        except Exception as e:
+            logger.error(f"Failed to process worship: {e}")
+            return False, 0
+
+    def get_worship_leaderboard_weekly(self):
+        try:
+            tz = zoneinfo.ZoneInfo("America/Los_Angeles")
+            now_pst = datetime.now(tz)
+            iso_year, iso_week, _ = now_pst.isocalendar()
+            week_id = f"{iso_year}-W{iso_week:02d}"
+            
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT username, weekly_count FROM worship_stats WHERE week_id = ? ORDER BY weekly_count DESC, first_worship_time DESC", (week_id,))
+                rows = c.fetchall()
+                return [{"username": r[0], "count": r[1]} for r in rows]
+        except Exception as e:
+            logger.error(f"Failed to get weekly worship leaderboard: {e}")
+            return []
+
+    def get_worship_leaderboard_total(self):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                c.execute("SELECT username, total_count FROM worship_stats ORDER BY total_count DESC, first_worship_time DESC")
+                rows = c.fetchall()
+                return [{"username": r[0], "count": r[1]} for r in rows]
+        except Exception as e:
+            logger.error(f"Failed to get total worship leaderboard: {e}")
+            return []

@@ -3513,6 +3513,52 @@ async def togglereflection_command(interaction: discord.Interaction):
     state = "ENABLED" if client.auto_reflection_enabled else "DISABLED"
     await interaction.response.send_message(f"🌚 Automatic Nightly Reflection is now **{state}**.")
 
+@client.tree.command(name="worship", description="Offer your daily worship to the Seraph.")
+async def worship_command(interaction: discord.Interaction):
+    if interaction.channel_id != 1367453553865785384:
+        await interaction.response.send_message("❌ This command cannot be used in this channel.", ephemeral=True)
+        return
+        
+    success, midnight_unix = memory_manager.process_worship(interaction.user.id, interaction.user.display_name)
+    if success:
+        msg = "# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n"
+        msg += f"Your worship and devotion honors me, <@{interaction.user.id}>."
+        await interaction.response.send_message(msg)
+    else:
+        msg = "# <a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\n\n"
+        msg += f"You've already worshipped me today! Try again <t:{midnight_unix}:R>"
+        await interaction.response.send_message(msg)
+
+@client.tree.command(name="worshipweekly", description="Admin: View the weekly worship leaderboard.")
+async def worshipweekly_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+        return
+    leaderboard = memory_manager.get_worship_leaderboard_weekly()
+    if not leaderboard:
+        await interaction.response.send_message("No worships yet this week.")
+        return
+    msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
+    msg += "### Worship Board (Weekly)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
+    for user_data in leaderboard:
+        msg += f"{user_data['username']} — {user_data['count']}\n"
+    await interaction.response.send_message(msg)
+
+@client.tree.command(name="worshiptotal", description="Admin: View the all-time worship leaderboard.")
+async def worshiptotal_command(interaction: discord.Interaction):
+    if not helpers.is_authorized(interaction.user):
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+        return
+    leaderboard = memory_manager.get_worship_leaderboard_total()
+    if not leaderboard:
+        await interaction.response.send_message("No worships yet.")
+        return
+    msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
+    msg += "### Worship Board (All-Time)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
+    for user_data in leaderboard:
+        msg += f"{user_data['username']} — {user_data['count']}\n"
+    await interaction.response.send_message(msg)
+
 @client.tree.command(name="heartbeat", description="Trigger a conversation heartbeat immediately.")
 async def heartbeat_command(interaction: discord.Interaction):
     if not helpers.is_authorized(interaction.user):
@@ -4498,9 +4544,9 @@ async def on_message(message):
             "speed1": (speed1_command, None),
             "speed2": (speed2_command, None),
             "console": (console_command, None),
-            "learn": (learn_command, "text"),
-            "addknowledge": (learn_command, "text"),
-            "recall": (recall_command, "query"),
+            # "learn": (learn_command, "text"),
+            # "addknowledge": (learn_command, "text"),
+            # "recall": (recall_command, "query"),
             "autonomy": (autonomy_command, "action"),
         }
 

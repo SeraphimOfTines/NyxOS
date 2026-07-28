@@ -268,3 +268,14 @@ def remove_allowed_channel(channel_id):
         set_server_setting("allowed_channels", channels)
         _ALLOWED_CHANNELS_CACHE = channels
     return channels
+
+# --- WORSHIP LOGIC ---
+
+def process_worship(user_id, username):
+    return db.process_worship(user_id, username)
+
+def get_worship_leaderboard_weekly():
+    return db.get_worship_leaderboard_weekly()
+
+def get_worship_leaderboard_total():
+    return db.get_worship_leaderboard_total()
