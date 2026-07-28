@@ -4627,8 +4627,8 @@ async def on_message(message):
         
         if client.user in message.mentions: should_respond = True
         
-        # Combine all trigger roles (Bot, Admin, Special)
-        TRIGGER_ROLES = set(config.BOT_ROLE_IDS + config.ADMIN_ROLE_IDS + config.SPECIAL_ROLE_IDS)
+        # Combine all trigger roles (Admin, Special)
+        TRIGGER_ROLES = set(config.ADMIN_ROLE_IDS + config.SPECIAL_ROLE_IDS)
 
         if not should_respond:
             if message.role_mentions:
@@ -4862,11 +4862,16 @@ async def on_message(message):
                     else:
                         logger.info(f"DEBUG: Member NOT Found for ID: {sender_id}")
 
-                    # Auth Check: Allow if Admin/Special Role OR if it's the Owner's System OR Global Chat is Enabled
+                    # Auth Check: Allow if Admin/Special Role OR if it's the Owner's System OR Global Chat is Enabled OR User has Bot Role
                     is_own_system = (system_id == config.MY_SYSTEM_ID)
                     
-                    if not global_chat and not is_own_system and not helpers.is_authorized(member_obj or sender_id):
-                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}). Admin Roles: {config.ADMIN_ROLE_IDS}")
+                    has_bot_role = False
+                    if member_obj and hasattr(member_obj, "roles"):
+                        if any(r.id in config.BOT_ROLE_IDS for r in member_obj.roles):
+                            has_bot_role = True
+                    
+                    if not global_chat and not is_own_system and not has_bot_role and not helpers.is_authorized(member_obj or sender_id):
+                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}). Admin Roles: {config.ADMIN_ROLE_IDS}, Bot Roles: {config.BOT_ROLE_IDS}")
                         return
                     elif is_own_system:
                         logger.info(f"✅ Access Granted via System Match: {system_id}")
@@ -5121,6 +5126,8 @@ if __name__ == "__main__":
             client.run(config.BOT_TOKEN)
         except KeyboardInterrupt:
             logger.info("🛑 Keyboard Interrupt received.")
+        except Exception as e:
+            logger.error(f"❌ Fatal error during runtime: {e}", exc_info=True)
         finally:
             if os.path.exists(config.RESTART_META_FILE):
                 logger.info("🔄 Restart flag detected. Exiting with code 0 for restart...")

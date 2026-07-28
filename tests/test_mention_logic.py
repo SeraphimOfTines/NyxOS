@@ -121,16 +121,17 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
     @patch('memory_manager.clear_channel_memory')
     @patch('memory_manager.get_allowed_channels', return_value=[100])
     @patch('memory_manager.get_server_setting', return_value=False)
-    @patch('helpers.clean_name_logic', return_value="TestUser") # Mock to avoid regex on MagicMock
-    async def test_role_mention_bypasses_whitelist(self, mock_clean, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
-        """Test that tagging the bot (Wake Role) bypasses channel whitelist."""
+    @patch('helpers.clean_name_logic', return_value="TestUser")
+    async def test_having_bot_role_grants_access(self, mock_clean, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
+        """Test that having the bot role grants access when pinging the bot."""
         
-        msg = self.create_mock_message("<@&555> hello", 888, 200)
+        msg = self.create_mock_message("<@12345> hello", 888, 200)
+        msg.mentions = [self.mock_client.user] # Tagged bot
         
-        # Tagged Wake Role (555)
+        # User has the Bot Role (555)
         role_mock = MagicMock()
         role_mock.id = 555
-        msg.role_mentions = [role_mock]
+        msg.author.roles = [role_mock]
         
         # Mock fetch_message for Ghost Check
         msg.channel.fetch_message = AsyncMock(return_value=msg)
@@ -140,7 +141,7 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
              patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
              patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
              patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response") as mock_query, \
-             patch('helpers.is_authorized', return_value=True): 
+             patch('helpers.is_authorized', return_value=False): # Auth fails, but bot role should allow it
              
              await NyxOS.on_message(msg)
              
