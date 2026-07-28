@@ -122,8 +122,8 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
     @patch('memory_manager.get_allowed_channels', return_value=[100])
     @patch('memory_manager.get_server_setting', return_value=False)
     @patch('helpers.clean_name_logic', return_value="TestUser")
-    async def test_having_bot_role_grants_access(self, mock_clean, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
-        """Test that having the bot role grants access when pinging the bot."""
+    async def test_having_bot_role_without_auth_denies_access(self, mock_clean, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
+        """Test that having the bot role DOES NOT grant access if lacking security role."""
         
         msg = self.create_mock_message("<@12345> hello", 888, 200)
         msg.mentions = [self.mock_client.user] # Tagged bot
@@ -141,11 +141,11 @@ class TestMentionLogic(unittest.IsolatedAsyncioTestCase):
              patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
              patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
              patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response") as mock_query, \
-             patch('helpers.is_authorized', return_value=False): # Auth fails, but bot role should allow it
+             patch('helpers.is_authorized', return_value=False): # Auth fails, bot role should NOT bypass it anymore
              
              await NyxOS.on_message(msg)
              
-             mock_query.assert_called()
+             mock_query.assert_not_called()
 
     @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
     @patch('memory_manager.log_conversation')

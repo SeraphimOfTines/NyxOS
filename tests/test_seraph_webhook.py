@@ -38,7 +38,7 @@ class TestSeraphWebhook(unittest.IsolatedAsyncioTestCase):
 
         # Mock Message (Webhook with Seraphim Tag)
         message = AsyncMock()
-        message.content = "Hello Bot"
+        message.content = "<@888> Hello Bot"
         message.author.id = 99999 # Webhook ID
         message.author.display_name = "Sarah [⛩ Seraphim ⛩]" # TARGET STRING
         message.webhook_id = 99999
@@ -105,7 +105,7 @@ class TestSeraphWebhook(unittest.IsolatedAsyncioTestCase):
         mock_client.emotional_core.process_interaction = MagicMock()
 
         message = AsyncMock()
-        message.content = "Hello Bot"
+        message.content = "<@888> Hello Bot"
         message.author.id = 99999
         message.author.display_name = "Sarah [Random System]" # NO TAG
         message.webhook_id = 99999

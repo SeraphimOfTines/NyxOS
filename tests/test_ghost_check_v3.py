@@ -29,7 +29,7 @@ class TestGhostCheckV3:
         msg = MagicMock()
         msg.author.id = 123
         msg.webhook_id = None
-        msg.content = "Cly: Test message"
+        msg.content = "<@999> Cly: Test message"
         msg.channel.id = 100
         msg.mentions = [mock_client.user] # Trigger bot
 
@@ -47,7 +47,7 @@ class TestGhostCheckV3:
         msg.id = 1000
         msg.author.id = 123
         msg.webhook_id = None
-        msg.content = "Test message content"
+        msg.content = "<@999> Test message content"
         msg.channel.id = 100
         msg.created_at = asyncio.get_event_loop().time()
         msg.mentions = [mock_client.user]
@@ -56,7 +56,7 @@ class TestGhostCheckV3:
         webhook_msg = MagicMock()
         webhook_msg.id = 1001
         webhook_msg.webhook_id = 55555
-        webhook_msg.content = "Test message content"
+        webhook_msg.content = "<@999> Test message content"
         webhook_msg.created_at = msg.created_at + 1 # 1s later
 
         # Setup History Mock
@@ -81,7 +81,7 @@ class TestGhostCheckV3:
         msg.id = 2000
         msg.author.id = 123
         msg.webhook_id = None
-        msg.content = "Unique message"
+        msg.content = "<@999> Unique message"
         msg.channel.id = 100
         msg.created_at = asyncio.get_event_loop().time()
         msg.mentions = [mock_client.user]

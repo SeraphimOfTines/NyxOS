@@ -16,6 +16,7 @@ import importlib
 class TestPKAdminAuth(unittest.IsolatedAsyncioTestCase):
     
     def setUp(self):
+        self.original_service = getattr(services, 'service', None)
         # Ensure services.service is a real instance, not a Mock from previous tests
         if isinstance(services.service, MagicMock) or not isinstance(services.service, services.APIService):
             services.service = services.APIService()
@@ -32,6 +33,9 @@ class TestPKAdminAuth(unittest.IsolatedAsyncioTestCase):
             mock_resp.status = 200
             mock_resp.json.return_value = []
             services.service.http_session.get.return_value.__aenter__.return_value = mock_resp
+
+    def tearDown(self):
+        services.service = self.original_service
 
     @patch.object(config, 'ADMIN_USER_IDS', [123456789])
     def test_is_authorized_with_user_id(self):

@@ -48,7 +48,7 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
         message.channel.id = cid
         message.author.id = 456 # Not Bot
         message.webhook_id = None
-        message.content = "Hello"
+        message.content = "<@999> Hello"
         message.reference = None
         # Mock history
         message.channel.history = MagicMock(return_value=AsyncIter([]))
@@ -57,7 +57,8 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
         with patch('NyxOS.client', self.client):
             with patch('memory_manager.set_bar_notification') as mock_set_db, \
                  patch.object(self.client, 'update_console_status', new_callable=AsyncMock) as mock_update_console, \
-                 patch('memory_manager.get_server_setting', return_value=False), \
+                 patch('memory_manager.get_allowed_channels', return_value=[]), \
+                 patch('memory_manager.get_allowed_channels', return_value=[]), patch('memory_manager.get_server_setting', return_value=False), \
                  patch('helpers.matches_proxy_tag', return_value=False):
                 
                 # Execute the module-level function
@@ -89,7 +90,7 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
         message.channel.id = cid
         message.author.id = 456 
         message.webhook_id = None
-        message.content = "Msg 1"
+        message.content = "<@999> Msg 1"
         message.reference = None
         # Mock history
         message.channel.history = MagicMock(return_value=AsyncIter([]))
@@ -97,7 +98,7 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
         with patch('NyxOS.client', self.client):
             with patch('memory_manager.set_bar_notification') as mock_set_db, \
                  patch.object(self.client, 'update_console_status', new_callable=AsyncMock) as mock_update_console, \
-                 patch('memory_manager.get_server_setting', return_value=False), \
+                 patch('memory_manager.get_allowed_channels', return_value=[]), patch('memory_manager.get_server_setting', return_value=False), \
                  patch('helpers.matches_proxy_tag', return_value=False):
                 
                 # 1. First Message

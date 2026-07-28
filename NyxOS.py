@@ -4598,7 +4598,14 @@ async def on_message(message):
         # --- PRE-CALCULATE RESPONSE TRIGGER ---
         should_respond = False
         target_message_id = None
-        if client.user in message.mentions: should_respond = True
+        
+        # Check explicit App ID or Role ID ping in content
+        if f"<@{client.user.id}>" in message.content or f"<@!{client.user.id}>" in message.content:
+            should_respond = True
+            
+        if hasattr(message, "role_mentions"):
+            if any(role.id in config.BOT_ROLE_IDS for role in message.role_mentions):
+                should_respond = True
         
         # Check Reply (Robust)
         if message.reference:
@@ -4716,7 +4723,11 @@ async def on_message(message):
             except: pass
 
             # Determine if this was an explicit trigger (Ping/Role) vs just a reply or keyword
-            is_explicit_trigger = (client.user in message.mentions)
+            is_explicit_trigger = False
+            if f"<@{client.user.id}>" in message.content or f"<@!{client.user.id}>" in message.content:
+                is_explicit_trigger = True
+            elif hasattr(message, "role_mentions") and any(r.id in config.BOT_ROLE_IDS for r in message.role_mentions):
+                is_explicit_trigger = True
             
             # Treat direct replies to the bot as explicit triggers
             if target_message_id:
@@ -4821,16 +4832,12 @@ async def on_message(message):
                     else:
                         logger.info(f"DEBUG: Member NOT Found for ID: {sender_id}")
 
-                    # Auth Check: Allow if Admin/Special Role OR if it's the Owner's System OR Global Chat is Enabled OR User has Bot Role
+                    # Auth Check: Strict Security Role Requirement
+                    # Only allow Admin/Special Role holders (which includes the security key role) OR the Owner's System
                     is_own_system = (system_id == config.MY_SYSTEM_ID)
                     
-                    has_bot_role = False
-                    if member_obj and hasattr(member_obj, "roles"):
-                        if any(r.id in config.BOT_ROLE_IDS for r in member_obj.roles):
-                            has_bot_role = True
-                    
-                    if not global_chat and not is_own_system and not has_bot_role and not helpers.is_authorized(member_obj or sender_id):
-                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}). Admin Roles: {config.ADMIN_ROLE_IDS}, Bot Roles: {config.BOT_ROLE_IDS}")
+                    if not is_own_system and not helpers.is_authorized(member_obj or sender_id):
+                        logger.info(f"🛑 Access Denied for {real_name} (ID: {sender_id}). Security role required.")
                         return
                     elif is_own_system:
                         logger.info(f"✅ Access Granted via System Match: {system_id}")

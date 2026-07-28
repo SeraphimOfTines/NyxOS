@@ -30,7 +30,7 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client.last_bot_message_id = {999: 1000} # Simulate bot spoke last
         mock_client.good_bot_cooldowns = {}
         mock_client.processing_locks = set()
-        mock_client.boot_cleared_channels = set()
+        mock_client.boot_cleared_channels = {999}
         mock_client.abort_signals = set()
         mock_client._update_lru_cache = MagicMock()
         # schedule_next_heartbeat is sync
@@ -46,7 +46,7 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
 
         # Mock Message
         message = AsyncMock()
-        message.content = "Good Bot!"
+        message.content = "<@888> Good Bot!"
         message.author.id = 123
         message.author.display_name = "TestUser"
         message.author.name = "testuser"
@@ -54,6 +54,9 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         message.mentions = [mock_client.user] # PING to trigger logic
         message.role_mentions = []
         message.webhook_id = None
+        cm = AsyncMock()
+        cm.__aenter__.return_value = None
+        message.channel.typing = MagicMock(return_value=cm)
         
         # get_member is sync
         mock_member = MagicMock()
@@ -82,7 +85,7 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
     async def test_good_bot_cooldown(self):
         # Mock Message
         message = AsyncMock()
-        message.content = "Good Bot!"
+        message.content = "<@888> Good Bot!"
         message.author.id = 123
         message.channel.id = 999
         message.mentions = []
@@ -96,11 +99,17 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
         mock_client.last_bot_message_id = {999: 1000}
         mock_client.processing_locks = set()
         mock_client.abort_signals = set()
+        mock_client.boot_cleared_channels = {999}
         mock_client._update_lru_cache = MagicMock()
         
         # Volition
         mock_client.volition = MagicMock()
         mock_client.volition.update_buffer = AsyncMock()
+        
+        # Mock Message Context
+        cm = AsyncMock()
+        cm.__aenter__.return_value = None
+        message.channel.typing = MagicMock(return_value=cm)
         
         # Emotional Core (Sync)
         mock_client.emotional_core = MagicMock()
@@ -117,4 +126,9 @@ class TestGoodBot(unittest.IsolatedAsyncioTestCase):
                      await NyxOS.on_message(message)
                      
                      mock_inc.assert_not_called()
-                     message.add_reaction.assert_not_called()
+                     
+                     # Ensure GOOD_BOT_REACTION wasn't added
+                     # (EYE_REACTION might be added due to the ping, so we check specifically)
+                     import ui
+                     from unittest.mock import call
+                     self.assertNotIn(call(ui.FLAVOR_TEXT["GOOD_BOT_REACTION"]), message.add_reaction.mock_calls)

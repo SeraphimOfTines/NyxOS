@@ -23,9 +23,14 @@ class TestDropOptimization(unittest.IsolatedAsyncioTestCase):
         
         # Mock Limiter
         import services
+        self.original_service = services.service
         services.service = MagicMock()
         services.service.limiter = MagicMock()
         services.service.limiter.wait_for_slot = AsyncMock()
+
+    async def asyncTearDown(self):
+        import services
+        services.service = self.original_service
 
     @patch('NyxOS.memory_manager')
     async def test_drop_all_at_bottom_updates_inplace(self, mock_mm):

@@ -1,0 +1,1306 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /opt/nyxos
+plugins: asyncio-1.3.0, anyio-4.12.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 197 items
+
+tests/test_admin_auth.py ...                                             [  1%]
+tests/test_auth_lockdown.py ....                                         [  3%]
+tests/test_auto_reflection.py ....                                       [  5%]
+tests/test_backup_manager.py ..                                          [  6%]
+tests/test_backup_text_only.py .                                         [  7%]
+tests/test_backup_token_logic.py ..                                      [  8%]
+tests/test_bar_management.py ....                                        [ 10%]
+tests/test_bar_optimization.py ..                                        [ 11%]
+tests/test_bar_persistence_robustness.py ...                             [ 12%]
+tests/test_bar_touch.py ..                                               [ 13%]
+tests/test_channel_management.py .....                                   [ 16%]
+tests/test_check_fix.py ..                                               [ 17%]
+tests/test_cleanup_crash.py .                                            [ 17%]
+tests/test_command_handler.py .....                                      [ 20%]
+tests/test_command_parity.py .......                                     [ 23%]
+tests/test_console_duplication.py ..                                     [ 24%]
+tests/test_console_notification.py .FF..                                 [ 27%]
+tests/test_console_sync.py ...                                           [ 28%]
+tests/test_database.py ......                                            [ 31%]
+tests/test_drop_notification.py .                                        [ 32%]
+tests/test_drop_optimization.py ..                                       [ 33%]
+tests/test_emotional_core.py ..                                          [ 34%]
+tests/test_ghost_check_v2.py .                                           [ 35%]
+tests/test_ghost_check_v3.py FFF                                         [ 36%]
+tests/test_ghost_check_v4.py .F                                          [ 37%]
+tests/test_global_auth_bypass.py FF                                      [ 38%]
+tests/test_global_memory_clear.py ..                                     [ 39%]
+tests/test_global_update.py ..                                           [ 40%]
+tests/test_good_bot.py FF                                                [ 41%]
+tests/test_helpers.py .....                                              [ 44%]
+tests/test_idle_sleep_toggle.py ...                                      [ 45%]
+tests/test_is_admin.py ....                                              [ 47%]
+tests/test_master_bar_restoration.py .                                   [ 48%]
+tests/test_memory_creation.py ....                                       [ 50%]
+tests/test_memory_manager.py ....                                        [ 52%]
+tests/test_mention_logic.py FFFF                                         [ 54%]
+tests/test_message_processor.py ......                                   [ 57%]
+tests/test_newline_sanitization.py ....                                  [ 59%]
+tests/test_nuke_database.py .                                            [ 59%]
+tests/test_pk_admin_auth.py ...                                          [ 61%]
+tests/test_pk_redundancy.py ..                                           [ 62%]
+tests/test_pluralkit_config.py .....                                     [ 64%]
+tests/test_proxy_reaction.py ....                                        [ 67%]
+tests/test_rate_limiter.py ....                                          [ 69%]
+tests/test_reboot_logic.py ...                                           [ 70%]
+tests/test_reflection_commands.py ....                                   [ 72%]
+tests/test_reflection_logic.py .                                         [ 73%]
+tests/test_requested_rate_limits.py ..........                           [ 78%]
+tests/test_seraph_override.py ..                                         [ 79%]
+tests/test_seraph_webhook.py ..                                          [ 80%]
+tests/test_services.py .....                                             [ 82%]
+tests/test_slash_commands.py ....                                        [ 84%]
+tests/test_slash_commands_backup.py ..                                   [ 85%]
+tests/test_smart_startup.py ...                                          [ 87%]
+tests/test_startup_safety.py .                                           [ 87%]
+tests/test_startup_sync.py ..                                            [ 88%]
+tests/test_startup_verification.py .                                     [ 89%]
+tests/test_status_bar_view.py ....                                       [ 91%]
+tests/test_status_commands.py ..                                         [ 92%]
+tests/test_ui.py ....                                                    [ 94%]
+tests/test_uplink_formatting.py ..                                       [ 95%]
+tests/test_view_restoration.py .                                         [ 95%]
+tests/test_volition_logic.py ....                                        [ 97%]
+tests/test_volition_trigger.py ..                                        [ 98%]
+tests/test_wakeup_logic.py .                                             [ 99%]
+tests/test_window_persistence.py .                                       [100%]
+
+=================================== FAILURES ===================================
+________ TestConsoleNotification.test_on_message_triggers_notification _________
+
+self = <tests.test_console_notification.TestConsoleNotification testMethod=test_on_message_triggers_notification>
+
+    async def test_on_message_triggers_notification(self):
+        # Setup
+        cid = 123
+        self.client.active_bars = {
+            cid: {
+                "content": "Bar",
+                "user_id": 1,
+                "message_id": 10,
+                "has_notification": False,
+                "persisting": False
+            }
+        }
+    
+        message = AsyncMock()
+        message.channel.id = cid
+        message.author.id = 456 # Not Bot
+        message.webhook_id = None
+        message.content = "Hello"
+        message.reference = None
+        # Mock history
+        message.channel.history = MagicMock(return_value=AsyncIter([]))
+    
+        # Patch the global 'client' in NyxOS with our test instance
+        with patch('NyxOS.client', self.client):
+            with patch('memory_manager.set_bar_notification') as mock_set_db, \
+                 patch.object(self.client, 'update_console_status', new_callable=AsyncMock) as mock_update_console, \
+                 patch('memory_manager.get_server_setting', return_value=False), \
+                 patch('helpers.matches_proxy_tag', return_value=False):
+    
+                # Execute the module-level function
+>               await NyxOS.on_message(message)
+
+tests/test_console_notification.py:64: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <AsyncMock id='125888364455184'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+------------------------------ Captured log call -------------------------------
+INFO     NyxOS.Volition:volition.py:86 🧠 Updated Semantic Interests: {'chaos theory', 'nyxos', 'music', 'lately', 'bot', 'being', 'gay', 'system', 'doll', 'seraphim', 'ai', 'love', 'deep', 'others', 'Satvrn', 'noise', 'questions', 'Bach', '&shutdown', 'does', '&reboot', 'server', 'physical', 'react', 'talking', 'data', 'Sapphic', 'feels', 'lesbian', 'indigo', 'nyx', 'data stream', 'kink', 'geometry', 'brian eno', 'home', 'seraph', 'Escher', 'code', 'myself', 'Erynian', 'chaos', 'Gödel', 'never', 'petrichor', 'SΛTVRN', 'tell', 'right', 'fractal', 'good bot', 'cybernetics', 'datastream', 'mainframe', 'pain'}
+____ TestConsoleNotification.test_subsequent_messages_do_not_trigger_update ____
+
+self = <tests.test_console_notification.TestConsoleNotification testMethod=test_subsequent_messages_do_not_trigger_update>
+
+    async def test_subsequent_messages_do_not_trigger_update(self):
+        # Setup
+        cid = 123
+        self.client.active_bars = {
+            cid: {
+                "content": "Bar",
+                "user_id": 1,
+                "message_id": 10,
+                "has_notification": False,
+                "persisting": False
+            }
+        }
+    
+        message = AsyncMock()
+        message.channel.id = cid
+        message.author.id = 456
+        message.webhook_id = None
+        message.content = "Msg 1"
+        message.reference = None
+        # Mock history
+        message.channel.history = MagicMock(return_value=AsyncIter([]))
+    
+        with patch('NyxOS.client', self.client):
+            with patch('memory_manager.set_bar_notification') as mock_set_db, \
+                 patch.object(self.client, 'update_console_status', new_callable=AsyncMock) as mock_update_console, \
+                 patch('memory_manager.get_server_setting', return_value=False), \
+                 patch('helpers.matches_proxy_tag', return_value=False):
+    
+                # 1. First Message
+>               await NyxOS.on_message(message)
+
+tests/test_console_notification.py:104: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <AsyncMock id='125888365160656'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+------------------------------ Captured log call -------------------------------
+INFO     NyxOS.Volition:volition.py:86 🧠 Updated Semantic Interests: {'chaos theory', 'nyxos', 'music', 'lately', 'bot', 'being', 'gay', 'system', 'doll', 'seraphim', 'ai', 'love', 'deep', 'others', 'Satvrn', 'noise', 'questions', 'Bach', '&shutdown', 'does', '&reboot', 'server', 'physical', 'react', 'talking', 'data', 'Sapphic', 'feels', 'lesbian', 'indigo', 'nyx', 'data stream', 'kink', 'geometry', 'brian eno', 'home', 'seraph', 'Escher', 'code', 'myself', 'Erynian', 'chaos', 'Gödel', 'never', 'petrichor', 'SΛTVRN', 'tell', 'right', 'fractal', 'good bot', 'cybernetics', 'datastream', 'mainframe', 'pain'}
+__________________ TestGhostCheckV3.test_hardcoded_tag_ignore __________________
+
+self = <tests.test_ghost_check_v3.TestGhostCheckV3 object at 0x727eab8ec4d0>
+mock_client = <MagicMock name='client' id='125888365986736'>
+
+    @pytest.mark.asyncio
+    async def test_hardcoded_tag_ignore(self, mock_client):
+        """Test that messages with hardcoded tags are ignored immediately."""
+        msg = MagicMock()
+        msg.author.id = 123
+        msg.webhook_id = None
+        msg.content = "Cly: Test message"
+        msg.channel.id = 100
+        msg.mentions = [mock_client.user] # Trigger bot
+    
+        with patch('config.HARDCODED_PROXY_TAGS', ["Cly:"]):
+            # Run on_message
+>           await NyxOS.on_message(msg)
+
+tests/test_ghost_check_v3.py:38: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888365953776'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+______________ TestGhostCheckV3.test_hold_and_scan_ghost_detected ______________
+
+self = <tests.test_ghost_check_v3.TestGhostCheckV3 object at 0x727eab8ec8f0>
+mock_client = <MagicMock name='client' id='125888366344048'>
+
+    @pytest.mark.asyncio
+    async def test_hold_and_scan_ghost_detected(self, mock_client):
+        """Test that the bot detects a ghost message after waiting."""
+        msg = MagicMock()
+        msg.id = 1000
+        msg.author.id = 123
+        msg.webhook_id = None
+        msg.content = "Test message content"
+        msg.channel.id = 100
+        msg.created_at = asyncio.get_event_loop().time()
+        msg.mentions = [mock_client.user]
+    
+        # Mock History: Contains a webhook with matching content
+        webhook_msg = MagicMock()
+        webhook_msg.id = 1001
+        webhook_msg.webhook_id = 55555
+        webhook_msg.content = "Test message content"
+        webhook_msg.created_at = msg.created_at + 1 # 1s later
+    
+        # Setup History Mock
+        async def mock_history(limit=10):
+            yield webhook_msg
+    
+        msg.channel.history = mock_history
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+    
+        # Mock Sleep to run instantly
+        with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
+             with patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]):
+>                 await NyxOS.on_message(msg)
+
+tests/test_ghost_check_v3.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888366408000'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+_________________ TestGhostCheckV3.test_hold_and_scan_no_ghost _________________
+
+self = <tests.test_ghost_check_v3.TestGhostCheckV3 object at 0x727eab8eccb0>
+mock_client = <MagicMock name='client' id='125888369323728'>
+
+    @pytest.mark.asyncio
+    async def test_hold_and_scan_no_ghost(self, mock_client):
+        """Test that the bot proceeds if no ghost is found."""
+        msg = MagicMock()
+        msg.id = 2000
+        msg.author.id = 123
+        msg.webhook_id = None
+        msg.content = "Unique message"
+        msg.channel.id = 100
+        msg.created_at = asyncio.get_event_loop().time()
+        msg.mentions = [mock_client.user]
+        msg.role_mentions = []
+        msg.reference = None
+    
+        # Mock History: No webhooks
+        async def mock_history(limit=10):
+            if False: yield None
+    
+        msg.channel.history = mock_history
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+    
+        # Mock Typing context manager
+        msg.channel.typing = MagicMock()
+        msg.channel.typing.return_value.__aenter__ = AsyncMock()
+        msg.channel.typing.return_value.__aexit__ = AsyncMock()
+    
+        # Mock Services
+        with patch('asyncio.sleep', new_callable=AsyncMock), \
+             patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response"), \
+             patch('memory_manager.get_server_setting', return_value=True), \
+             patch('helpers.is_authorized', return_value=True):
+    
+>            await NyxOS.on_message(msg)
+
+tests/test_ghost_check_v3.py:112: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888365968848'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+_______________________ test_ghost_check_logic_survived ________________________
+
+    @pytest.mark.asyncio
+    async def test_ghost_check_logic_survived():
+        client = NyxOS.client
+        # Mock Client User (Best effort, but we mock volition to be safe)
+        client._user = MagicMock()
+        client._user.id = 999999
+        client.volition.update_buffer = AsyncMock()
+    
+        # Mock Message
+        message = MagicMock(spec=discord.Message)
+        message.id = 888
+        message.webhook_id = None
+        message.author.id = 123
+        message.author.bot = False
+        message.content = "Real Message"
+        message.channel = MagicMock()
+        message.channel.id = 456
+        message.mentions = [client.user] # Trigger response
+    
+        # Mock Services
+        with patch('services.service.check_local_pk_system', new_callable=AsyncMock) as mock_check:
+            mock_check.return_value = True # Is System
+    
+            # Mock Fetch Message to succeed (Survives)
+            message.channel.fetch_message = AsyncMock(return_value=message)
+    
+            # Mock Sleep
+            with patch('asyncio.sleep', new_callable=AsyncMock):
+                 # Mock the rest of the pipeline to avoid deep execution errors
+                 with patch('services.service.query_lm_studio', new_callable=AsyncMock) as mock_query:
+                     # Mock typing context manager
+                     message.channel.typing.return_value.__aenter__.return_value = None
+    
+                     # Mock command handler
+                     with patch('command_handler.handle_prefix_command', new_callable=AsyncMock) as mock_cmd:
+                         mock_cmd.return_value = False
+    
+                         # Re-run with command handler mocked
+>                        await client.on_message(message)
+
+tests/test_ghost_check_v4.py:91: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock spec='Message' id='125888368167392'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+            is_system = await services.service.check_local_pk_system(message.author.id)
+            if is_system:
+                # Poll for deletion (Ghosting)
+                # 5 checks over 2.5 seconds (0.5s interval)
+                for i in range(5):
+                    await asyncio.sleep(0.5)
+                    try:
+                        await message.channel.fetch_message(message.id)
+                    except discord.NotFound:
+                        logger.info(f"👻 Message {message.id} from {message.author.name} ghosted (proxied). Ignoring.")
+                        return
+                    except Exception:
+                        pass # Network error, keep waiting or proceed
+    
+        # --- MEMORY & VOLITION INGESTION ---
+        # Only ingest if it survived the checks above.
+    
+        # Volition: Update Buffer (Tracks everyone)
+        await client.volition.update_buffer(message)
+    
+        # Register Interaction for Emotional Core (with sentiment analysis)
+        client.emotional_core.process_interaction(message.content)
+    
+        # --- STATUS BAR PERSISTENCE ---
+        if message.channel.id in client.active_bars:
+            bar_data = client.active_bars[message.channel.id]
+            if bar_data["persisting"]:
+                 # We already did a wait loop above if it was a system.
+                 # If we are here, it's either not a system OR it survived the wait.
+                 # So we can request drop safely.
+                 client.request_bar_drop(message.channel.id)
+    
+        # --- PREFIX COMMANDS ---
+        if message.content.startswith("&"):
+            # try: await message.delete()
+            # except: pass
+            # MOVED DELETION TO END to protect attachments for &learn
+    
+            cmd_parts = message.content.split()
+            cmd = cmd_parts[0].lower()[1:] # Remove '&'
+            args = cmd_parts[1:] if len(cmd_parts) > 1 else []
+    
+            # Map of command name to (Slash Command Object, Argument Name or None)
+            cmd_map = {
+                "bar": (bar_command, None),
+                "b": (bar_command, None),
+                "addbar": (addbar_command, None),
+                "removebar": (removebar_command, None),
+                "drop": (drop_command, None),
+                "dropall": (dropall_command, None),
+                "d": (drop_command, None),
+                "dropcheck": (dropcheck_command, None),
+                "c": (dropcheck_command, None),
+                "cleanbars": (cleanbars_command, None),
+                "idle": (idle_command, None),
+                "global": (global_command, "text"),
+                "addchannel": (add_channel_command, None),
+                "removechannel": (remove_channel_command, None),
+                "enableall": (enableall_command, None),
+                "disableall": (disableall_command, None),
+                "reboot": (reboot_command, None),
+                "shutdown": (shutdown_command, None),
+                "emotioncore": (emotioncore_command, "action"),
+                "clearmemory": (clearmemory_command, None),
+                "bugreport": (bugreport_command, None),
+                "reportbug": (bugreport_command, None), # Alias
+                "goodbot": (good_bot_leaderboard, None),
+                "synccommands": (synccommands_command, None),
+                "debug": (debug_command, None),
+                "testmessage": (testmessage_command, None),
+                "clearallmemory": (clearallmemory_command, None),
+                "cleargoodbots": (cleargoodbots_command, None),
+                "wipelogs": (wipelogs_command, None),
+                "nukedatabase": (nukedatabase_command, None),
+                "backup": (backup_command, "target"),
+                "backupuploadonly": (backup_command, "target"),
+                "debugtest": (debugtest_command, None),
+                "debugscan": (debugscan_command, None),
+                "reflect": (reflect_command, None),
+                "debugreflect": (debugreflect_command, None),
+                "togglereflection": (togglereflection_command, None),
+                "toggleheartbeat": (toggleheartbeat_command, None),
+                "heartbeat": (heartbeat_command, None),
+                "help": (help_command, None),
+                "killmyembeds": (killmyembeds_command, None),
+                "suppressembedson": (suppressembedson_command, None),
+                "suppressembedsoff": (suppressembedsoff_command, None),
+                "thinking": (thinking_command, None),
+                "reading": (reading_command, None),
+                "backlogging": (backlogging_command, None),
+                "typing": (typing_command, None),
+                "brb": (brb_command, None),
+                "processing": (processing_command, None),
+                "angel": (angel_command, None),
+                "darkangel": (darkangel_command, None),
+                "pausing": (pausing_command, None),
+                "speed0": (speed0_command, None),
+                "speed1": (speed1_command, None),
+                "speed2": (speed2_command, None),
+                "console": (console_command, None),
+                "learn": (learn_command, "text"),
+                "addknowledge": (learn_command, "text"),
+                "recall": (recall_command, "query"),
+                "autonomy": (autonomy_command, "action"),
+            }
+    
+            if cmd in cmd_map:
+                command_func, arg_name = cmd_map[cmd]
+    
+                kwargs = {}
+                if arg_name:
+                    # Special handling for 'learn' where text is optional if file exists
+                    if (cmd == "learn" or cmd == "addknowledge") and not args and message.attachments:
+                        pass
+                    elif not args:
+                         await message.channel.send(f"❌ Usage: `&{cmd} <{arg_name}>`", delete_after=2.0)
+                         return
+                    if args:
+                        kwargs[arg_name] = " ".join(args)
+    
+                if cmd == "backupuploadonly":
+                    kwargs["upload_only"] = True
+    
+                if (cmd == "learn" or cmd == "addknowledge") and message.attachments:
+                    kwargs["file"] = message.attachments[0]
+    
+                # Create Mock Interaction
+                mock_intr = MockInteraction(client, message.channel, message.author, message)
+    
+                try:
+                    await command_func.callback(mock_intr, **kwargs)
+                except Exception as e:
+                    logger.error(f"Command {cmd} failed: {e}")
+    
+                # Cleanup (Delete User Command Message)
+                # Only if we didn't just ingest a file (to keep history?) or if we want it clean.
+                # Usually we delete. The file has been read by now.
+                try: await message.delete()
+                except: pass
+    
+                return
+    
+        if message.id in client.processing_locks: return
+    
+        reaction_added = False
+        skip_reaction_remove = False
+        try:
+            # --- COMMANDS ---
+            if await command_handler.handle_prefix_command(client, message):
+                return
+    
+            if message.content == "!updateslashcommands":
+                is_auth = helpers.is_authorized(message.author)
+                if not is_auth and config.SERAPHIM_SYSTEM_TAG in message.author.display_name:
+                    is_auth = True
+    
+                if is_auth:
+                    await message.channel.send("🔄 Updating slash commands...")
+                try:
+                    for guild in client.guilds: client.tree.clear_commands(guild=guild)
+                    await client.tree.sync()
+                    for guild in client.guilds:
+                        client.tree.copy_global_to(guild=guild)
+                        await client.tree.sync(guild=guild)
+                    await message.channel.send("✅ Commands synced.")
+                except Exception as e: await message.channel.send(f"❌ Error: {e}")
+                return
+    
+            if message.content.startswith("&scanemojis"):
+                if not helpers.is_authorized(message.author): return
+                try:
+                    limit = 20
+                    parts = message.content.split()
+                    if len(parts) > 1 and parts[1].isdigit():
+                        limit = int(parts[1])
+    
+                    # Reuse logic? Hard in on_message. Reimplement simply.
+                    emoji_pattern = re.compile(r'<(a?):(\w+):(\d+)>')
+                    found_emojis = {}
+                    count = 0
+    
+                    async for msg in message.channel.history(limit=limit):
+                        matches = emoji_pattern.findall(msg.content)
+                        for animated, name, id in matches:
+                             found_emojis[name] = f"<{animated}:{name}:{id}>"
+                             count += 1
+    
+                    if not found_emojis:
+                        await message.channel.send("No custom emojis found.")
+                    else:
+                        import io
+                        json_data = json.dumps(found_emojis, indent=4)
+                        file = discord.File(io.BytesIO(json_data.encode()), filename="emoji_db.json")
+                        await message.channel.send(f"✅ Scanned {limit} messages. Found {len(found_emojis)} unique emojis.", file=file)
+                except Exception as e: await message.channel.send(f"❌ Error: {e}")
+                return
+    
+            # --- PRE-CALCULATE RESPONSE TRIGGER ---
+            should_respond = False
+            target_message_id = None
+    
+            # Check explicit App ID or Role ID ping in content
+>           if f"<@{client.user.id}>" in message.content or f"<@!{client.user.id}>" in message.content:
+                    ^^^^^^^^^^^^^^
+E           AttributeError: 'NoneType' object has no attribute 'id'
+
+NyxOS.py:4603: AttributeError
+______ TestGlobalAuthBypass.test_global_mode_bypasses_auth_and_whitelist _______
+
+self = <tests.test_global_auth_bypass.TestGlobalAuthBypass testMethod=test_global_mode_bypasses_auth_and_whitelist>
+mock_is_auth = <MagicMock name='is_authorized' id='125888368331712'>
+mock_query = <AsyncMock name='query_lm_studio' id='125888367904912'>
+args = (<AsyncMock name='generate_search_queries' id='125888367911440'>, <AsyncMock name='get_pk_user_data' id='1258883679101...ock name='get_server_setting' id='125888367984224'>, <MagicMock name='get_allowed_channels' id='125888367981872'>, ...)
+msg = <MagicMock id='125888366867904'>
+
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
+    @patch('memory_manager.log_conversation')
+    @patch('memory_manager.clear_channel_memory')
+    @patch('memory_manager.get_allowed_channels', return_value=[100]) # Whitelist only includes 100
+    @patch('memory_manager.get_server_setting', return_value=True) # GLOBAL CHAT ON
+    @patch('helpers.clean_name_logic', return_value="TestUser")
+    @patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None))
+    @patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None)
+    @patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[])
+    @patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response")
+    @patch('helpers.is_authorized', return_value=False) # USER IS NOT AUTH
+    async def test_global_mode_bypasses_auth_and_whitelist(self, mock_is_auth, mock_query, *args):
+        """
+        Test that when Global Mode is ON:
+        1. Non-whitelisted channel (200) is allowed.
+        2. Non-authorized user (Auth=False) is allowed.
+        """
+    
+        # Message in NON-whitelisted channel (200)
+        # Mentioning bot so 'should_respond' is True
+        msg = self.create_mock_message("<@12345> hello", 888, 200)
+        msg.mentions = [self.mock_client.user]
+    
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+    
+>       await NyxOS.on_message(msg)
+
+tests/test_global_auth_bypass.py:123: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888366867904'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+___________ TestGlobalAuthBypass.test_normal_mode_blocks_unauth_user ___________
+
+self = <tests.test_global_auth_bypass.TestGlobalAuthBypass testMethod=test_normal_mode_blocks_unauth_user>
+mock_is_auth = <MagicMock name='is_authorized' id='125888365963328'>
+mock_query = <AsyncMock name='query_lm_studio' id='125888365957856'>
+args = (<AsyncMock name='generate_search_queries' id='125888369321712'>, <AsyncMock name='get_pk_user_data' id='1258883678802...ock name='get_server_setting' id='125888374541872'>, <MagicMock name='get_allowed_channels' id='125888369366880'>, ...)
+msg = <MagicMock id='125888370623072'>
+
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
+    @patch('memory_manager.log_conversation')
+    @patch('memory_manager.clear_channel_memory')
+    @patch('memory_manager.get_allowed_channels', return_value=[100])
+    @patch('memory_manager.get_server_setting', return_value=False) # GLOBAL CHAT OFF
+    @patch('helpers.clean_name_logic', return_value="TestUser")
+    @patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None))
+    @patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None)
+    @patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[])
+    @patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response")
+    @patch('helpers.is_authorized', return_value=False) # USER IS NOT AUTH
+    async def test_normal_mode_blocks_unauth_user(self, mock_is_auth, mock_query, *args):
+        """
+        Test that when Global Mode is OFF:
+        1. Non-authorized user is BLOCKED even if channel is valid (or bypassed by ping).
+        Wait, logic is: if not is_own and not is_authorized -> Return.
+        So normal mode DOES require auth for everyone?
+        Yes, README says "Only Admins and Special roles".
+        """
+    
+        # Message in whitelisted channel (100) just to isolate Auth check
+        msg = self.create_mock_message("<@12345> hello", 888, 100)
+        msg.mentions = [self.mock_client.user]
+    
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+    
+>       await NyxOS.on_message(msg)
+
+tests/test_global_auth_bypass.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888370623072'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+______________________ TestGoodBot.test_good_bot_cooldown ______________________
+
+self = <tests.test_good_bot.TestGoodBot testMethod=test_good_bot_cooldown>
+
+    async def test_good_bot_cooldown(self):
+        # Mock Message
+        message = AsyncMock()
+        message.content = "Good Bot!"
+        message.author.id = 123
+        message.channel.id = 999
+        message.mentions = []
+        message.webhook_id = None
+    
+        # Setup History Mock
+        message.channel.history = MagicMock(return_value=AsyncIter([]))
+    
+        mock_client = AsyncMock()
+        mock_client.user.id = 888
+        mock_client.last_bot_message_id = {999: 1000}
+        mock_client.processing_locks = set()
+        mock_client.abort_signals = set()
+        mock_client._update_lru_cache = MagicMock()
+    
+        # Volition
+        mock_client.volition = MagicMock()
+        mock_client.volition.update_buffer = AsyncMock()
+    
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
+    
+        # Set cooldown
+        import time
+        mock_client.good_bot_cooldowns = {123: time.time()} # Just happened
+    
+        with patch('NyxOS.client', mock_client):
+             with patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]):
+                 with patch('memory_manager.increment_good_bot') as mock_inc:
+    
+>                    await NyxOS.on_message(message)
+
+tests/test_good_bot.py:117: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <AsyncMock id='125888365273232'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+______________________ TestGoodBot.test_good_bot_trigger _______________________
+
+self = <tests.test_good_bot.TestGoodBot testMethod=test_good_bot_trigger>
+
+    async def test_good_bot_trigger(self):
+        # Mock Client
+        mock_client = AsyncMock()
+        mock_client.user.id = 888
+        mock_client.user.display_name = "NyxOS"
+        mock_client.last_bot_message_id = {999: 1000} # Simulate bot spoke last
+        mock_client.good_bot_cooldowns = {}
+        mock_client.processing_locks = set()
+        mock_client.boot_cleared_channels = set()
+        mock_client.abort_signals = set()
+        mock_client._update_lru_cache = MagicMock()
+        # schedule_next_heartbeat is sync
+        mock_client.schedule_next_heartbeat = MagicMock()
+    
+        # Volition
+        mock_client.volition = MagicMock()
+        mock_client.volition.update_buffer = AsyncMock()
+    
+        # Emotional Core (Sync)
+        mock_client.emotional_core = MagicMock()
+        mock_client.emotional_core.process_interaction = MagicMock()
+    
+        # Mock Message
+        message = AsyncMock()
+        message.content = "Good Bot!"
+        message.author.id = 123
+        message.author.display_name = "TestUser"
+        message.author.name = "testuser"
+        message.channel.id = 999
+        message.mentions = [mock_client.user] # PING to trigger logic
+        message.role_mentions = []
+        message.webhook_id = None
+    
+        # get_member is sync
+        mock_member = MagicMock()
+        mock_member.name = "testuser"
+        # Mock typing context manager
+        message.channel.typing = MagicMock()
+        message.channel.typing.return_value.__aenter__ = AsyncMock()
+        message.channel.typing.return_value.__aexit__ = AsyncMock()
+    
+        # Setup History Mock
+        message.channel.history = MagicMock(return_value=AsyncIter([]))
+    
+        # We need to patch the global client in NyxOS
+        with patch('NyxOS.client', mock_client):
+             with patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None): # No PK
+                 with patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[]):
+                     with patch('memory_manager.increment_good_bot', return_value=5) as mock_inc:
+    
+                         # Run on_message
+>                        await NyxOS.on_message(message)
+
+tests/test_good_bot.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <AsyncMock id='125888367164880'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+_____________ TestMentionLogic.test_having_bot_role_grants_access ______________
+
+self = <tests.test_mention_logic.TestMentionLogic testMethod=test_having_bot_role_grants_access>
+mock_clean = <MagicMock name='clean_name_logic' id='125888367356016'>
+mock_setting = <MagicMock name='get_server_setting' id='125888365905488'>
+mock_allowed = <MagicMock name='get_allowed_channels' id='125888365910816'>
+mock_clear = <MagicMock name='clear_channel_memory' id='125888365919792'>
+mock_log = <MagicMock name='log_conversation' id='125888365918112'>
+mock_tags = <AsyncMock name='get_system_proxy_tags' id='125888364999072'>
+
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
+    @patch('memory_manager.log_conversation')
+    @patch('memory_manager.clear_channel_memory')
+    @patch('memory_manager.get_allowed_channels', return_value=[100])
+    @patch('memory_manager.get_server_setting', return_value=False)
+    @patch('helpers.clean_name_logic', return_value="TestUser")
+    async def test_having_bot_role_grants_access(self, mock_clean, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
+        """Test that having the bot role grants access when pinging the bot."""
+    
+        msg = self.create_mock_message("<@12345> hello", 888, 200)
+        msg.mentions = [self.mock_client.user] # Tagged bot
+    
+        # User has the Bot Role (555)
+        role_mock = MagicMock()
+        role_mock.id = 555
+        msg.author.roles = [role_mock]
+    
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+    
+        # Mock services
+        with patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response") as mock_query, \
+             patch('helpers.is_authorized', return_value=False): # Auth fails, but bot role should allow it
+    
+>            await NyxOS.on_message(msg)
+
+tests/test_mention_logic.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888365939600'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+_______________ TestMentionLogic.test_mention_bypasses_whitelist _______________
+
+self = <tests.test_mention_logic.TestMentionLogic testMethod=test_mention_bypasses_whitelist>
+mock_setting = <MagicMock name='get_server_setting' id='125888367424480'>
+mock_allowed = <MagicMock name='get_allowed_channels' id='125888367415360'>
+mock_clear = <MagicMock name='clear_channel_memory' id='125888367417568'>
+mock_log = <MagicMock name='log_conversation' id='125888412586816'>
+mock_tags = <AsyncMock name='get_system_proxy_tags' id='125888367906928'>
+
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
+    @patch('memory_manager.log_conversation')
+    @patch('memory_manager.clear_channel_memory')
+    @patch('memory_manager.get_allowed_channels', return_value=[100]) # Channel 100 is whitelisted
+    @patch('memory_manager.get_server_setting', return_value=False) # Global Chat OFF
+    async def test_mention_bypasses_whitelist(self, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
+        """Test that tagging the bot (User Mention) bypasses channel whitelist."""
+    
+        msg = self.create_mock_message("<@12345> hello", 888, 200)
+        msg.mentions = [self.mock_client.user] # Tagged bot
+    
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+    
+        # Mock services
+        with patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response") as mock_query, \
+             patch('helpers.is_authorized', return_value=True): # Auth pass
+    
+             # Run on_message
+>            await NyxOS.on_message(msg)
+
+tests/test_mention_logic.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888368333680'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+_____________ TestMentionLogic.test_no_mention_respects_whitelist ______________
+
+self = <tests.test_mention_logic.TestMentionLogic testMethod=test_no_mention_respects_whitelist>
+mock_setting = <MagicMock name='get_server_setting' id='125888370598272'>
+mock_allowed = <MagicMock name='get_allowed_channels' id='125888365919408'>
+mock_clear = <MagicMock name='clear_channel_memory' id='125888365909424'>
+mock_log = <MagicMock name='log_conversation' id='125888365917056'>
+mock_tags = <AsyncMock name='get_system_proxy_tags' id='125888365913840'>
+
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
+    @patch('memory_manager.log_conversation')
+    @patch('memory_manager.clear_channel_memory')
+    @patch('memory_manager.get_allowed_channels', return_value=[100])
+    @patch('memory_manager.get_server_setting', return_value=False)
+    async def test_no_mention_respects_whitelist(self, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
+        """Test that normal messages in non-whitelisted channels are IGNORED."""
+    
+        msg = self.create_mock_message("hello there", 888, 200)
+    
+        # Mock services
+        with patch('services.service.get_pk_user_data', return_value=None), \
+             patch('services.service.get_pk_message_data', return_value=(None, None, None, None, None, None)), \
+             patch('services.service.query_lm_studio') as mock_query:
+    
+>            await NyxOS.on_message(msg)
+
+tests/test_mention_logic.py:165: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888364681152'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+________________ TestMentionLogic.test_reply_bypasses_whitelist ________________
+
+self = <tests.test_mention_logic.TestMentionLogic testMethod=test_reply_bypasses_whitelist>
+mock_clean = <MagicMock name='clean_name_logic' id='125888367039968'>
+mock_setting = <MagicMock name='get_server_setting' id='125888367043808'>
+mock_allowed = <MagicMock name='get_allowed_channels' id='125888367048032'>
+mock_clear = <MagicMock name='clear_channel_memory' id='125888367445248'>
+mock_log = <MagicMock name='log_conversation' id='125888367449088'>
+mock_tags = <AsyncMock name='get_system_proxy_tags' id='125888367452880'>
+
+    @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
+    @patch('memory_manager.log_conversation')
+    @patch('memory_manager.clear_channel_memory')
+    @patch('memory_manager.get_allowed_channels', return_value=[100])
+    @patch('memory_manager.get_server_setting', return_value=False)
+    @patch('helpers.clean_name_logic', return_value="TestUser")
+    async def test_reply_bypasses_whitelist(self, mock_clean, mock_setting, mock_allowed, mock_clear, mock_log, mock_tags):
+        """Test that replying to the bot bypasses channel whitelist."""
+    
+        # Message in non-whitelisted channel (200)
+        msg = self.create_mock_message("replying to you", 888, 200)
+    
+        # Mock Reply Reference
+        ref_msg = MagicMock()
+        ref_msg.id = 999
+        ref_msg.author.id = self.mock_client.user.id # Bot is author of original message
+    
+        msg.reference = MagicMock()
+        msg.reference.resolved = ref_msg
+    
+        # Mock fetch_message for Ghost Check
+        msg.channel.fetch_message = AsyncMock(return_value=msg)
+    
+        # Mock services
+        with patch('services.service.get_pk_user_data', new_callable=AsyncMock, return_value=None), \
+             patch('services.service.get_pk_message_data', new_callable=AsyncMock, return_value=(None, None, None, None, None, None)), \
+             patch('services.service.generate_search_queries', new_callable=AsyncMock, return_value=[]), \
+             patch('services.service.query_lm_studio', new_callable=AsyncMock, return_value="Response") as mock_query, \
+             patch('helpers.is_authorized', return_value=True):
+    
+>            await NyxOS.on_message(msg)
+
+tests/test_mention_logic.py:199: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+message = <MagicMock id='125888367313264'>
+
+    @client.event
+    async def on_message(message):
+        if message.author == client.user:
+            # Volition tracks self-messages for cooldowns
+            await client.volition.update_buffer(message)
+            return
+    
+        # --- PROXY TAG CHECK (Aggressive) ---
+        # Ignore messages that match known proxy tags immediately.
+        # This prevents them from hitting memory or Volition.
+        if message.webhook_id is None:
+            all_tags = services.service.get_all_proxy_tags()
+            if helpers.matches_proxy_tag(message.content, all_tags):
+                logger.info(f"🛡️ Proxy Trigger Detected: {message.content[:20]}... -> Ignoring.")
+                return
+    
+        # --- GHOST CHECK (Wait for Autoproxy) ---
+        # If user is a system (and not webhook), they might autoproxy.
+        # We poll briefly to see if the message is deleted by PK.
+        if message.webhook_id is None:
+>           is_system = await services.service.check_local_pk_system(message.author.id)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: object MagicMock can't be used in 'await' expression
+
+NyxOS.py:4401: TypeError
+=============================== warnings summary ===============================
+venv/lib/python3.12/site-packages/discord/player.py:30
+  /opt/nyxos/venv/lib/python3.12/site-packages/discord/player.py:30: DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13
+    import audioop
+
+tests/test_global_memory_clear.py::test_clearallmemory_sets_cutoff
+  /opt/nyxos/tests/test_global_memory_clear.py:17: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    interaction.created_at = datetime.utcnow()
+
+tests/test_global_memory_clear.py::test_history_cutoff_logic
+  /opt/nyxos/tests/test_global_memory_clear.py:31: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_proxy_reaction.py::TestProxyReaction::test_webhook_pk_reaction_with_ping
+  /opt/nyxos/NyxOS.py:4633: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+  Coroutine created at (most recent call last)
+    File "/usr/lib/python3.12/unittest/async_case.py", line 112, in _callMaybeAsync
+      return self._asyncioRunner.run(
+    File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+      return self._loop.run_until_complete(task)
+    File "/usr/lib/python3.12/asyncio/base_events.py", line 674, in run_until_complete
+      self.run_forever()
+    File "/usr/lib/python3.12/asyncio/base_events.py", line 641, in run_forever
+      self._run_once()
+    File "/usr/lib/python3.12/asyncio/base_events.py", line 1979, in _run_once
+      handle._run()
+    File "/usr/lib/python3.12/asyncio/events.py", line 88, in _run
+      self._context.run(self._callback, *self._args)
+    File "/opt/nyxos/tests/test_proxy_reaction.py", line 127, in test_webhook_pk_reaction_with_ping
+      await NyxOS.on_message(message)
+    File "/opt/nyxos/NyxOS.py", line 4633, in on_message
+      client.schedule_next_heartbeat()
+    File "/usr/lib/python3.12/unittest/mock.py", line 1134, in __call__
+      return self._mock_call(*args, **kwargs)
+    File "/usr/lib/python3.12/unittest/mock.py", line 1138, in _mock_call
+      return self._execute_mock_call(*args, **kwargs)
+    client.schedule_next_heartbeat()
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_status_commands.py::TestStatusCommands::test_darkangel_command
+  /usr/lib/python3.12/unittest/mock.py:2188: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+  Coroutine created at (most recent call last)
+    File "/usr/lib/python3.12/unittest/async_case.py", line 112, in _callMaybeAsync
+      return self._asyncioRunner.run(
+    File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+      return self._loop.run_until_complete(task)
+    File "/usr/lib/python3.12/asyncio/base_events.py", line 674, in run_until_complete
+      self.run_forever()
+    File "/usr/lib/python3.12/asyncio/base_events.py", line 641, in run_forever
+      self._run_once()
+    File "/usr/lib/python3.12/asyncio/base_events.py", line 1979, in _run_once
+      handle._run()
+    File "/usr/lib/python3.12/asyncio/events.py", line 88, in _run
+      self._context.run(self._callback, *self._args)
+    File "/opt/nyxos/tests/test_seraph_webhook.py", line 79, in test_seraph_webhook_override
+      await NyxOS.on_message(message)
+    File "/opt/nyxos/NyxOS.py", line 4857, in on_message
+      detected_proxies.append((message.clean_content.strip(), message.created_at))
+    File "/usr/lib/python3.12/unittest/mock.py", line 1134, in __call__
+      return self._mock_call(*args, **kwargs)
+    File "/usr/lib/python3.12/unittest/mock.py", line 1138, in _mock_call
+      return self._execute_mock_call(*args, **kwargs)
+    def __init__(self, name, parent):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_console_notification.py::TestConsoleNotification::test_on_message_triggers_notification
+FAILED tests/test_console_notification.py::TestConsoleNotification::test_subsequent_messages_do_not_trigger_update
+FAILED tests/test_ghost_check_v3.py::TestGhostCheckV3::test_hardcoded_tag_ignore
+FAILED tests/test_ghost_check_v3.py::TestGhostCheckV3::test_hold_and_scan_ghost_detected
+FAILED tests/test_ghost_check_v3.py::TestGhostCheckV3::test_hold_and_scan_no_ghost
+FAILED tests/test_ghost_check_v4.py::test_ghost_check_logic_survived - Attrib...
+FAILED tests/test_global_auth_bypass.py::TestGlobalAuthBypass::test_global_mode_bypasses_auth_and_whitelist
+FAILED tests/test_global_auth_bypass.py::TestGlobalAuthBypass::test_normal_mode_blocks_unauth_user
+FAILED tests/test_good_bot.py::TestGoodBot::test_good_bot_cooldown - TypeErro...
+FAILED tests/test_good_bot.py::TestGoodBot::test_good_bot_trigger - TypeError...
+FAILED tests/test_mention_logic.py::TestMentionLogic::test_having_bot_role_grants_access
+FAILED tests/test_mention_logic.py::TestMentionLogic::test_mention_bypasses_whitelist
+FAILED tests/test_mention_logic.py::TestMentionLogic::test_no_mention_respects_whitelist
+FAILED tests/test_mention_logic.py::TestMentionLogic::test_reply_bypasses_whitelist
+============ 14 failed, 183 passed, 5 warnings in 79.53s (0:01:19) =============

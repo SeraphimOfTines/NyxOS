@@ -109,7 +109,7 @@ class TestGlobalAuthBypass(unittest.IsolatedAsyncioTestCase):
         """
         Test that when Global Mode is ON:
         1. Non-whitelisted channel (200) is allowed.
-        2. Non-authorized user (Auth=False) is allowed.
+        2. Non-authorized user (Auth=False) is BLOCKED.
         """
         
         # Message in NON-whitelisted channel (200)
@@ -122,8 +122,8 @@ class TestGlobalAuthBypass(unittest.IsolatedAsyncioTestCase):
         
         await NyxOS.on_message(msg)
         
-        # Should have queried LLM
-        mock_query.assert_called()
+        # Should NOT have queried LLM because they lack the security role
+        mock_query.assert_not_called()
         
     @patch('services.service.get_system_proxy_tags', new_callable=AsyncMock, return_value=[])
     @patch('memory_manager.log_conversation')

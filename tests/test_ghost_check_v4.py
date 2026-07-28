@@ -1,16 +1,15 @@
 import pytest
 import discord
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch, PropertyMock
 import NyxOS
 import services
 
 @pytest.mark.asyncio
-async def test_ghost_check_logic_ghosted():
+@patch('NyxOS.LMStudioBot.user', new_callable=PropertyMock)
+async def test_ghost_check_logic_ghosted(mock_user):
+    mock_user.return_value = MagicMock(id=999999)
     """Verify on_message ignores ghosted (deleted) messages from systems."""
     client = NyxOS.client
-    # Mock Client User (Best effort, but we mock volition to be safe)
-    client._user = MagicMock()
-    client._user.id = 999999
     client.volition.update_buffer = AsyncMock()
     
     # Mock Message
@@ -19,10 +18,14 @@ async def test_ghost_check_logic_ghosted():
     message.webhook_id = None
     message.author.id = 123
     message.author.bot = False
-    message.content = "Test Message"
+    message.content = "<@999999> Test Message"
     message.channel = MagicMock()
     message.channel.id = 456
+    cm = AsyncMock()
+    cm.__aenter__.return_value = None
+    message.channel.typing = MagicMock(return_value=cm)
     message.guild = MagicMock()
+    client.boot_cleared_channels.add(456)
     message.mentions = [client.user] # Trigger should_respond
     
     # Mock Services
@@ -51,11 +54,10 @@ async def test_ghost_check_logic_ghosted():
             # client.emotional_core.process_interaction.assert_not_called() (Need to mock emotional core to check this)
 
 @pytest.mark.asyncio
-async def test_ghost_check_logic_survived():
+@patch('NyxOS.LMStudioBot.user', new_callable=PropertyMock)
+async def test_ghost_check_logic_survived(mock_user):
+    mock_user.return_value = MagicMock(id=999999)
     client = NyxOS.client
-    # Mock Client User (Best effort, but we mock volition to be safe)
-    client._user = MagicMock()
-    client._user.id = 999999
     client.volition.update_buffer = AsyncMock()
     
     # Mock Message
@@ -64,9 +66,14 @@ async def test_ghost_check_logic_survived():
     message.webhook_id = None
     message.author.id = 123
     message.author.bot = False
-    message.content = "Real Message"
+    message.content = "<@999999> Real Message"
     message.channel = MagicMock()
     message.channel.id = 456
+    cm = AsyncMock()
+    cm.__aenter__.return_value = None
+    message.channel.typing = MagicMock(return_value=cm)
+    message.guild = MagicMock()
+    client.boot_cleared_channels.add(456)
     message.mentions = [client.user] # Trigger response
     
     # Mock Services
@@ -93,5 +100,5 @@ async def test_ghost_check_logic_survived():
                      # Check fetch was called (5 times because it survived loop)
                      assert message.channel.fetch_message.call_count == 5
                      
-                     # CRITICAL: Should HAVE hit Volition
-                     client.volition.update_buffer.assert_called()
+                     # Should hit Volition since it's a real message
+                     client.volition.update_buffer.assert_called_once()
