@@ -3,6 +3,7 @@ import time
 import random
 import os
 from datetime import datetime
+import config
 
 EMOTION_FILE = "emotional_state.json"
 
@@ -22,6 +23,8 @@ class EmotionalCore:
             }
         }
         self.state = self.load_state()
+        self.state["enabled"] = getattr(config, 'EMOTION_CORE_ENABLED', False)
+        self.save_state()
 
     def load_state(self):
         if os.path.exists(EMOTION_FILE):
