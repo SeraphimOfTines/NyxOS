@@ -163,6 +163,12 @@ async def handle_prefix_command(client, message):
             msg = "# <a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\n\n"
             msg += f"You've already worshipped me today! Try again <t:{midnight_unix}:R>"
             await message.channel.send(msg)
+            
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
         return True
 
     # &worshipweekly
