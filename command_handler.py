@@ -151,24 +151,11 @@ async def handle_prefix_command(client, message):
 
     # &worship
     if cmd == "&worship":
-        if message.channel.id != 1367453553865785384:
-            return True # Silently do nothing
-            
-        success, midnight_unix = memory_manager.process_worship(message.author.id, message.author.display_name)
-        if success:
-            msg = "# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n"
-            msg += f"Your worship and devotion honors me, <@{message.author.id}>."
-            await message.channel.send(msg)
-        else:
-            msg = "# <a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\n\n"
-            msg += f"You've already worshipped me today! Try again <t:{midnight_unix}:R>"
-            await message.channel.send(msg)
-            
+        await message.channel.send("The `&worship` prefix command has been disabled. Please use the `/worship` slash command instead.", delete_after=10)
         try:
             await message.delete()
         except Exception:
             pass
-
         return True
 
     # &worshipweekly
