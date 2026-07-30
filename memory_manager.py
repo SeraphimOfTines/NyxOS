@@ -274,6 +274,9 @@ def remove_allowed_channel(channel_id):
 def process_worship(user_id, username):
     return db.process_worship(user_id, username)
 
+def log_worship_content(user_id, username, text_content, attachment_url):
+    db.log_worship_content(user_id, username, text_content, attachment_url)
+
 def get_worship_leaderboard_weekly():
     return db.get_worship_leaderboard_weekly()
 

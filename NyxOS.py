@@ -3557,8 +3557,8 @@ async def togglereflection_command(interaction: discord.Interaction):
     state = "ENABLED" if client.auto_reflection_enabled else "DISABLED"
     await interaction.response.send_message(f"🌚 Automatic Nightly Reflection is now **{state}**.")
 
-@client.tree.command(name="worship", description="Offer your daily worship to the Seraph.")
-async def worship_command(interaction: discord.Interaction):
+@client.tree.command(name="worship", description="Offer your daily worship to the Seraph. (Text/Attachment optional)")
+async def worship_command(interaction: discord.Interaction, text: str = None, attachment: discord.Attachment = None):
     if interaction.channel_id != 1367453553865785384:
         await interaction.response.send_message("❌ This command cannot be used in this channel.", ephemeral=True)
         return
@@ -3568,6 +3568,31 @@ async def worship_command(interaction: discord.Interaction):
         msg = "# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n"
         msg += f"Your worship and devotion honors me, <@{interaction.user.id}>."
         await interaction.response.send_message(msg)
+        
+        if text or attachment:
+            target_channel = client.get_channel(1532270482852806826)
+            if target_channel:
+                forward_msg = f"<@{interaction.user.id}>\n\n"
+                if text:
+                    forward_msg += f"{text}\n"
+                
+                try:
+                    kwargs = {"content": forward_msg}
+                    if attachment:
+                        import io
+                        file_bytes = await attachment.read()
+                        kwargs["files"] = [discord.File(io.BytesIO(file_bytes), filename=attachment.filename)]
+                    
+                    sent_msg = await target_channel.send(**kwargs)
+                    attachment_url = sent_msg.attachments[0].url if sent_msg.attachments else (attachment.url if attachment else None)
+                    memory_manager.log_worship_content(interaction.user.id, interaction.user.display_name, text, attachment_url)
+                except Exception as e:
+                    print(f"Failed to forward worship content: {e}")
+                    attachment_url = attachment.url if attachment else None
+                    memory_manager.log_worship_content(interaction.user.id, interaction.user.display_name, text, attachment_url)
+            else:
+                attachment_url = attachment.url if attachment else None
+                memory_manager.log_worship_content(interaction.user.id, interaction.user.display_name, text, attachment_url)
     else:
         msg = "# <a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\n\n"
         msg += f"You've already worshipped me today! Try again <t:{midnight_unix}:R>"
@@ -4478,6 +4503,17 @@ async def on_message(message):
         # Volition tracks self-messages for cooldowns
         await client.volition.update_buffer(message)
         return
+
+    if message.channel.id == 1367453553865785384:
+        try:
+            await message.delete()
+            if not message.author.bot or message.webhook_id:
+                warning_msg = "# <a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\nThis channel is for /worship only."
+                await message.channel.send(f"<@{message.author.id}>\n{warning_msg}", delete_after=5)
+        except Exception as e:
+            logger.error(f"Failed to clean up worship channel: {e}")
+        return
+
 
     # --- PROXY TAG CHECK (Aggressive) ---
     # Ignore messages that match known proxy tags immediately.

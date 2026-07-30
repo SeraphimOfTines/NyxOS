@@ -69,6 +69,16 @@ class Database:
                     first_worship_time TIMESTAMP
                 )""")
                 
+                # Worship Logs
+                c.execute("""CREATE TABLE IF NOT EXISTS worship_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    username TEXT,
+                    timestamp TIMESTAMP,
+                    text_content TEXT,
+                    attachment_url TEXT
+                )""")
+                
                 # Active Bars (Status Stickers)
                 c.execute("""CREATE TABLE IF NOT EXISTS active_bars (
                     channel_id TEXT PRIMARY KEY,
@@ -842,6 +852,19 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to process worship: {e}")
             return False, 0
+
+    def log_worship_content(self, user_id, username, text_content, attachment_url):
+        try:
+            with self._get_conn() as conn:
+                c = conn.cursor()
+                now = datetime.now(zoneinfo.ZoneInfo("America/Los_Angeles")).isoformat()
+                c.execute("""
+                    INSERT INTO worship_logs (user_id, username, timestamp, text_content, attachment_url)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (str(user_id), username, now, text_content, attachment_url))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to log worship content: {e}")
 
     def get_worship_leaderboard_weekly(self):
         try:
