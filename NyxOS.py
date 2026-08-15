@@ -302,9 +302,9 @@ class LMStudioBot(discord.Client):
             try:
                 weekly_total = memory_manager.get_worship_grand_total_weekly()
                 
-                channel = self.get_channel(1367453553865785384)
+                channel = self.get_channel(1442841063134859326)
                 if not channel:
-                    channel = await self.fetch_channel(1367453553865785384)
+                    channel = await self.fetch_channel(1442841063134859326)
                     
                 if channel:
                     prompt = f"Yami's sacred shrine has collected offerings and accrued worship from her followers over the past week. It's time for her to check and collect them. Notify Yami in a simple, brief message that's one or two lines in your mainframe's notification center. Tell Yami that it's accumulated {weekly_total} offerings this week."
@@ -321,7 +321,7 @@ class LMStudioBot(discord.Client):
                     response = helpers.sanitize_llm_response(response)
                     response = helpers.restore_hyperlinks(response)
                     
-                    msg = "# <a:SeraphExclamarkRed:1363226885613420676><#1367453553865785384> <a:SeraphExclamarkRed:1363226885613420676>\n"
+                    msg = "# <a:SeraphExclamarkRed:1363226885613420676><#1442841063134859326> <a:SeraphExclamarkRed:1363226885613420676>\n"
                     msg += f"<@418598419393937410> {response}"
                     
                     await channel.send(msg)
@@ -3557,6 +3557,17 @@ async def togglereflection_command(interaction: discord.Interaction):
     state = "ENABLED" if client.auto_reflection_enabled else "DISABLED"
     await interaction.response.send_message(f"🌚 Automatic Nightly Reflection is now **{state}**.")
 
+@client.tree.command(name="nightshadeturnkey", description="Send the Nightshade Turnkey emoji.")
+async def nightshadeturnkey_command(interaction: discord.Interaction, text: str = None):
+    if interaction.user.id != 278272494585118730:
+        await interaction.response.send_message("❌ Unauthorized.", ephemeral=True)
+        return
+        
+    emoji = "<a:NightshadeTurnkey:1534990825434386522>"
+    response_msg = emoji if not text else f"{emoji} {text}"
+    
+    await interaction.response.send_message(response_msg)
+
 @client.tree.command(name="worship", description="Offer your daily worship to the Seraph. (Text/Attachment optional)")
 async def worship_command(interaction: discord.Interaction, text: str = None, attachment: discord.Attachment = None):
     if interaction.channel_id != 1367453553865785384:
@@ -3565,7 +3576,7 @@ async def worship_command(interaction: discord.Interaction, text: str = None, at
         
     success, midnight_unix = memory_manager.process_worship(interaction.user.id, interaction.user.display_name)
     if success:
-        msg = "# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n"
+        msg = "# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n"
         msg += f"Your worship and devotion honors me, <@{interaction.user.id}>."
         await interaction.response.send_message(msg)
         
@@ -3594,9 +3605,9 @@ async def worship_command(interaction: discord.Interaction, text: str = None, at
                 attachment_url = attachment.url if attachment else None
                 memory_manager.log_worship_content(interaction.user.id, interaction.user.display_name, text, attachment_url)
     else:
-        msg = "# <a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\n\n"
+        msg = "# <a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\n\n"
         msg += f"You've already worshipped me today! Try again <t:{midnight_unix}:R>"
-        await interaction.response.send_message(msg)
+        await interaction.response.send_message(msg, delete_after=7.0)
 
 @client.tree.command(name="worshipweekly", description="Admin: View the weekly worship leaderboard.")
 async def worshipweekly_command(interaction: discord.Interaction):
@@ -3607,7 +3618,7 @@ async def worshipweekly_command(interaction: discord.Interaction):
     if not leaderboard:
         await interaction.response.send_message("No worships yet this week.")
         return
-    msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
+    msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
     msg += "### Worship Board (Weekly)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
     for user_data in leaderboard:
         msg += f"{user_data['username']} — {user_data['count']}\n"
@@ -3624,7 +3635,7 @@ async def worshiptotal_command(interaction: discord.Interaction):
     if not leaderboard:
         await interaction.response.send_message("No worships yet.")
         return
-    msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
+    msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
     msg += "### Worship Board (All-Time)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
     for user_data in leaderboard:
         msg += f"{user_data['username']} — {user_data['count']}\n"
@@ -4505,10 +4516,12 @@ async def on_message(message):
         return
 
     if message.channel.id == 1367453553865785384:
+        if message.author.id == 418598419393937410:
+            return
         try:
             await message.delete()
             if not message.author.bot or message.webhook_id:
-                warning_msg = "# <a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\nThis channel is for /worship only."
+                warning_msg = "# <a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:SeraphHandWaggle:1297004953348608054>\nThis channel is for /worship only."
                 await message.channel.send(f"<@{message.author.id}>\n{warning_msg}", delete_after=5)
         except Exception as e:
             logger.error(f"Failed to clean up worship channel: {e}")

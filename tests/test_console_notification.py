@@ -181,7 +181,7 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
             args, kwargs = self.console_msg.edit.call_args
             content = args[0] if args else kwargs.get('content')
             
-            exclamark = "<a:SeraphExclamark:1317628268299554877>"
+            exclamark = "<a:SeraphExclamarkRed:1363226885613420676>"
             self.assertIn(exclamark, content)
             self.assertNotIn("(Out of sync.)", content)
 
@@ -209,6 +209,6 @@ class TestConsoleNotification(unittest.IsolatedAsyncioTestCase):
             args, kwargs = self.console_msg.edit.call_args
             content = args[0] if args else kwargs.get('content')
             
-            exclamark = "<a:SeraphExclamark:1317628268299554877>"
+            exclamark = "<a:SeraphExclamarkRed:1363226885613420676>"
             self.assertNotIn(exclamark, content)
             self.assertNotIn("(Out of sync.)", content)

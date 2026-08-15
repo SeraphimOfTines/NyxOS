@@ -137,6 +137,22 @@ async def handle_prefix_command(client, message):
         await message.channel.send(chart_text)
         return True
 
+    # &nightshadeturnkey
+    if cmd == "&nightshadeturnkey":
+        author_id = author_to_check if isinstance(author_to_check, int) else author_to_check.id
+        if author_id != 278272494585118730:
+            await message.channel.send("❌ Unauthorized.")
+            return True
+        
+        args = message.content.split(maxsplit=1)
+        text = args[1] if len(args) > 1 else None
+        
+        emoji = "<a:NightshadeTurnkey:1534990825434386522>"
+        response_msg = emoji if not text else f"{emoji} {text}"
+            
+        await message.channel.send(response_msg)
+        return True
+
     # &cleargoodbots
     if cmd == "&cleargoodbots":
         if not helpers.is_authorized(author_to_check) and not is_seraph_override:
@@ -167,7 +183,7 @@ async def handle_prefix_command(client, message):
         if not leaderboard:
             await message.channel.send("No worships yet this week.")
             return True
-        msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
+        msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
         msg += "### Worship Board (Weekly)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
         for user_data in leaderboard:
             msg += f"{user_data['username']} — {user_data['count']}\n"
@@ -185,7 +201,7 @@ async def handle_prefix_command(client, message):
         if not leaderboard:
             await message.channel.send("No worships yet.")
             return True
-        msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:SeraphEyesShy:1297065298419122248><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
+        msg = "# <a:SacredWind:1296975869566259396><a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:SacredWind:1296975869566259396>\n"
         msg += "### Worship Board (All-Time)\n⋘────⋅☾𓆩⭖𓆪☽⋅────⋙\n"
         for user_data in leaderboard:
             msg += f"{user_data['username']} — {user_data['count']}\n"
