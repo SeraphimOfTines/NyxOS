@@ -3576,8 +3576,12 @@ async def worship_command(interaction: discord.Interaction, text: str = None, at
         
     success, midnight_unix = memory_manager.process_worship(interaction.user.id, interaction.user.display_name)
     if success:
-        msg = "# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n"
-        msg += f"Your worship and devotion honors me, <@{interaction.user.id}>."
+        worship_messages = [
+            f"# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\nYour worship and devotion honors me, <@{interaction.user.id}>.",
+            f"# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:EyesShyYami:1538043149358989312><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n\nYour worship and devotion honors me, <@{interaction.user.id}>."
+        ]
+        import random
+        msg = random.choice(worship_messages)
         await interaction.response.send_message(msg)
         
         if text or attachment:

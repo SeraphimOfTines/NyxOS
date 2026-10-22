@@ -11,6 +11,7 @@ import services
 import backup_manager
 import self_reflection
 import logging
+import random
 
 logger = logging.getLogger("CommandHandler")
 
@@ -167,7 +168,55 @@ async def handle_prefix_command(client, message):
 
     # &worship
     if cmd == "&worship":
-        await message.channel.send("The `&worship` prefix command has been disabled. Please use the `/worship` slash command instead.", delete_after=10)
+        if message.channel.id != 1367453553865785384:
+            await message.channel.send("❌ This command cannot be used in this channel.", delete_after=10)
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return True
+
+        text_content = ""
+        if len(args) > 1:
+            text_content = " ".join(args[1:])
+
+        success, midnight_unix = memory_manager.process_worship(author_to_check.id, author_to_check.display_name)
+        if success:
+            worship_messages = [
+                f"# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:EyesShyLuminara:1538041456105627688><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\nYour worship and devotion honors me, <@{author_to_check.id}>.",
+                f"# <a:SacredWind:1296975869566259396><a:Anima:1297062674412208180><a:SeraphWingLeft:1297050718754312192><a:EyesShyYami:1538043149358989312><a:SeraphWingRight:1297051921651073055><a:Anima:1297062674412208180><a:SacredWind:1296975869566259396>\n\nYour worship and devotion honors me, <@{author_to_check.id}>."
+            ]
+            msg = random.choice(worship_messages)
+            await message.channel.send(msg)
+
+            if text_content or message.attachments:
+                target_channel = client.get_channel(1532270482852806826)
+                if target_channel:
+                    forward_msg = f"<@{author_to_check.id}>\n\n"
+                    if text_content:
+                        forward_msg += f"{text_content}\n"
+                    
+                    try:
+                        kwargs = {"content": forward_msg}
+                        if message.attachments:
+                            import io
+                            attachment = message.attachments[0]
+                            file_bytes = await attachment.read()
+                            kwargs["files"] = [discord.File(io.BytesIO(file_bytes), filename=attachment.filename)]
+                        
+                        sent_msg = await target_channel.send(**kwargs)
+                        attachment_url = sent_msg.attachments[0].url if sent_msg.attachments else (message.attachments[0].url if message.attachments else None)
+                        memory_manager.log_worship_content(author_to_check.id, author_to_check.display_name, text_content, attachment_url)
+                    except Exception as e:
+                        print(f"Failed to forward worship content: {e}")
+                        attachment_url = message.attachments[0].url if message.attachments else None
+                        memory_manager.log_worship_content(author_to_check.id, author_to_check.display_name, text_content, attachment_url)
+                else:
+                    attachment_url = message.attachments[0].url if message.attachments else None
+                    memory_manager.log_worship_content(author_to_check.id, author_to_check.display_name, text_content, attachment_url)
+        else:
+            await message.channel.send(f"You've already worshipped me today! Try again <t:{midnight_unix}:R>")
+
         try:
             await message.delete()
         except Exception:
